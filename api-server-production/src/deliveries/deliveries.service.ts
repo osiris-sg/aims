@@ -67,7 +67,7 @@ import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/sitec
 import { applyOrderToDoConfig, isWctOrdersEnabled, refreshOrderStatus, refreshOrderStatusForRun } from '../orders/wct-orders';
 import { assertDocNotErpImportedDo, assertNotErpImportedDo } from '../common/erp-import';
 import { isManualOrderFlow, manualAutoDraftsOff } from '../orders/manual-order-flow';
-import { assetKey, descKey, doLineWarnings, remainingAllowance, remainingQuoteLines } from '../orders/order-billing';
+import { SUMMARY_DO_REMARK, assetKey, descKey, doLineWarnings, earlierDosSummaryOnly, remainingAllowance, remainingQuoteLines } from '../orders/order-billing';
 import { plannedRiderView, savePlannedRider } from './planned-rider';
 import { CompletionMode, WCT_FINISH_MODES_FLAG, finishModeProblem, initialVerification, isCompletionMode } from './finish-modes';
 import { checkJobFieldValues, isJobFieldsEnabled, jobFieldDefs, jobFieldValues, saveJobFieldValues } from './job-fields';
@@ -1788,6 +1788,20 @@ export class DeliveriesService {
    * DO first: the lines the order already carries, keyed like billing: every
    * live DO's lines (except `excludeDoId`) and the lines of live jobs with no DO.
    */
+  /** The lines of DOs linked to the order (linkedDocuments.do: an imported order's ERP DOs) that are not on it by orderId. */
+  async linkedDoLinesInUse(organizationId: string, order: { id: string; linkedDocuments?: unknown }): Promise<Array<{ key: string | null; quantity: number }>> {
+    const ids: string[] = (Array.isArray((order.linkedDocuments as any)?.do) ? (order.linkedDocuments as any).do : []).map((x: any) => x?.id).filter((x: any) => typeof x === 'string');
+    if (!ids.length) return [];
+    const docs = await this.prisma.document.findMany({ where: { organizationId, id: { in: ids }, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, config: true } });
+    const out: Array<{ key: string | null; quantity: number }> = [];
+    for (const d of docs) {
+      const c: any = d.config || {};
+      if (c.cancelled === true || c.voided === true || c.orderId === order.id) continue;
+      for (const it of Array.isArray(c.items) ? c.items : []) out.push({ key: assetKey(it?.assetId) ?? descKey(it?.description), quantity: Number(it?.quantity) || 1 });
+    }
+    return out;
+  }
+
   async orderLinesInUse(organizationId: string, orderId: string, excludeDoId?: string): Promise<Array<{ key: string | null; quantity: number }>> {
     const dos = await this.orderDos(organizationId, orderId);
     const out: Array<{ key: string | null; quantity: number }> = [];
@@ -1845,7 +1859,7 @@ export class DeliveriesService {
     try {
       if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('DOs on an order need the manual order flow');
       await assertImportedOrderOpen(this.prisma, organizationId, orderId);
-      const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, customerId: true, sourceQuotationId: true } });
+      const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, customerId: true, sourceQuotationId: true, linkedDocuments: true } });
       if (!order) throw new NotFoundException('Order not found');
       if (order.status === 'CANCELLED') throw new BadRequestException('This order is cancelled');
       if (!opts.force) {
@@ -1863,8 +1877,12 @@ export class DeliveriesService {
       const resolved = quotation ? await quotationLinesForJob(this.prisma, organizationId, qcfg) : [];
       // Only what is still to deliver (2026-11-13): quoted minus the order's other DOs (and jobs with no DO).
       const keyed = resolved.map((l) => ({ line: l, key: l.asset ? assetKey(l.asset.id) : descKey(l.description), quantity: l.quantity }));
-      const left = remainingAllowance(keyed, await this.orderLinesInUse(organizationId, order.id));
+      // 2026-11-23: DOs linked to the order (an imported order's ERP DOs) count as earlier DOs too.
+      const used = [...(await this.orderLinesInUse(organizationId, order.id)), ...(await this.linkedDoLinesInUse(organizationId, order))];
+      const left = remainingAllowance(keyed, used);
       const remaining = remainingQuoteLines(keyed, left);
+      // Earlier DOs that were only summary lines (none matches a quotation line): every line at full qty, flagged.
+      const summaryOnly = earlierDosSummaryOnly(keyed, used);
       const note = resolved.length && !remaining.length ? 'Everything quoted is already on a DO: this DO starts empty.' : undefined;
       const lines = remaining.map(({ line: l, quantity }) => ({
         assetId: l.asset?.id,
@@ -1891,6 +1909,7 @@ export class DeliveriesService {
       } as any);
       if (order.sourceQuotationId) await applyQuotationLinkToDoConfig(this.prisma, organizationId, order.sourceQuotationId, doConfig, this.logger);
       await applyOrderToDoConfig(this.prisma, organizationId, order.id, doConfig);
+      if (summaryOnly) (doConfig as any).remarks = [String((doConfig as any).remarks ?? '').trim(), SUMMARY_DO_REMARK].filter(Boolean).join('\n');
       const doc = await this.documentsService.createNumberedDeliveryOrder(
         templateId,
         organizationId,

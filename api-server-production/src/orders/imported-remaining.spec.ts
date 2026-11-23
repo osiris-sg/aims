@@ -93,3 +93,69 @@ describe('imported orders: the 2026-11-19 rule applies only to orders that carry
     expect(importedOrderStatus([inv(1308, 0, 1308)], 2616, { completed })).toMatchObject({ status: 'COMPLETED' });
   });
 });
+
+// 2026-11-23: never one summary line. A deposit / lump sum invoice: every quotation line in full, then "Less:" lines.
+describe('balance invoice after a lump sum or deposit', () => {
+  const { remainingToBill, lessLineText, invoiceRefOf } = jest.requireActual('./imported-remaining');
+  const QUOTE = [
+    { description: 'S- Kitchen exhaust', quantity: 1, unitPrice: 0, amount: 0 },
+    { description: 'Degrease hood', quantity: 4, unitPrice: 500, amount: 2000, itemCode: 'DG1' },
+    { description: 'UV lights', quantity: 2, unitPrice: 750, amount: 1500 },
+  ];
+  // Quotation 3,500 + 9% GST = 3,815; a 30% deposit invoice billed 1,144.50 (GST incl.).
+  it('lists every quotation line in full and one Less line per earlier invoice; total = left to bill', () => {
+    const plan = remainingToBill({
+      quoteItems: QUOTE,
+      billedInvoiceItems: [[{ description: '30% deposit for Q-014151', quantity: 1, unitPrice: 1050, amount: 1050 }]],
+      quoteTotal: 3815,
+      billed: 1144.5,
+      gstPercent: 9,
+      quotationNo: 'Q-014151',
+      billedInvoices: [{ name: 'INV202611-0012', date: '2026-11-05', gross: 1144.5 }],
+    });
+    expect(plan.matched).toBe(false);
+    expect(plan.lines.map((l: any) => [l.description, l.quantity, l.unitPrice])).toEqual([
+      ['S- Kitchen exhaust', 1, 0],
+      ['Degrease hood', 4, 500],
+      ['UV lights', 2, 750],
+      ['Less: INV202611-0012 (05/11/2026)', 1, -1050],
+    ]);
+    const net = plan.lines.reduce((t: number, l: any) => t + l.amount, 0);
+    expect(Math.round(net * 1.09 * 100) / 100).toBe(plan.remainingGross);
+    expect(plan.remainingGross).toBe(2670.5);
+    expect(plan.lines.some((l: any) => /^Balance of quotation/.test(l.description))).toBe(false);
+  });
+
+  it('billed by line: each line with only what is left, fully billed lines skipped (no Less lines)', () => {
+    const plan = remainingToBill({
+      quoteItems: QUOTE,
+      billedInvoiceItems: [[{ description: 'Degrease hood', quantity: 4, unitPrice: 500, amount: 2000 }, { description: 'UV lights', quantity: 1, unitPrice: 750, amount: 750 }]],
+      quoteTotal: 3815,
+      billed: 2997.5,
+      gstPercent: 9,
+      billedInvoices: [{ name: 'INV1', date: '2026-11-05', gross: 2997.5 }],
+    });
+    expect(plan.matched).toBe(true);
+    expect(plan.lines.map((l: any) => [l.description, l.quantity])).toEqual([['S- Kitchen exhaust', 1], ['UV lights', 1]]);
+  });
+
+  it('a quotation discount is its own Less line so the total still equals what is left', () => {
+    const plan = remainingToBill({
+      quoteItems: QUOTE,
+      billedInvoiceItems: [[{ description: 'Deposit', quantity: 1, unitPrice: 1000, amount: 1000 }]],
+      quoteTotal: 3270, // 3,500 less a 500 discount, + 9%
+      billed: 1090,
+      gstPercent: 9,
+      billedInvoices: [{ name: 'INV9', date: '2026-11-01', gross: 1090 }],
+    });
+    expect(plan.lines.at(-1)).toMatchObject({ description: 'Less: quotation discount', amount: -500 });
+    expect(Math.round(plan.lines.reduce((t: number, l: any) => t + l.amount, 0) * 1.09 * 100) / 100).toBe(2180);
+  });
+
+  it('a quotation with no priced line keeps the one balance line; the Less text and refs', () => {
+    const plan = remainingToBill({ quoteItems: [{ description: 'Note', quantity: 1, unitPrice: 0, amount: 0 }], billedInvoiceItems: [], quoteTotal: 109, billed: 0, gstPercent: 9, quotationNo: 'Q-1', billedInvoices: [] });
+    expect(plan.lines).toHaveLength(1);
+    expect(lessLineText({ name: 'I-014739', date: '2026-01-31', gross: 1 })).toBe('Less: I-014739 (31/01/2026)');
+    expect(invoiceRefOf({ name: null, config: { documentNumber: 'INV7', date: '2026-02-03' } }, 10)).toEqual({ name: 'INV7', date: '2026-02-03', gross: 10 });
+  });
+});

@@ -174,6 +174,16 @@ export function remainingAllowance(
   return left;
 }
 
+/** Internal remarks on a balance DO whose earlier DOs could not be matched to the quotation's lines (2026-11-23). */
+export const SUMMARY_DO_REMARK = 'Check qty: earlier DOs were summary lines';
+
+/** Earlier DOs exist and none of their lines is a quotation line (summary lines): the new DO lists every line in full. */
+export function earlierDosSummaryOnly(quote: Array<{ key: ScopeKey | null }>, used: Array<{ key: ScopeKey | null }>): boolean {
+  const keys = new Set(quote.map((q) => q.key).filter(Boolean));
+  const lines = used.filter((u) => u.key);
+  return lines.length > 0 && keys.size > 0 && !lines.some((u) => keys.has(u.key));
+}
+
 /** The quote's lines with the quantity still to deliver (lines with none left are dropped). */
 export function remainingQuoteLines<T>(lines: Array<{ line: T; key: ScopeKey | null; quantity?: any }>, left: Map<ScopeKey, number>): Array<{ line: T; quantity: number }> {
   const pool = new Map(left);

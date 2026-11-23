@@ -7,9 +7,11 @@
  * other, when only one quotation line fits). Remaining qty = quoted qty minus billed qty (never below 0).
  * The invoice lines to make = the remaining priced lines plus the quotation's $0 description lines (S- / G-).
  *
- * Fallback (one line for the remaining amount, ex GST): a billed priced line matches no quotation line, the
- * quotation has no priced line, or the remaining lines do not add up to what is left (quotation total
- * minus billed, within $1).
+ * When the billed lines cannot be matched (a lump sum or % invoice such as a deposit: a billed priced line matches
+ * no quotation line, or the remaining lines do not add up to what is left, within $1), the lines are (2026-11-23,
+ * never one summary line again): every quotation line in full, then one "Less: <INV no.> (<date>)" line per
+ * earlier invoice for what it billed (ex GST), so the total is what is left to bill. Only a quotation with no
+ * priced line at all keeps the one "Balance of quotation" line.
  */
 
 import { creditOfImportedInvoice, importedInvoiceMoney, isCountedInvoice } from './imported-orders';
@@ -33,6 +35,23 @@ export interface RemainingLine {
   quotedQty: number | null;
   billedQty: number | null;
   priced: boolean;
+  /** A "Less: INV… (date)" line (negative): an earlier invoice taken off the full quotation. */
+  less?: boolean;
+}
+
+/** An earlier invoice on the order, for its "Less:" line (gross = what it billed, GST included, credits off). */
+export interface BilledInvoiceRef {
+  name?: string | null;
+  date?: string | null;
+  gross: number;
+}
+
+/** "Less: INV202611-0012 (05/11/2026)". */
+export function lessLineText(ref: BilledInvoiceRef): string {
+  const d = String(ref.date ?? '').slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+  const date = m ? `${m[3]}/${m[2]}/${m[1]}` : d;
+  return `Less: ${ref.name || 'invoice'}${date ? ` (${date})` : ''}`;
 }
 
 export interface RemainingPlan {
@@ -71,6 +90,8 @@ export function remainingToBill(args: {
   gstPercent: number;
   quotationNo?: string | null;
   subject?: string | null;
+  /** The earlier invoices, in the same order as billedInvoiceItems (2026-11-23: their "Less:" lines). */
+  billedInvoices?: BilledInvoiceRef[];
 }): RemainingPlan {
   const quote = (args.quoteItems || []).filter(isRow);
   const priced = quote.filter(isPriced);
@@ -118,7 +139,32 @@ export function remainingToBill(args: {
   const pricedLeft = ordered.filter((l) => l.priced);
   const net = R2(pricedLeft.reduce((t, l) => t + l.amount, 0));
 
+  // Every quotation line in full, less each earlier invoice: total = what is left (a quotation discount, if any, its own line).
+  const fullLess = (reason: string): RemainingPlan | null => {
+    const refs = (args.billedInvoices ?? []).filter((r) => Math.abs(num(r.gross)) >= 0.005);
+    if (!refs.length && args.billedInvoiceItems?.length) return null;
+    const full: RemainingLine[] = quote.map((q) => {
+      if (!isPriced(q)) return { description: String(q.description ?? ''), quantity: num(q.quantity) || 1, unitPrice: 0, amount: 0, quotedQty: null, billedQty: null, priced: false };
+      const quoted = num(q.quantity) || 1;
+      const unit = num(q.unitPrice) || (num(q.quantity) ? R2(num(q.amount) / num(q.quantity)) : num(q.amount));
+      return { description: String(q.description ?? ''), quantity: quoted, unitPrice: unit, amount: R2(quoted * unit), quotedQty: quoted, billedQty: 0, priced: true };
+    });
+    const less: RemainingLine[] = refs.map((r) => {
+      const unit = -R2(num(r.gross) / (1 + rate / 100));
+      return { description: lessLineText(r), quantity: 1, unitPrice: unit, amount: unit, quotedQty: null, billedQty: null, priced: true, less: true };
+    });
+    const lines = [...full, ...less];
+    const target = R2(remainingGross / (1 + rate / 100));
+    const diff = R2(target - lines.reduce((t, l) => t + l.amount, 0));
+    if (Math.abs(diff) >= 0.01) lines.push({ description: diff < 0 ? 'Less: quotation discount' : 'Adjustment', quantity: 1, unitPrice: diff, amount: diff, quotedQty: null, billedQty: null, priced: true, less: true });
+    return { matched: false, reason, lines: remainingGross > 0 ? lines : [], remainingNet: remainingGross > 0 ? target : 0, remainingGross, progress, partQtyLines };
+  };
+
   const fallback = (reason: string): RemainingPlan => {
+    if (priced.length) {
+      const plan = fullLess(reason);
+      if (plan) return plan;
+    }
     const unit = R2(remainingGross / (1 + rate / 100));
     const subject = firstLine(args.subject);
     const description = `Balance of quotation ${args.quotationNo ?? ''}${subject ? `: ${subject}` : ''}`.replace(/\s+:/, ':').trim();
@@ -147,17 +193,18 @@ export function remainingToBill(args: {
  */
 export function remainingForOrder(args: {
   marker: { credits?: Record<string, number> } | null;
-  invoiceDocs: Array<{ id: string; status?: string; config: any }>;
+  invoiceDocs: Array<{ id: string; name?: string | null; status?: string; config: any }>;
   quotation: { name?: string | null; config: any } | null;
   quoteTotal: number | null;
   billed: number;
 }): RemainingPlan {
   const credits = args.marker?.credits || {};
   const qc: any = args.quotation?.config || {};
-  const billedItems = args.invoiceDocs
+  const billedDocs = args.invoiceDocs
     .filter((d) => isCountedInvoice(d))
-    .filter((d) => !['CREDITED', 'NO_CHARGE'].includes(importedInvoiceMoney(d, Number(credits[d.id]) || creditOfImportedInvoice(d.config)).state))
-    .map((d) => (Array.isArray(d.config?.items) ? d.config.items : []));
+    .map((d) => ({ d, m: importedInvoiceMoney(d, Number(credits[d.id]) || creditOfImportedInvoice(d.config)) }))
+    .filter((x) => !['CREDITED', 'NO_CHARGE'].includes(x.m.state));
+  const billedItems = billedDocs.map((x) => (Array.isArray(x.d.config?.items) ? x.d.config.items : []));
   return remainingToBill({
     quoteItems: Array.isArray(qc.items) ? qc.items : [],
     billedInvoiceItems: billedItems,
@@ -166,7 +213,14 @@ export function remainingForOrder(args: {
     gstPercent: Number(qc.gstPercent) || 0,
     quotationNo: args.quotation?.name ?? null,
     subject: qc.subject ?? null,
+    billedInvoices: billedDocs.map((x) => invoiceRefOf(x.d, x.m.net)),
   });
+}
+
+/** An invoice document as a "Less:" reference: its number and date, and what it billed (GST included). */
+export function invoiceRefOf(d: { name?: string | null; config?: any }, gross: number): BilledInvoiceRef {
+  const c: any = d.config || {};
+  return { name: d.name ?? c.documentNumber ?? c.invoiceNumber ?? null, date: c.date ?? c.documentInfo?.date ?? null, gross };
 }
 
 /**

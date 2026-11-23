@@ -11,7 +11,7 @@
 
 import { grossOf } from '../common/document-money';
 import { IMPORTED_INVOICE_STATE_LABEL, billedPercent, importedInvoiceMoney, isCountedInvoice } from './imported-orders';
-import { billingSteps, importedInvoicePrefill, remainingToBill, type QuoteLine, type RemainingLine } from './imported-remaining';
+import { billingSteps, importedInvoicePrefill, invoiceRefOf, remainingToBill, type QuoteLine, type RemainingLine } from './imported-remaining';
 
 export interface OrderPageSummary {
   quoteTotal: number | null;
@@ -60,6 +60,7 @@ export function nativeOrderSummary(args: {
     gstPercent: Number(qc.gstPercent) || 0,
     quotationNo: [args.quotation?.name, ...extra.map((x) => x.name)].filter(Boolean).join(', ') || null,
     subject: qc.subject ?? null,
+    billedInvoices: billing.map((x) => invoiceRefOf(x.d as any, x.m.net)),
   });
   // Counted invoices by date first, then drafts (as an imported order's "1 of 2 Paid · 2 of 2 Draft").
   const stateOf = (d: { id?: string; status?: string; config?: any }) => (isCountedInvoice(d) ? IMPORTED_INVOICE_STATE_LABEL[importedInvoiceMoney({ config: d.config || {} }, (d.id && args.credits?.get(d.id)) || 0).state] : 'Draft');

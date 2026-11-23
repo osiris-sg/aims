@@ -8083,7 +8083,8 @@ export class DocumentsService {
         const quoteHasGst = (Number(qc.gstPercent) || 0) > 0 || Math.abs((Number(qc.gstAmount) || 0)) > 0.005;
         const rate = quoteHasGst ? Number(orgRow?.taxRate ?? 9) : 0;
         const taxSrc = { gstPercent: rate, taxApplicable: rate > 0 ? 'Y' : 'N', absorbTax: 'N' };
-        const items = remainderInvoiceItems(sourceLines, rate);
+        // 2026-11-23: each line that is a quotation line keeps its item code, UOM, account and revenue tag (as on AIMS orders).
+        const items = remainderInvoiceItems(sourceLines, rate, allItems);
         const totals = computeDocumentTotals(items, taxSrc);
         const reference = orderInvoiceReference(order.orderNumber, [], qc.referenceNo ?? qc.subject ?? null);
         // Header: the quotation's customer side only (never its ERP marker, numbers, totals or money keys).
