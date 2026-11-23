@@ -434,7 +434,7 @@ export default function QuickJobDialog({
             </Button>
           ))}
         <Box sx={{ flex: 1 }} />
-        {edit && onComplete && run?.status === "scheduled" && !!(run as any)?.order && (
+        {edit && onComplete && run?.status === "scheduled" && !!(run as any)?.order && (run?.items?.length ?? 0) > 0 && (
           <Button variant="outlined" onClick={onComplete} disabled={saving} data-tour="job-edit-complete">
             Complete job
           </Button>

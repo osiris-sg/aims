@@ -2364,6 +2364,11 @@ export class DeliveriesService {
       },
     });
     if (!pre) throw new NotFoundException('Job not found');
+    // WCT group (2026-11-24): a job with no lines of its own (a later job on an order whose DO already has them) can
+    // never reach "delivered"; say so before anything changes, so it is never left half way (In progress).
+    if (pre.items.length === 0 && (await isCalendarStyleEnabled(this.prisma, organizationId))) {
+      throw new BadRequestException('This job has no lines of its own: complete its DO from the order page instead');
+    }
     if (pre.orderId && !pre.isDraft && ['scheduled', 'in_progress', 'delivered'].includes(pre.status)) {
       const need = new Map<string, { count: number; name: string }>();
       for (const it of pre.items) {

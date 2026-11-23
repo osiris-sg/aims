@@ -53,6 +53,11 @@ export default function JobEditHost({ target, onClose, onSaved }: { target: JobE
       onClose();
       return;
     }
+    // Complete job needs the job's own lines (a later job on an order whose DO has them cannot be completed here).
+    if (target.mode === "complete" && !(r.data.items ?? []).length) {
+      toast.info("This job has no lines of its own: complete its DO from the order page instead");
+      setMode("edit");
+    }
     setRun(r.data);
   }, [api, target, onClose]);
 

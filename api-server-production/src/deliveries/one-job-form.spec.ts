@@ -73,3 +73,16 @@ describe('delete keeps the postponed pair tidy', () => {
     expect(styles2.job.postponedFrom).toBeNull();
   });
 });
+
+describe('Complete job on a job with no lines of its own', () => {
+  it('is refused before anything changes (never left In progress)', async () => {
+    const update = jest.fn();
+    const s = svcWith({
+      userOrganization: { findMany: jest.fn(async () => []) },
+      delivery: { findFirst: jest.fn(async () => ({ id: 'j', status: 'scheduled', isDraft: false, orderId: 'o', items: [] })), update },
+    });
+    s.prisma.organizationUIConfig.findUnique = jest.fn(async () => ({ features: { enableCalendarStyle: true, enableManualOrderFlow: true, enableJobsCalendar: true, enableWctOrders: true } }));
+    await expect(s.officeCompleteJob('j', ORG, { id: 'u' }, { mode: 'signature', signature: 'data:x', recipientName: 'T' })).rejects.toThrow(/no lines of its own/);
+    expect(update).not.toHaveBeenCalled();
+  });
+});
