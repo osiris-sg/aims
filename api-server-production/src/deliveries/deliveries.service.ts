@@ -1382,6 +1382,22 @@ export class DeliveriesService {
     return null;
   }
 
+  /**
+   * Delete a job (2026-11-24): a job moved by Postpone takes the record it left on the old date with it; deleting such
+   * a record directly clears the moved job's "Postponed from". Everything else as `remove`.
+   */
+  async removeWithPostponeRecord(id: string, organizationId: string) {
+    const meta = (await jobStyleValues(this.prisma, organizationId, [id])).get(id);
+    const out = await this.remove(id, organizationId);
+    const rec = meta?.postponedFrom?.id;
+    if (rec) {
+      const rm = (await jobStyleValues(this.prisma, organizationId, [rec])).get(rec);
+      if (rm?.recordOnly) await this.remove(rec, organizationId).catch(() => undefined);
+    }
+    if (meta?.recordOnly && meta.postponedTo?.id) await saveJobStyle(this.prisma, organizationId, meta.postponedTo.id, { postponedFrom: null }).catch(() => undefined);
+    return out;
+  }
+
   /** Shop names used on this customer's jobs (most used first, 20 at most). Calendar style orgs only. */
   async shopNames(organizationId: string, customerId: string): Promise<{ names: string[] }> {
     if (!(await isCalendarStyleEnabled(this.prisma, organizationId))) return { names: [] };

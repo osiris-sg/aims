@@ -856,7 +856,7 @@ export class DeliveriesController {
   @Delete(':id')
   @Permissions('maintenance-reports:create')
   remove(@Param('id') id: string, @UserOrganization() org: { id: string }) {
-    return this.service.remove(id, org.id);
+    return this.service.removeWithPostponeRecord(id, org.id);
   }
 
   // Swap unit (enableDeliveryUnitSwap, Admin only): in-stock units of the line's

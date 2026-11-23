@@ -360,6 +360,8 @@ test("one job form wiring: panel Edit top right + Complete job, no Open job; old
   assert.match(panel, /data-tour="jobs-calendar-panel-complete"/);
   assert.ok(!/>\s*Open job\s*</.test(panel), "no Open job button");
   assert.match(panel, /const editable = !!actions && canEditOnCalendar\(e\) && !e\.recordOnly;/);
+  // Complete job only on a job of an order (the server completes order jobs only).
+  assert.match(panel, /e\.status === "scheduled" && !!e\.orderNumber && \(/);
   const dialog = read("components/Dashboard/jobs-calendar/QuickJobDialog.tsx");
   assert.match(dialog, /label="Shop name"/);
   assert.match(dialog, /<JobEditDetails/);
@@ -371,4 +373,6 @@ test("one job form wiring: panel Edit top right + Complete job, no Open job; old
   const view = read("components/Dashboard/jobs-calendar/CalendarView.tsx");
   assert.match(view, /SCHEDULE_FONT = \{ text: "0\.875rem", time: "0\.75rem", row2: "0\.75rem" \}/);
   assert.match(view, /holidayCalendarInputs\(holidays \?\? \[\]\)/);
+  // The outer chip element's hover is the styled hover, never the old "#21 Customer / Category" text.
+  assert.match(view, /if \(styledEv\?\.style\) \{\s*arg\.el\.title = styledTooltip\(styledEv\);/);
 });

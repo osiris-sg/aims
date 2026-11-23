@@ -536,7 +536,8 @@ export default function StyledJobPanel({
       <Divider sx={{ my: 1.5 }} />
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         {/* One job form (2026-11-24): no "Open job"; Complete job here (the customer sign-off, as before). */}
-        {editable && onComplete && !e.cancelled && e.status === "scheduled" && (
+        {/* Completed here only for a job of an order (as the job page did: the server completes order jobs). */}
+        {editable && onComplete && !e.cancelled && e.status === "scheduled" && !!e.orderNumber && (
           <Button size="small" variant="contained" disableElevation onClick={() => onComplete(e)} data-tour="jobs-calendar-panel-complete">
             Complete job
           </Button>

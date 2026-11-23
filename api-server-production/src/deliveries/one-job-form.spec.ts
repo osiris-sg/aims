@@ -45,3 +45,31 @@ describe('one job form', () => {
     await expect(s.setJobLocation('j', ORG, { machineLocation: 'y' })).rejects.toThrow(/no DO yet/);
   });
 });
+
+describe('delete keeps the postponed pair tidy', () => {
+  const mk = (styles: Record<string, any>) => {
+    const s: any = Object.create(DeliveriesService.prototype);
+    s.prisma = {
+      customField: { findFirst: jest.fn(async () => ({ id: 'cf' })) },
+      customFieldValue: {
+        findMany: jest.fn(async ({ where }: any) => (where.entityId.in as string[]).filter((id) => styles[id]).map((id) => ({ entityId: id, value: styles[id] }))),
+        findUnique: jest.fn(async ({ where }: any) => (styles[where.customFieldId_entityId.entityId] ? { value: styles[where.customFieldId_entityId.entityId] } : null)),
+        upsert: jest.fn(async ({ where, update }: any) => ((styles[where.customFieldId_entityId.entityId] = update.value), {})),
+      },
+    };
+    s.removed = [];
+    s.remove = jest.fn(async (id: string) => (s.removed.push(id), { deleted: true }));
+    return s;
+  };
+  it('deleting the moved job deletes the record it left; deleting a record clears the job\'s link', async () => {
+    const styles: any = { job: { postponedFrom: { id: 'rec', date: '2026-11-26' } }, rec: { recordOnly: true, postponed: true, postponedTo: { id: 'job', date: '2026-11-28' } } };
+    const s = mk(styles);
+    await s.removeWithPostponeRecord('job', ORG);
+    expect(s.removed).toEqual(['job', 'rec']);
+    const styles2: any = { job: { postponedFrom: { id: 'rec', date: '2026-11-26' } }, rec: { recordOnly: true, postponed: true, postponedTo: { id: 'job', date: '2026-11-28' } } };
+    const s2 = mk(styles2);
+    await s2.removeWithPostponeRecord('rec', ORG);
+    expect(s2.removed).toEqual(['rec']);
+    expect(styles2.job.postponedFrom).toBeNull();
+  });
+});

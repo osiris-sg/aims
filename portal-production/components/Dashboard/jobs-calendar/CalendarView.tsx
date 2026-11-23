@@ -223,6 +223,8 @@ export default function CalendarView({
     setPanel((p) => {
       if (!p?.event) return p;
       const fresh = liveEvents.find((x) => x.id === p.event!.id);
+      // Gone after a reload (deleted, 2026-11-24): the panel closes (back to its day list when it came from one).
+      if (!fresh) return p.day ? { event: null, day: p.day } : null;
       return fresh && fresh !== p.event ? { ...p, event: fresh } : p;
     });
   }, [liveEvents]);
@@ -416,6 +418,13 @@ export default function CalendarView({
         // Job category (WCT group): the chip's tooltip names it (no tooltip for orgs without categories).
         eventDidMount={(arg) => {
           if (arg.event.extendedProps.holiday) return;
+          // Calendar style chips carry their own hover (styledTooltip): the outer element gets the same, never the
+          // old "#21 Customer / Category" text (2026-11-24).
+          const styledEv = arg.event.extendedProps.event as CalendarEvent | undefined;
+          if (styledEv?.style) {
+            arg.el.title = styledTooltip(styledEv);
+            return;
+          }
           const t = categoryChipTitle(arg.event.extendedProps.event as CalendarEvent | undefined, arg.event.title);
           if (t) arg.el.title = t;
         }}
