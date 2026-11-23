@@ -18,6 +18,7 @@ import { reportScope } from '../sales-report/sales-report';
 import { NEW_PERMISSIONS, PRESET_FIXES, ROLE_PRESETS, isReadPermission, planPresetFix, resolvePresetPermissions } from '../roles/role-presets';
 import { AccessService } from './access.service';
 import { CUSTOM_ACCESS_ROLE_ID, NO_TAB_ACCESS_MESSAGE, customAccessUserIds, invalidateCustomAccess, resolveCustomAccess, withCustomAccess } from './custom-access';
+import { LOCKOUT_MESSAGE, PRIVILEGED_MESSAGE, assertRoleChange, orgSettingsEditFrom } from './role-guard';
 import {
   ORG_SETTINGS_EDIT_NEEDS_ADMIN,
   PRESET_TAB_ACCESS,
@@ -422,7 +423,7 @@ describe('AccessService: only Admin / superadmin grant, nobody gets Org Settings
     expect((await s.overview(WCT, actor('sam'))).canManage).toBe(false);
   });
 
-  it('Admin creates a custom role: derived permissions + modules, never Org Settings edit, no clashing names', async () => {
+  it('Admin creates a custom role: derived permissions + modules, no clashing names', async () => {
     const w = world();
     const s = new AccessService(w.prisma);
     const out = await s.createRole(WCT, { name: ' Service desk ', tabs: { serviceReports: 'edit', jobs: 'view' } }, actor('adam'));
@@ -437,7 +438,9 @@ describe('AccessService: only Admin / superadmin grant, nobody gets Org Settings
     // A role with no access never reads as "every module" ([]).
     const none = await s.createRole(WCT, { name: 'Nothing yet', tabs: {} }, actor('adam'));
     expect(w.db.role.find((r) => r.id === none.role.id)!.allowedModules).toEqual(['NONE']);
-    await expect(s.createRole(WCT, { name: 'Boss', tabs: { orgSettings: 'edit' } }, actor('adam'))).rejects.toBeInstanceOf(BadRequestException);
+    // Since 23 Nov a custom role may carry Org Settings edit (handing out the Admin role stays an Admin's).
+    const boss = await s.createRole(WCT, { name: 'Boss', tabs: { orgSettings: 'edit' } }, actor('adam'));
+    expect(boss.role.tabs.orgSettings).toBe('edit');
     await expect(s.createRole(WCT, { name: 'admin', tabs: {} }, actor('adam'))).rejects.toBeInstanceOf(BadRequestException);
     await expect(s.createRole(WCT, { name: 'orders DESK', tabs: {} }, actor('adam'))).rejects.toBeInstanceOf(ConflictException);
   });
@@ -468,6 +471,102 @@ describe('AccessService: only Admin / superadmin grant, nobody gets Org Settings
     const off = await s.setUserAccess(WCT, 'sam', { enabled: false }, actor('adam'));
     expect(off.log.customAccess).toEqual({ from: 'on', to: 'off' });
     expect(w.db.customAccess.some((r) => r.kind === 'USER' && r.subjectId === 'sam')).toBe(false);
+  });
+});
+
+describe('Roles tab (23 Nov): who manages, no lock-out, Admin stays an Admin, highest level wins', () => {
+  const actor = (userId: string, orgId = WCT) => ({ orgId, platform: false, userId }) as any;
+  const give = (w: ReturnType<typeof world>, userId: string, ...roleIds: string[]) => {
+    if (!w.db.userOrganization.some((m) => m.userId === userId && m.organizationId === WCT)) w.db.userOrganization.push({ userId, organizationId: WCT, isActive: true, joinedAt: new Date(2026, 0, 1), lastActiveAt: null });
+    for (const roleId of roleIds) w.db.userRole.push({ id: `ur-${userId}-${roleId}`, userId, roleId, organizationId: WCT, isActive: true, createdAt: new Date(), assignedAt: new Date() });
+  };
+
+  it('anyone with Org Settings edit manages roles; Org Settings view does not', async () => {
+    const w = world();
+    const s = new AccessService(w.prisma);
+    const boss = await s.createRole(WCT, { name: 'Office manager', tabs: { orgSettings: 'edit', sales: 'view' } }, actor('adam'));
+    give(w, 'olive', boss.role.id);
+    invalidateCustomAccess();
+    expect(await s.canManage(WCT, actor('olive'))).toBe(true);
+    expect(await s.canManage(WCT, actor('sam'))).toBe(false); // Sales preset: Org Settings view
+    expect(await s.canManage(WCT, actor('dora'))).toBe(false);
+    const made = await s.createRole(WCT, { name: 'Sales only', tabs: { sales: 'edit', orders: 'view' } }, actor('olive'));
+    expect(made.role.tabs).toMatchObject({ sales: 'edit', orders: 'view', accounting: 'none' });
+  });
+
+  it('Org Settings edit through a role never becomes Admin', async () => {
+    const w = world();
+    const s = new AccessService(w.prisma);
+    const boss = await s.createRole(WCT, { name: 'Office manager', tabs: { orgSettings: 'edit' } }, actor('adam'));
+    give(w, 'olive', boss.role.id);
+    invalidateCustomAccess();
+    await expect(assertRoleChange(w.prisma, WCT, actor('olive'), 'olive', [boss.role.id], [boss.role.id, 'w-admin'])).rejects.toThrow(PRIVILEGED_MESSAGE);
+    await expect(assertRoleChange(w.prisma, WCT, actor('olive'), 'adam', ['w-admin'], ['w-sales'])).rejects.toThrow(PRIVILEGED_MESSAGE);
+    await expect(assertRoleChange(w.prisma, WCT, actor('olive'), null, [], ['w-super'])).rejects.toThrow(PRIVILEGED_MESSAGE);
+    await expect(s.setUserAccess(WCT, 'adam', { enabled: true, tabs: {} }, actor('olive'))).rejects.toThrow(PRIVILEGED_MESSAGE);
+    // Other roles: fine. An Admin gives Admin: fine. The platform admin: fine.
+    await expect(assertRoleChange(w.prisma, WCT, actor('olive'), 'sam', ['w-sales'], ['w-sales', 'w-desk'])).resolves.toBeUndefined();
+    await expect(assertRoleChange(w.prisma, WCT, actor('adam'), 'sam', ['w-sales'], ['w-sales', 'w-admin'])).resolves.toBeUndefined();
+    await expect(assertRoleChange(w.prisma, WCT, { orgId: WCT, platform: true, userId: 'x' } as any, 'sam', [], ['w-admin'])).resolves.toBeUndefined();
+  });
+
+  it('nobody removes their own last way into Org Settings edit', async () => {
+    const w = world();
+    const s = new AccessService(w.prisma);
+    const boss = await s.createRole(WCT, { name: 'Office manager', tabs: { orgSettings: 'edit', sales: 'edit' } }, actor('adam'));
+    give(w, 'olive', boss.role.id);
+    invalidateCustomAccess();
+    // Editing the role they hold down to Org Settings view: refused. Another change to it: fine.
+    await expect(s.updateRole(WCT, boss.role.id, { tabs: { orgSettings: 'view', sales: 'edit' } }, actor('olive'))).rejects.toThrow(LOCKOUT_MESSAGE);
+    await expect(s.updateRole(WCT, boss.role.id, { tabs: { orgSettings: 'edit', sales: 'view' } }, actor('olive'))).resolves.toBeTruthy();
+    // Taking the role off themselves: refused; swapping it for another way in (Admin, by an Admin) is someone else's call.
+    await expect(assertRoleChange(w.prisma, WCT, actor('olive'), 'olive', [boss.role.id], ['w-sales'])).rejects.toThrow(LOCKOUT_MESSAGE);
+    // An Admin may edit the role (they keep Admin), and may take their own extra role off.
+    give(w, 'adam', boss.role.id);
+    await expect(s.updateRole(WCT, boss.role.id, { tabs: { orgSettings: 'view' } }, actor('adam'))).resolves.toBeTruthy();
+    await expect(assertRoleChange(w.prisma, WCT, actor('adam'), 'adam', ['w-admin', boss.role.id], ['w-admin'])).resolves.toBeUndefined();
+    // Nothing is checked in an org without custom access.
+    await expect(assertRoleChange(w.prisma, CIEL, actor('cadmin', CIEL), 'cadmin', ['c-admin'], [])).resolves.toBeUndefined();
+  });
+
+  it('a role in use cannot be deleted, and says how many people have it', async () => {
+    const w = world();
+    const s = new AccessService(w.prisma);
+    await expect(s.deleteRole(WCT, 'w-desk', actor('adam'))).rejects.toThrow('This role is used by 2 users. Take it off them first.');
+  });
+
+  it('"Sales only" cannot open Accounting (server), and two roles give the higher level per area', async () => {
+    const w = world();
+    const s = new AccessService(w.prisma);
+    const so = await s.createRole(WCT, { name: 'Sales only', tabs: { sales: 'edit', orders: 'view' } }, actor('adam'));
+    give(w, 'tess', so.role.id);
+    invalidateCustomAccess();
+    ClerkAuthGuard.invalidateAll();
+    expect(await blocked(w, 'tess', 'GET', '/journal', ['journal:read'])).toBe(true);
+    expect(await blocked(w, 'tess', 'GET', '/bank-rec', [])).toBe(true);
+    expect(await allowed(w, 'tess', 'GET', '/orders', ['orders:read'])).toBe(true);
+    expect(await blocked(w, 'tess', 'POST', '/orders', ['orders:create'])).toBe(true); // Orders view only
+    // Plus "Accounts viewer": Accounting view comes from it, Sales edit stays.
+    give(w, 'tess', 'w-accv');
+    invalidateCustomAccess();
+    ClerkAuthGuard.invalidateAll();
+    const both = await resolveCustomAccess(w.prisma, WCT, 'tess', [{ id: so.role.id, name: 'Sales only' }, { id: 'w-accv', name: 'Accounts viewer' }]);
+    expect(both?.map).toMatchObject({ sales: 'edit', orders: 'view', accounting: 'view', orgSettings: 'none' });
+    expect(await allowed(w, 'tess', 'GET', '/journal', ['journal:read'])).toBe(true);
+    expect(await blocked(w, 'tess', 'POST', '/journal', ['journal:create'])).toBe(true);
+    // A custom role next to a built-in one: the built-in counts by its table (Sales preset + Accounts viewer).
+    const mixed = await resolveCustomAccess(w.prisma, WCT, 'mixed', [{ id: 'w-sales', name: 'Sales' }, { id: 'w-accv', name: 'Accounts viewer' }]);
+    expect(mixed?.map).toMatchObject({ sales: 'edit', orders: 'edit', accounting: 'view', orgSettings: 'view', salesReport: 'view' });
+    const roles = await withCustomAccess(w.prisma, WCT, 'mixed', [{ id: 'w-sales', name: 'Sales' }, { id: 'w-accv', name: 'Accounts viewer' }]);
+    expect(roles.every((r: any) => r.tabAccess)).toBe(true);
+  });
+
+  it('orgSettingsEditFrom: own access decides alone; Admin always; else the highest level of the maps', () => {
+    expect(orgSettingsEditFrom({ ...noAccess(), orgSettings: 'view' }, [{ name: 'Admin' }])).toBe(false);
+    expect(orgSettingsEditFrom(null, [{ name: 'Admin' }])).toBe(true);
+    expect(orgSettingsEditFrom(null, [{ name: 'Sales' }])).toBe(false);
+    expect(orgSettingsEditFrom(null, [{ name: 'Sales' }, { name: 'X', map: { ...noAccess(), orgSettings: 'edit' } }])).toBe(true);
+    expect(orgSettingsEditFrom(null, [{ name: 'Storekeeper' }])).toBe(false);
   });
 });
 

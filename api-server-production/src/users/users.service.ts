@@ -12,6 +12,7 @@ import { AdminActor, PLATFORM_ADMIN_ROLE_WHERE } from '../auth/admin-scope';
 import { normEmail } from '../auth/active-org';
 import { multiRoleOn, orderPrimaryFirst, planRoleSave, primaryRoleIdOf, roleChangeSummary } from '../roles/multi-role';
 import { customAccessUserIds, withCustomAccess } from '../access/custom-access';
+import { activeRoleIds, assertRoleChange } from '../access/role-guard';
 
 /** Edit User: the new email already belongs to another login. */
 export const EMAIL_TAKEN = 'That email is already used by another login';
@@ -335,6 +336,10 @@ export class UsersService {
   async assignRoleToUser(userId: string, roleId: string, organizationId: string, actor?: AdminActor) {
     await this.assertReach(userId, actor);
     await this.assertRolesInOrg([roleId], organizationId, actor);
+    {
+      const before = await activeRoleIds(this.prisma, organizationId, userId);
+      await assertRoleChange(this.prisma, organizationId, actor, userId, before, [...new Set([...before, roleId])]);
+    }
     // Check if user already has this role in this organization
     const existingUserRole = await this.prisma.userRole.findFirst({
       where: {
@@ -380,6 +385,10 @@ export class UsersService {
 
   async removeRoleFromUser(userId: string, roleId: string, organizationId: string, actor?: AdminActor) {
     await this.assertReach(userId, actor);
+    {
+      const before = await activeRoleIds(this.prisma, organizationId, userId);
+      await assertRoleChange(this.prisma, organizationId, actor, userId, before, before.filter((id) => id !== roleId));
+    }
     const userRole = await this.prisma.userRole.findFirst({
       where: {
         userId,
@@ -406,6 +415,8 @@ export class UsersService {
     const { firstName, lastName, email, username, password, roleIds } = createUserDto;
     const organizationId = this.orgFor(createUserDto.organizationId, actor);
     await this.assertRolesInOrg(roleIds, organizationId, actor);
+    // Custom access orgs: the Admin role only from an Admin (role-guard.ts).
+    if (organizationId) await assertRoleChange(this.prisma, organizationId, actor, null, [], roleIds ?? []);
 
     // A Clerk user needs at least one identifier — accept either email or username.
     if (!email && !username) {
@@ -520,6 +531,10 @@ export class UsersService {
     const organizationId = this.orgFor(updateUserDto.organizationId, actor);
     await this.assertReach(userId, actor);
     await this.assertRolesInOrg(roleIds ?? [], organizationId, actor);
+    // Custom access orgs: the Admin role only from an Admin, and never your own last Org Settings Edit (role-guard.ts).
+    if (roleIds && roleIds.length > 0 && organizationId) {
+      await assertRoleChange(this.prisma, organizationId, actor, userId, await activeRoleIds(this.prisma, organizationId, userId), roleIds);
+    }
 
     // Check if user exists by looking for their roles
     const existingUserRoles = await this.prisma.userRole.findMany({

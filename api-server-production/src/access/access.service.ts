@@ -4,6 +4,7 @@ import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import type { AdminActor } from '../auth/admin-scope';
 import { ROLE_PRESETS } from '../roles/role-presets';
 import { CUSTOM_ACCESS_ROLE_NAME, CUSTOM_PREFIX, accessFlags, invalidateCustomAccess } from './custom-access';
+import { LOCKOUT_MESSAGE, PRIVILEGED_MESSAGE, activeRoleIds, hasOrgSettingsEdit } from './role-guard';
 import {
   ACCESS_TABS,
   PRESET_TAB_ACCESS,
@@ -45,19 +46,20 @@ export class AccessService {
     return rows.map((r) => r.role?.name).filter(Boolean);
   }
 
-  /** May this person create roles / set custom access here? Admin or superadmin (not narrowed by their own Custom access), or the platform admin. */
+  /**
+   * May this person create roles / set custom access here? Anyone whose access gives Org Settings Edit
+   * (Admin / superadmin, a custom role with it, or their own Custom access with it; 2026-11-23), or the
+   * platform admin.
+   */
   async canManage(organizationId: string, actor: AdminActor): Promise<boolean> {
     if (actor.platform) return true;
     if (!actor.userId) return false;
-    const names = await this.activeRoleNames(actor.userId, organizationId);
-    if (!names.some((n) => MANAGER_ROLES.has(n))) return false;
-    const own = await this.db.customAccess?.findFirst?.({ where: { organizationId, kind: 'USER', subjectId: actor.userId }, select: { tabs: true } });
-    return !own || readTabAccess(own.tabs).orgSettings === 'edit';
+    return hasOrgSettingsEdit(this.prisma, organizationId, actor.userId);
   }
 
   private async assertManager(organizationId: string, actor: AdminActor) {
     await this.assertOn(organizationId);
-    if (!(await this.canManage(organizationId, actor))) throw new ForbiddenException('Only an Admin can change roles and access');
+    if (!(await this.canManage(organizationId, actor))) throw new ForbiddenException('Only someone with Org Settings edit can change roles and access');
   }
 
   /** The tab catalogue + the presets' table + whether the caller may manage. */
@@ -120,8 +122,8 @@ export class AccessService {
     await this.assertManager(organizationId, actor);
     const name = cleanName(body?.name);
     await this.assertFreeName(organizationId, name);
-    // Nobody gets Org Settings edit through a role: that is the Admin role's alone.
-    const tabs = this.parseTabs(body?.tabs, false);
+    // Org Settings Edit may come from a role (2026-11-23); handing out the Admin role stays an Admin's (role-guard.ts).
+    const tabs = this.parseTabs(body?.tabs, true);
     const ids = await this.catalogueIds(tabs);
     const role = await this.db.role.create({
       data: { organizationId, name, description: `${CUSTOM_PREFIX}${accessSummary(tabs)}`, allowedModules: roleModulesFor(tabs), permissions: { connect: ids.map((id) => ({ id })) } },
@@ -151,7 +153,14 @@ export class AccessService {
     const oldName: string = role.name;
     const name = body?.name === undefined ? oldName : cleanName(body.name);
     if (name !== oldName) await this.assertFreeName(organizationId, name, id);
-    const tabs = body?.tabs === undefined ? before : this.parseTabs(body.tabs, false);
+    const tabs = body?.tabs === undefined ? before : this.parseTabs(body.tabs, true);
+    // Nobody takes away their own last way into Org Settings Edit by editing a role they hold.
+    if (!actor.platform && actor.userId && before.orgSettings === 'edit' && tabs.orgSettings !== 'edit') {
+      const held = (await activeRoleIds(this.prisma, organizationId, actor.userId)).includes(id);
+      if (held && (await hasOrgSettingsEdit(this.prisma, organizationId, actor.userId)) && !(await hasOrgSettingsEdit(this.prisma, organizationId, actor.userId, { roleMap: { id, map: tabs } }))) {
+        throw new BadRequestException(LOCKOUT_MESSAGE);
+      }
+    }
     const ids = await this.catalogueIds(tabs);
     await this.db.role.update({
       where: { id },
@@ -171,7 +180,7 @@ export class AccessService {
     await this.assertManager(organizationId, actor);
     const { role, row, tabs } = await this.customRole(organizationId, id);
     const holders = await this.db.userRole.count({ where: { roleId: id, organizationId, isActive: true } });
-    if (holders > 0) throw new ConflictException(`Take this role off its ${holders} user${holders === 1 ? '' : 's'} first`);
+    if (holders > 0) throw new ConflictException(`This role is used by ${holders} user${holders === 1 ? '' : 's'}. Take it off them first.`);
     // Switched-off assignments hold nothing; they go with the role.
     await this.db.userRole.deleteMany({ where: { roleId: id, organizationId, isActive: false } });
     await this.db.role.delete({ where: { id } });
@@ -199,6 +208,11 @@ export class AccessService {
     const names = await this.activeRoleNames(userId, organizationId);
     const existing = await this.db.customAccess.findFirst({ where: { organizationId, kind: 'USER', subjectId: userId }, select: { id: true, tabs: true } });
     const before = existing ? readTabAccess(existing.tabs) : null;
+    // Org Settings Edit through a custom role never reaches an Admin: only an Admin narrows an Admin (2026-11-23).
+    if (!actor.platform && names.some((n) => MANAGER_ROLES.has(n))) {
+      const mine = actor.userId ? await this.activeRoleNames(actor.userId, organizationId) : [];
+      if (!mine.some((n) => MANAGER_ROLES.has(n))) throw new ForbiddenException(PRIVILEGED_MESSAGE);
+    }
     const enabled = body?.enabled === true;
     let after: TabAccessMap | null = null;
     if (enabled) {

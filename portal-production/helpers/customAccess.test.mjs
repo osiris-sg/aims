@@ -79,12 +79,14 @@ test("wiring: every new screen is behind enableCustomAccess (default off)", () =
   assert.match(feats, /enableCustomAccess: false,/);
   assert.match(feats, /isCustomAccessEnabled: features\.enableCustomAccess === true/);
   const nav = read("components/TopNav/useNavModules.ts");
-  assert.match(nav, /s\.path !== "\/portal\/settings\/roles" \|\| \(!!isCustomAccessEnabled && isAdminUser\)/);
+  // Roles is a tab of User Management (23 Nov), shown only with enableCustomAccess + Org Settings edit; no menu entry.
+  assert.ok(!nav.includes('path: "/portal/settings/roles"'));
+  assert.match(read("app/portal/user-management/users/components/Users.tsx"), /const showRoles = !!isCustomAccessEnabled && canManageRoles/);
   // Jobs calendar orgs: everyone with Jobs gets Calendar | Jobs (Elroy 2026-11-21), custom access or not.
   assert.match(nav, /m\.moduleCode !== "DELIVERIES" \|\| !isJobsCalendarEnabled\) return m;/);
   assert.match(nav, /subMenus: jobsSubmenus\(customTabs\)/);
   const side = read("components/Sidebar/DynamicSidebarContent.tsx");
-  assert.match(side, /s\.key !== 'roles' \|\| \(!!isCustomAccessEnabled && isAdminUser\)/);
+  assert.ok(!side.includes("path: '/portal/settings/roles'"));
   for (const f of ["app/portal/user-management/users/components/EditUser.tsx", "app/portal/user-management/users/components/AddUser.tsx"]) {
     const src = read(f);
     assert.match(src, /isPresetRole\(r\) \|\| \(isCustomAccessEnabled && isCustomRole\(r\)\)/, f);
@@ -96,13 +98,14 @@ test("wiring: every new screen is behind enableCustomAccess (default off)", () =
   assert.match(read("app/portal/user-management/users/hooks/useUserTableHeader.tsx"), /customAccess[\s\S]*label="Custom"/);
   assert.match(read("app/portal/sales/page.tsx"), /isJobsCalendarEnabled && calendarAllowed\(customTabs\)/);
   assert.match(read("app/portal/deliveries/calendar/page.tsx"), /!isJobsCalendarEnabled \|\| !calendarAllowed\(customTabs\)/);
-  const roles = read("app/portal/settings/roles/page.tsx");
+  // The Roles list (a User Management tab since 23 Nov): row menus at the click; loads only inside the custom access tab.
+  const roles = read("app/portal/settings/roles/_components/RolesPanel.tsx");
   assert.match(roles, /anchorReference="anchorPosition"/);
-  assert.match(roles, /isCustomAccessEnabled\) void load\(\)/);
+  assert.match(read("app/portal/user-management/users/components/Users.tsx"), /showRoles && tab === "roles" \? \(\s*<RolesPanel \/>/);
 });
 
 test("no em-dashes or helper text in the new screens' copy", () => {
-  for (const f of ["app/portal/settings/roles/page.tsx", "app/portal/settings/roles/_components/AccessGrid.tsx", "app/portal/user-management/users/components/CustomAccessSection.tsx", "app/portal/deliveries/calendar/page.tsx"]) {
+  for (const f of ["app/portal/settings/roles/_components/RolesPanel.tsx", "app/portal/settings/roles/_components/AccessGrid.tsx", "app/portal/user-management/users/components/CustomAccessSection.tsx", "app/portal/deliveries/calendar/page.tsx"]) {
     const src = read(f);
     const jsxText = src.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
     assert.ok(!jsxText.includes("—"), f);
@@ -110,3 +113,29 @@ test("no em-dashes or helper text in the new screens' copy", () => {
   }
 });
 
+
+test("Roles tab (23 Nov): built-in roles Duplicate only; custom roles Edit / Duplicate / Delete; copies get a free name", async () => {
+  const { roleMenuItems, copyName } = await import("./customAccess.ts");
+  assert.deepEqual(roleMenuItems(true).map((i) => i.key), ["duplicate"]);
+  assert.deepEqual(roleMenuItems(false).map((i) => i.key), ["edit", "duplicate", "delete"]);
+  assert.equal(copyName("Sales", ["Sales", "Admin"]), "Sales copy");
+  assert.equal(copyName("Sales", ["Sales", "sales COPY"]), "Sales copy 2");
+  assert.ok(copyName("x".repeat(60), []).length <= 40);
+});
+
+test("Roles tab wiring: a tab of User Management for people who may manage roles; one grid and one area list", () => {
+  const users = read("app/portal/user-management/users/components/Users.tsx");
+  assert.match(users, /<Tab value="users" label="Users" \/>/);
+  assert.match(users, /<Tab value="roles" label="Roles"/);
+  assert.match(users, /const showRoles = !!isCustomAccessEnabled && canManageRoles/);
+  const panel = read("app/portal/settings/roles/_components/RolesPanel.tsx");
+  assert.match(panel, /New role/);
+  assert.match(panel, /orgSettingsEdit/);
+  assert.match(panel, /disabled=\{!!toDelete\?\.users\}/);
+  assert.ok(!/—/.test(panel), "no em-dashes in the Roles copy");
+  // Custom access and roles both draw the same AccessGrid, which reads the one ACCESS_TABS list.
+  const grid = read("app/portal/settings/roles/_components/AccessGrid.tsx");
+  assert.match(grid, /ACCESS_TABS\.map/);
+  assert.match(read("app/portal/user-management/users/components/CustomAccessSection.tsx"), /import AccessGrid from/);
+  assert.match(read("app/portal/settings/roles/page.tsx"), /user-management\/users\?tab=roles/);
+});

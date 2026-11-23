@@ -116,3 +116,23 @@ export function accessSummary(map: TabAccessMap): string {
   const parts = ACCESS_TABS.filter((t) => map[t.key] !== "none").map((t) => `${t.label} ${levelLabel(t.key, map[t.key]).toLowerCase()}`);
   return parts.length ? parts.join(", ") : "No access";
 }
+
+/** Roles list row menu (2026-11-23): a built-in role is read only, so Duplicate only; a custom role Edit / Duplicate / Delete. */
+export function roleMenuItems(builtIn: boolean): Array<{ key: "edit" | "duplicate" | "delete"; label: string }> {
+  return builtIn
+    ? [{ key: "duplicate", label: "Duplicate" }]
+    : [
+        { key: "edit", label: "Edit" },
+        { key: "duplicate", label: "Duplicate" },
+        { key: "delete", label: "Delete" },
+      ];
+}
+
+/** A free name for a duplicated role: "Sales copy", then "Sales copy 2", … (names compare without case; max 40). */
+export function copyName(name: string, taken: string[]): string {
+  const used = new Set(taken.map((t) => t.trim().toLowerCase()));
+  const base = `${name.trim().slice(0, 35)} copy`;
+  if (!used.has(base.toLowerCase())) return base;
+  for (let i = 2; i < 100; i++) if (!used.has(`${base} ${i}`.toLowerCase())) return `${base} ${i}`;
+  return base;
+}

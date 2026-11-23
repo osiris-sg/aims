@@ -112,6 +112,12 @@ export async function resolveCustomAccess(prisma: any, organizationId: string | 
   if (roles.some((r) => UNRESTRICTED_ROLES.has(r.name))) return null;
   const customMaps = roles.map((r) => rows.roles.get(r.id)).filter(Boolean) as TabAccessMap[];
   if (flags.custom && customMaps.length === roles.length) return { source: 'roles', map: unionTabAccess(customMaps) };
+  // A custom role next to built-in ones (2026-11-23): each built-in role counts by its preset table, and the person
+  // gets the highest level per tab across all of them. A hand-made role with no table: roles as before.
+  if (flags.custom && customMaps.length) {
+    const maps = roles.map((r) => rows.roles.get(r.id) ?? PRESET_TAB_ACCESS[r.name]);
+    if (maps.every(Boolean)) return { source: 'roles', map: unionTabAccess(maps as TabAccessMap[]) };
+  }
   if (flags.presets) {
     const maps = roles.map((r) => rows.roles.get(r.id) ?? PRESET_TAB_ACCESS[r.name]);
     if (maps.every(Boolean)) return { source: 'presets', map: unionTabAccess(maps as TabAccessMap[]) };
@@ -145,7 +151,9 @@ export async function withCustomAccess(prisma: any, organizationId: string, user
       },
     ];
   }
-  return roles.map((r) => (rows.roles.has(r.id) ? { ...r, tabAccess: rows.roles.get(r.id) } : r));
+  // Built-in roles next to a custom one carry their preset table too, so the portal reads the same union the server enforces.
+  const mixed = roles.some((r) => rows.roles.has(r.id)) && roles.every((r) => rows.roles.has(r.id) || PRESET_TAB_ACCESS[r.name]) && !roles.some((r) => UNRESTRICTED_ROLES.has(r.name));
+  return roles.map((r) => (rows.roles.has(r.id) ? { ...r, tabAccess: rows.roles.get(r.id) } : mixed ? { ...r, tabAccess: PRESET_TAB_ACCESS[r.name] } : r));
 }
 
 /** The people among userIds with their own Custom access in this org (Users list "Custom"). */

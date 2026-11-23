@@ -65,8 +65,6 @@ export const SETTINGS_MENU = [
   { label: "Quotation categories", path: "/portal/settings/quotation-categories" },
   // Was the Audit module (guru 2026-11-12: "audit should be called audit log"); shown when the org has that module.
   { label: "Audit Log", path: "/portal/audit" },
-  // Custom roles (enableCustomAccess orgs, Admin / superadmin only; filtered below).
-  { label: "Roles", path: "/portal/settings/roles" },
 ];
 
 /** Org Settings entries that belong to a module: shown only when the org has it on and the role may open it. */
@@ -151,9 +149,8 @@ export function useNavModules() {
       (s.path !== "/portal/settings/job-fields" || isJobFieldsEnabled) &&
       (s.path !== "/portal/settings/workers-teams" || !!isWorkersTeamsEnabled) &&
       (s.path !== "/portal/settings/quotation-categories" || isQuotationCategoryEnabled) &&
-      // Custom access (enableCustomAccess): Roles for Admin / superadmin; a custom-access person
-      // sees Org Settings only at View or above, and never Roles.
-      (s.path !== "/portal/settings/roles" || (!!isCustomAccessEnabled && isAdminUser)) &&
+      // Custom access (enableCustomAccess): a custom-access person sees Org Settings only at View or above.
+      // Roles is a tab of User Management since 2026-11-23 (no menu entry of its own).
       settingsAllowed(customTabs, s.path),
   );
 

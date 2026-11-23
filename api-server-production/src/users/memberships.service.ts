@@ -9,6 +9,7 @@ import { EmailService } from '../email/email.service';
 import { ActionLogService } from '../action-log/action-log.service';
 import { multiRoleOn, multiRoleOrgs, orderPrimaryFirst, planRoleSave, primaryRoleIdOf, roleChangeSummary } from '../roles/multi-role';
 import { accessFlags } from '../access/custom-access';
+import { assertRoleChange } from '../access/role-guard';
 
 /** What the Add user form sends (owner 2026-11-03: email and/or SG mobile, names, roles, optional password). */
 export type AddMemberInput = {
@@ -187,6 +188,8 @@ export class MembershipsService {
     if (!ids.length) throw new BadRequestException('Pick at least one role');
     const roles = await this.prisma.role.findMany({ where: { id: { in: ids }, organizationId }, select: { id: true } });
     if (roles.length !== ids.length) throw new BadRequestException('Pick roles of this organisation');
+    // Custom access orgs: the Admin role only from an Admin (role-guard.ts).
+    await assertRoleChange(this.prisma, organizationId, actor, null, [], ids);
     const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true, name: true } });
     if (!org) throw new BadRequestException(ADD_MEMBER_FAILED);
 

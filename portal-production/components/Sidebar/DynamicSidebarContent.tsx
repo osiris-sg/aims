@@ -516,9 +516,7 @@ export default function DynamicSidebarContent() {
         { key: 'quotation-categories', label: 'Quotation categories', path: '/portal/settings/quotation-categories' },
         // Was the Audit module (guru 2026-11-12: "audit should be called audit log").
         { key: 'audit', label: 'Audit Log', path: '/portal/audit' },
-        // Custom roles (enableCustomAccess orgs, Admin / superadmin only); mirrors useNavModules.
-        { key: 'roles', label: 'Roles', path: '/portal/settings/roles' },
-      ].filter((s) => (s.key !== 'roles' || (!!isCustomAccessEnabled && isAdminUser)) && (s.key !== 'users' || (settingsModuleOn('USER_MANAGEMENT') && !isUserMgmtMasterfileEnabled)) && (s.key !== 'audit' || settingsModuleOn('AUDIT')) && (s.key !== 'accounting-setup' || accountingSetupShown) && (s.key !== 'business-rules' || isBusinessRulesEnabled) && (s.key !== 'hotkeys' || isHotkeysEnabled) && ((s.key !== 'shipping' && s.key !== 'customer-profiles') || showShippingSettings(isModuleEnabled)) && (s.key !== 'job-fields' || isJobFieldsEnabled) && (s.key !== 'workers-teams' || !!isWorkersTeamsEnabled) && (s.key !== 'quotation-categories' || isQuotationCategoryEnabled))
+      ].filter((s) => (s.key !== 'users' || (settingsModuleOn('USER_MANAGEMENT') && !isUserMgmtMasterfileEnabled)) && (s.key !== 'audit' || settingsModuleOn('AUDIT')) && (s.key !== 'accounting-setup' || accountingSetupShown) && (s.key !== 'business-rules' || isBusinessRulesEnabled) && (s.key !== 'hotkeys' || isHotkeysEnabled) && ((s.key !== 'shipping' && s.key !== 'customer-profiles') || showShippingSettings(isModuleEnabled)) && (s.key !== 'job-fields' || isJobFieldsEnabled) && (s.key !== 'workers-teams' || !!isWorkersTeamsEnabled) && (s.key !== 'quotation-categories' || isQuotationCategoryEnabled))
         .map((s) => ({ ...s, label: settingLabel(s) })),
     },
   ];

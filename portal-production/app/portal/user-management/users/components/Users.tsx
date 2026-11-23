@@ -1,6 +1,12 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { Tab, Tabs } from "@mui/material";
+import { useAuth } from "@clerk/nextjs";
+import { useSearchParams } from "next/navigation";
+import { request } from "@/helpers/request";
+import { replyBody, requestFailed } from "@/helpers/requestOutcome";
+import RolesPanel from "@/app/portal/settings/roles/_components/RolesPanel";
 import MainCard from "@/components/MainCard";
 import useUserTableHeader from "../hooks/useUserTableHeader";
 import PageTable from "@/components/PageTable";
@@ -14,7 +20,25 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import { useTranslations } from "next-intl";
 
 export default function Users() {
-  const { isIdQuotationEnabled } = useOrganizationFeatures();
+  const { isIdQuotationEnabled, isCustomAccessEnabled } = useOrganizationFeatures();
+  // Roles tab (enableCustomAccess, WCT group 2026-11-23): for people with Org Settings edit (GET /access canManage).
+  const { getToken } = useAuth();
+  const params = useSearchParams();
+  const [canManageRoles, setCanManageRoles] = useState(false);
+  const [tab, setTab] = useState<"users" | "roles">(params?.get("tab") === "roles" ? "roles" : "users");
+  useEffect(() => {
+    if (!isCustomAccessEnabled) return setCanManageRoles(false);
+    let gone = false;
+    (async () => {
+      const token = await getToken();
+      const res = await request({ path: "/access", method: "GET", ownError: true, quiet: true } as any, {}, token ?? undefined);
+      if (!gone) setCanManageRoles(!requestFailed(res) && !!(replyBody(res) as any)?.canManage);
+    })();
+    return () => {
+      gone = true;
+    };
+  }, [isCustomAccessEnabled, getToken]);
+  const showRoles = !!isCustomAccessEnabled && canManageRoles;
   const t = useTranslations("users.list");
   const { columns, handleEditUser, editUserOpen, selectedUser, handleCloseEditUser, userToDelete, isDeleteInProgress, confirmDeleteUser, cancelDelete } = useUserTableHeader();
 
@@ -38,6 +62,18 @@ export default function Users() {
 
   return (
     <MainCard>
+      {showRoles && (
+        <Tabs value={tab} onChange={(_e, v) => {
+            setTab(v);
+            if (v === "users") refreshUsers();
+          }} sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }}>
+          <Tab value="users" label="Users" />
+          <Tab value="roles" label="Roles" data-tour="roles-tab" />
+        </Tabs>
+      )}
+      {showRoles && tab === "roles" ? (
+        <RolesPanel />
+      ) : (
       <PageTable
         onRowClick={(r: any) => handleEditUser(r)}
         columns={columns}
@@ -59,6 +95,7 @@ export default function Users() {
         pageCount={users.totalPagesCount}
         totalDocs={users.totalDocuments}
       />
+      )}
 
       {isIdQuotationEnabled && <TeamsPanel />}
 
