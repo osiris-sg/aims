@@ -174,28 +174,40 @@ export function remainingAllowance(
   return left;
 }
 
-/** Internal remarks on a balance DO whose earlier DOs could not be matched to the quotation's lines (2026-11-23). */
-export const SUMMARY_DO_REMARK = 'Check qty: earlier DOs were summary lines';
+/** Internal remarks on a balance DO when earlier DO lines did not match the quotation (2026-11-23); the unmatched quotation lines follow. */
+export const SUMMARY_DO_REMARK = "Check qty: earlier DOs didn't match these lines";
 
-/** Earlier DOs exist and none of their lines is a quotation line (summary lines): the new DO lists every line in full. */
-export function earlierDosSummaryOnly(quote: TextLine[], used: TextLine[]): boolean {
-  // Same matching as remainingByLine (exact key, then tolerant full-text match).
-  return remainingByLine(quote.map((q) => ({ ...q, line: null })), used).summaryOnly;
+/** The remark text: SUMMARY_DO_REMARK + ": " + the quotation lines nothing was taken off (empty list: the bare remark). */
+export function unmatchedDoRemark(labels: string[]): string {
+  return labels.length ? `${SUMMARY_DO_REMARK}: ${labels.join('; ')}` : SUMMARY_DO_REMARK;
 }
 
-// ── Tolerant DO-side matching (2026-11-23, ORD-Q-014151) ───────────────────
+/** Earlier DO lines exist and none of them matched a quotation line (the old "summary lines" case). */
+export function earlierDosSummaryOnly(quote: TextLine[], used: TextLine[]): boolean {
+  const r = remainingByLine(quote.map((q) => ({ ...q, line: null })), used);
+  return r.usedLines > 0 && r.unmatchedUsed === r.usedLines;
+}
+
+// ── DO-side matching of earlier DO lines (2026-11-23, ORD-Q-014151; owner's rule) ──
 // The key is the FIRST line of a description, so the quotation's long
 // multi-line lines either share one key ("Maintenance agreement of 1 year 4
 // times package (Quarterly)" x3) or miss the earlier DOs' wording (imported ERP
-// DOs flatten the lines and drop the "- $400+GST per service" note). Each used
-// line is therefore matched to ONE quotation line by its full text, in the
-// spirit of the invoice side (imported-remaining.ts remainingToBill).
+// DOs flatten the lines, drop the "- $400+GST per service" note and name one
+// outlet per visit). Each earlier DO line is matched to ONE quotation line:
+//   1. a product line only to its own product (exact asset key);
+//   2. by ITEM CODE, when both lines have one;
+//   3. by exact description key (as before);
+//   4. else by the CLOSEST description, only when the score is >= MATCH_THRESHOLD
+//      and beats the runner-up by MATCH_MARGIN (else unmatched).
+// Where step 2 or 3 finds several quotation lines (a shared code / first line),
+// the score narrows them to one when it is clear, else they stay one group.
 
-/** A line with its full description (`text`) beside its key; `text` is optional (old callers). */
+/** A line with its full description (`text`) and item code beside its key (`text` / `itemCode` optional). */
 export interface TextLine {
   key: ScopeKey | null;
   quantity?: any;
   text?: unknown;
+  itemCode?: unknown;
 }
 
 /** Full text of a description: html stripped, line breaks kept. */
@@ -216,87 +228,145 @@ const PRICE_NOTE = /\s*[-–—]?\s*\$\s*[\d,]+(?:\.\d+)?\s*(?:\+\s*gst)?(?:\s*(
 export const matchText = (v: unknown): string =>
   rawLines(v).replace(PRICE_NOTE, ' ').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
-/** The normalised text before the first line break. */
-const firstLineText = (v: unknown): string => matchText(rawLines(v).trim().split('\n')[0]);
-
-/** Every word of `small` appears in `big` in the same order (words of `big` may be skipped). */
-const isSubsequence = (small: string[], big: string[]): boolean => {
-  let i = 0;
-  for (const w of big) if (i < small.length && w === small[i]) i++;
-  return i === small.length;
-};
+const words = (v: unknown): string[] => matchText(v).split(' ').filter(Boolean);
+const code = (v: unknown): string => String(v ?? '').trim().toLowerCase();
 
 /**
- * The quotation lines (indices) one used line counts against. Exact key first,
- * as before (several lines sharing the key are narrowed by full text when that
- * picks exactly one, else the whole group). Without an exact key, a
- * description line (never a catalog product) is matched by full text to the
- * UNIQUE quotation description line that fits, trying in turn: the same
- * normalised text; one starts with the other; the same first line; the used
- * line's words in order inside the quotation line (4+ words). [] = none.
+ * Minimum score for a description match. The score is the share of the
+ * earlier DO line's words found in the quotation line, each word weighted by
+ * how rare it is among the quotation's lines (idf: "maintenance agreement ...
+ * quarterly" boilerplate counts little, an outlet name or "uv light" a lot; a
+ * word on no quotation line counts most). A DO line that is a visit of one
+ * quotation line (same words, fewer outlets) scores 1.00; ORD-Q-014151's
+ * quotation lines score at most 0.83 against each other, and a near miss with
+ * one foreign word (another outlet, "and fans") scores 0.76-0.83, so 0.90
+ * keeps those out with room to spare.
  */
-export function matchUsedLine(quote: TextLine[], u: TextLine): number[] {
-  const keyed = quote.map((_, i) => i).filter((i) => !!quote[i].key);
-  const fuzzy = (cands: number[]): number[] => {
-    const t = matchText(u.text);
-    if (!t || !cands.length) return [];
-    const texts = new Map(cands.map((i) => [i, matchText(quote[i].text)]));
-    const same = cands.filter((i) => texts.get(i) === t);
-    if (same.length) return same; // identical lines are one group
-    const one = (f: (i: number) => boolean): number[] | null => {
-      const hit = cands.filter(f);
-      return hit.length === 1 ? hit : null;
-    };
-    const words = t.split(' ');
-    const first = firstLineText(u.text);
-    return (
-      one((i) => !!texts.get(i) && (texts.get(i)!.startsWith(t) || t.startsWith(texts.get(i)!))) ??
-      one((i) => !!first && firstLineText(quote[i].text) === first) ??
-      (words.length >= 4 ? one((i) => isSubsequence(words, (texts.get(i) || '').split(' '))) : null) ??
-      []
-    );
-  };
-  const exact = u.key ? keyed.filter((i) => quote[i].key === u.key) : [];
-  if (exact.length > 1 && u.text != null) {
-    const narrowed = fuzzy(exact);
-    if (narrowed.length === 1) return narrowed;
+export const MATCH_THRESHOLD = 0.9;
+/** The best line must beat the runner-up by this much (sibling lines differ by a word or two: ORD-Q-014151's worst real gap is 0.17). */
+export const MATCH_MARGIN = 0.15;
+/** A description match needs at least this many words (a bare "Hood & Duct" never matches by score). */
+const MIN_SCORE_WORDS = 3;
+
+/** The matching score of a used line's words against a quotation line's words (0..1), with idf weights `w`. */
+export function matchScore(used: string[], quote: string[], w: (t: string) => number): number {
+  const q = new Map<string, number>();
+  for (const t of quote) q.set(t, (q.get(t) || 0) + 1);
+  let hit = 0;
+  let all = 0;
+  for (const t of used) {
+    all += w(t);
+    const n = q.get(t) || 0;
+    if (n > 0) {
+      hit += w(t);
+      q.set(t, n - 1);
+    }
   }
-  if (exact.length) return exact;
-  if (u.key && !u.key.startsWith('d:')) return []; // a catalog product matches only its own product
-  return fuzzy(keyed.filter((i) => quote[i].key!.startsWith('d:') && quote[i].text != null));
+  return all > 0 ? hit / all : 0;
+}
+
+/** How one earlier DO line was matched (for reports and tests). */
+export interface UsedMatch {
+  lines: number[];
+  how: 'asset' | 'itemCode' | 'key' | 'score' | 'none';
+  score?: number;
+}
+
+/** The idf weight over the quotation's lines. */
+function idfOf(quote: TextLine[]): (t: string) => number {
+  const df = new Map<string, number>();
+  for (const l of quote) for (const t of new Set(words(l.text))) df.set(t, (df.get(t) || 0) + 1);
+  const n = Math.max(1, quote.length);
+  return (t) => Math.log(1 + n / (df.get(t) || 0.5));
+}
+
+/** The quotation lines (indices) one earlier DO line counts against, and how it was matched. */
+export function matchUsedLine(quote: TextLine[], u: TextLine, w: (t: string) => number = idfOf(quote)): UsedMatch {
+  const keyed = quote.map((_, i) => i).filter((i) => !!quote[i].key);
+  const uw = words(u.text);
+  const best = (cands: number[]): { i: number; score: number } | null => {
+    if (uw.length < MIN_SCORE_WORDS || !cands.length) return null;
+    const s = cands.map((i) => ({ i, score: matchScore(uw, words(quote[i].text), w) })).sort((a, b) => b.score - a.score);
+    if (s[0].score < MATCH_THRESHOLD) return null;
+    if (s.length > 1 && s[0].score - s[1].score < MATCH_MARGIN) return null;
+    return s[0];
+  };
+  // Several lines share the code / key: narrow by score when that is clear, else the group.
+  const group = (cands: number[], how: UsedMatch['how']): UsedMatch => {
+    if (cands.length > 1 && !cands.every((i) => matchText(quote[i].text) === matchText(quote[cands[0]].text))) {
+      const b = best(cands);
+      if (b) return { lines: [b.i], how, score: b.score };
+    }
+    return { lines: cands, how };
+  };
+  if (u.key && !u.key.startsWith('d:')) {
+    const own = keyed.filter((i) => quote[i].key === u.key);
+    return own.length ? group(own, 'asset') : { lines: [], how: 'none' };
+  }
+  const c = code(u.itemCode);
+  if (c) {
+    const byCode = keyed.filter((i) => code(quote[i].itemCode) === c);
+    if (byCode.length) return group(byCode, 'itemCode');
+  }
+  const exact = u.key ? keyed.filter((i) => quote[i].key === u.key) : [];
+  if (exact.length) return group(exact, 'key');
+  const b = best(keyed.filter((i) => quote[i].key!.startsWith('d:') && quote[i].text != null));
+  return b ? { lines: [b.i], how: 'score', score: b.score } : { lines: [], how: 'none' };
 }
 
 /**
- * What is still to deliver per quotation line: quoted qty minus what the used
- * lines (the order's other DOs, its jobs with no DO, linked ERP DOs) carry,
- * each used line counted against the quotation line(s) `matchUsedLine` finds.
- * A group (lines sharing a key) is used up from its LAST line backwards, which
- * gives the same result as the old per-key pool (earlier lines keep their qty).
- * Lines with nothing left are dropped; lines with no key are skipped.
- * `summaryOnly` = earlier lines exist and none matched any quotation line.
+ * What is still to deliver per quotation line: quoted qty minus what the
+ * earlier DO lines (the order's other DOs, its jobs with no DO, linked ERP DOs)
+ * carry, each counted against the quotation line(s) `matchUsedLine` finds. A
+ * group is used up from its LAST line backwards (the same result as the old
+ * per-key pool). Lines with nothing left are dropped; lines with no key skipped.
+ * `unmatchedUsed` = earlier DO lines that matched no quotation line;
+ * `untouched` = quotation lines nothing was taken off (listed at full qty),
+ * named in the DO's internal remarks when `unmatchedUsed` > 0.
  */
 export function remainingByLine<T>(
   lines: Array<{ line: T } & TextLine>,
   used: TextLine[],
-): { remaining: Array<{ line: T; quantity: number }>; summaryOnly: boolean } {
+): { remaining: Array<{ line: T; quantity: number }>; usedLines: number; unmatchedUsed: number; untouched: T[]; matches: UsedMatch[] } {
   const left = lines.map((l) => (l.key ? qty(l) : 0));
-  let anyUsed = false;
-  let anyMatched = false;
+  const w = idfOf(lines);
+  let usedLines = 0;
+  let unmatchedUsed = 0;
+  const matches: UsedMatch[] = [];
   for (const u of used) {
     if (!u.key && !matchText(u.text)) continue;
-    anyUsed = true;
-    const hit = matchUsedLine(lines, u);
-    if (!hit.length) continue;
-    anyMatched = true;
+    usedLines++;
+    const m = matchUsedLine(lines, u, w);
+    matches.push(m);
+    if (!m.lines.length) {
+      unmatchedUsed++;
+      continue;
+    }
     let q = qty(u);
-    for (let j = hit.length - 1; j >= 0 && q > 0; j--) {
-      const take = Math.min(left[hit[j]], q);
-      left[hit[j]] -= take;
+    for (let j = m.lines.length - 1; j >= 0 && q > 0; j--) {
+      const take = Math.min(left[m.lines[j]], q);
+      left[m.lines[j]] -= take;
       q -= take;
     }
   }
   const remaining = lines.map((l, i) => ({ line: l.line, quantity: left[i] })).filter((r, i) => !!lines[i].key && r.quantity > 0);
-  return { remaining, summaryOnly: anyUsed && !anyMatched && lines.some((l) => !!l.key) };
+  const untouched = lines.filter((l, i) => !!l.key && left[i] === qty(l)).map((l) => l.line);
+  return { remaining, usedLines, unmatchedUsed, untouched, matches };
+}
+
+/**
+ * A short name for a quotation line in the remark: its first line, or, when
+ * other quotation lines share that first line, its own first distinct line
+ * ("*For Hood & Duct - $400+GST per service*" -> "For Hood & Duct").
+ */
+export function quoteLineLabel(text: unknown, all: unknown[]): string {
+  const clean = (s: string) => s.replace(PRICE_NOTE, ' ').replace(/[*_]+/g, '').replace(/\s+/g, ' ').trim();
+  const mine = rawLines(text).split('\n').map(clean).filter(Boolean);
+  const first = mine[0] ?? '';
+  const siblings = all.filter((o) => o !== text).map((o) => rawLines(o).split('\n').map(clean).filter(Boolean)).filter((o) => o[0] === first);
+  const own = siblings.length ? mine.slice(1).find((l) => siblings.every((o) => !o.includes(l))) : undefined;
+  const label = own ?? first;
+  return label.length > 60 ? `${label.slice(0, 57)}...` : label;
 }
 
 /** The quote's lines with the quantity still to deliver (lines with none left are dropped). */

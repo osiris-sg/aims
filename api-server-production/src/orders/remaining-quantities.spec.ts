@@ -47,7 +47,7 @@ describe('balance DO after summary-line DOs', () => {
     expect(earlierDosSummaryOnly(QUOTE, [{ key: D('Balance of quotation Q-014151'), quantity: 1 }])).toBe(true);
     expect(earlierDosSummaryOnly(QUOTE, [{ key: D('UVC emitter'), quantity: 1 }, { key: D('Ladder hire'), quantity: 1 }])).toBe(false);
     expect(earlierDosSummaryOnly(QUOTE, [])).toBe(false);
-    expect(SUMMARY_DO_REMARK).toBe('Check qty: earlier DOs were summary lines');
+    expect(SUMMARY_DO_REMARK).toBe("Check qty: earlier DOs didn't match these lines");
     // The summary lines take nothing off: every line at its full qty.
     const left = remainingAllowance(QUOTE, [{ key: D('Balance of quotation Q-014151'), quantity: 1 }]);
     expect(remainingQuoteLines(QUOTE.map((q, i) => ({ line: i, key: q.key, quantity: q.quantity })), left)).toEqual([{ line: 0, quantity: 3 }, { line: 1, quantity: 1 }]);
