@@ -297,3 +297,21 @@ test("slot hints: same team at the same time, 3+ jobs in the slot, never the job
   assert.deepEqual(slotHints(events, { date: "2026-11-20", time: null, durationMin: 60 }), ["4 jobs already at this time"]);
   assert.deepEqual(slotHints(events, { date: "", time: "10:00", durationMin: 60 }), []);
 });
+
+test("export (23 Nov): all-day jobs and all-day notes first as 'All day', then the timed jobs by time", () => {
+  const day = [
+    ev({ id: "aims:2", customer: "Late Co", start: "2026-11-24T08:00:00.000Z", end: "2026-11-24T09:00:00.000Z", address: "1 Late Rd" }),
+    ev({ id: "aims:3", customer: "Allday Co", allDay: true, start: "2026-11-24", end: null, address: "2 Day Rd", subject: "Duct check" }),
+    ev({ id: "aims:4", customer: "Early Co", start: "2026-11-24T01:00:00.000Z", end: "2026-11-24T02:00:00.000Z" }),
+  ];
+  const notes = [
+    { title: "Leave", staffName: "Ali", startDate: "2026-11-23", endDate: "2026-11-25", allDay: true, remark: null },
+    { title: "Road closed", staffName: null, startDate: "2026-11-24", endDate: "2026-11-24", allDay: false, startTime: "09:00", endTime: "10:00" },
+  ];
+  const out = exportText(day, { from: "2026-11-24", to: "2026-11-24", header: "" }, notes);
+  assert.equal(out, ["*24/11/2026, Tuesday*", "*SCHEDULE*", "All day - Allday Co @ 2 Day Rd (Duct check)", "All day - Leave · Ali", "9am - Early Co", "4pm - Late Co @ 1 Late Rd"].join("\n\n"));
+  // A day with only an all-day note is listed; timed notes never.
+  assert.equal(exportText([], { from: "2026-11-25", to: "2026-11-25", header: "" }, notes), ["*25/11/2026, Wednesday*", "*SCHEDULE*", "All day - Leave · Ali"].join("\n\n"));
+  // Cancelled all-day jobs follow the usual rule (left out unless ticked).
+  assert.ok(!exportText([ev({ allDay: true, start: "2026-11-24", cancelled: true, customer: "Gone Co" })], { from: "2026-11-24", to: "2026-11-24", header: "" }).includes("Gone Co"));
+});

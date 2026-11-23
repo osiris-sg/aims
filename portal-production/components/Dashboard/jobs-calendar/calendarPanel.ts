@@ -527,16 +527,42 @@ export function exportJobs(events: CalendarEvent[], o: Pick<ExportOptions, "from
   return by;
 }
 
+/** An all-day calendar note on the list (2026-11-23): "All day - Leave · Ali (Remark)". */
+export type ExportNote = { title: string; staffName?: string | null; startDate: string; endDate: string; allDay: boolean; remark?: string | null; orgId?: string };
+export function exportNoteLine(n: ExportNote): string {
+  const remark = plain(n.remark);
+  return `All day - ${plain(n.title)}${n.staffName ? ` · ${plain(n.staffName)}` : ""}${remark ? ` (${remark})` : ""}`;
+}
+
+/** The all-day notes per day in from..to (a note over several days is on each of them). */
+export function exportNotes(notes: ExportNote[], o: Pick<ExportOptions, "from" | "to">): Map<string, ExportNote[]> {
+  const by = new Map<string, ExportNote[]>();
+  const next = (d: string) => new Date(Date.parse(`${d}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  for (const n of notes) {
+    if (!n.allDay) continue;
+    let day = n.startDate < o.from ? o.from : n.startDate;
+    const last = (n.endDate || n.startDate) > o.to ? o.to : n.endDate || n.startDate;
+    for (let i = 0; day <= last && i < 62; i++, day = next(day)) by.set(day, [...(by.get(day) ?? []), n]);
+  }
+  return by;
+}
+
 /**
- * The WhatsApp text: per date "*dd/mm/yyyy, Weekday*", the header line, "*SCHEDULE*", then one line per job by time,
- * a blank line between everything. Days with no jobs are left out; nothing at all = "".
+ * The WhatsApp text: per date "*dd/mm/yyyy, Weekday*", the header line, "*SCHEDULE*", then the all-day items first
+ * ("All day - …": all-day jobs, then all-day notes, 2026-11-23) and the timed jobs by time, a blank line between
+ * everything. Days with nothing on them are left out; nothing at all = "".
  */
-export function exportText(events: CalendarEvent[], o: ExportOptions): string {
+export function exportText(events: CalendarEvent[], o: ExportOptions, notes: ExportNote[] = []): string {
   const by = exportJobs(events, o);
+  const noteDays = exportNotes(notes, o);
   const header = plain(o.header);
-  return [...by.keys()]
+  return [...new Set([...by.keys(), ...noteDays.keys()])]
     .sort()
-    .map((day) => [exportDateLine(day), ...(header ? [header] : []), "*SCHEDULE*", ...by.get(day)!.map(exportLine)].join("\n\n"))
+    .map((day) => {
+      const jobs = by.get(day) ?? [];
+      const lines = [...jobs.filter((e) => e.allDay).map(exportLine), ...(noteDays.get(day) ?? []).map(exportNoteLine), ...jobs.filter((e) => !e.allDay).map(exportLine)];
+      return [exportDateLine(day), ...(header ? [header] : []), "*SCHEDULE*", ...lines].join("\n\n");
+    })
     .join("\n\n");
 }
 

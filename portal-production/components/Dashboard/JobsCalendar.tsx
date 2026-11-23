@@ -337,7 +337,11 @@ export function JobsCalendarPanel({
       const p = loadRange ? await loadRange(from, to) : data;
       const list = p?.events ?? [];
       const byPeople = withPeople ? filterByPeople(list, hidden) : list;
-      return filterEvents(byPeople, filters, ownOrgId);
+      // All-day notes too (2026-11-23), with the same people list and Company filter as the jobs.
+      const noteList = p?.notes ?? [];
+      const notesByPeople = withPeople ? filterByPeople(noteList, hidden) : noteList;
+      const notes = filters.companies.length ? notesByPeople.filter((n: any) => filters.companies.includes(n.orgId || ownOrgId || "")) : notesByPeople;
+      return { events: filterEvents(byPeople, filters, ownOrgId), notes };
     },
     [loadRange, data, withPeople, hidden, filters, ownOrgId],
   );
