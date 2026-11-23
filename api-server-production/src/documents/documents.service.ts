@@ -1140,11 +1140,28 @@ export class DocumentsService {
       if (DELIVERY_DOC_TYPES.has(String((document as any).type || '')) && !((document as any).maintenanceReports ?? []).length) {
         const famIds = await this.revisionFamilyIds(document as any, organizationId);
         if (famIds.length) {
-          (document as any).maintenanceReports = await this.prisma.maintenanceServiceReport.findMany({
+          const inherited = await this.prisma.maintenanceServiceReport.findMany({
             where: { documentId: { in: famIds }, kind: { in: ['DO_START', 'DO_ACK', 'DO_INSTALL'] } },
             orderBy: { createdAt: 'asc' },
             select: PROOF_MSR_SELECT,
           });
+          // THE PHOTOS CARRY OVER, THE SIGNATURE DOES NOT (guru 2026-11-24).
+          // A revision is a fresh, unconfirmed document: the goods' CONDITION is
+          // the same delivery and worth showing, but the customer signed the
+          // paper that was superseded, not this one. Printing their signature on
+          // a document they have not seen would be inventing an acknowledgement.
+          // Stripped on the way out only — the original's own rows are untouched
+          // and still show their sign-off.
+          (document as any).maintenanceReports = inherited.map((r: any) => ({
+            ...r,
+            signature: null,
+            signedByName: null,
+            signedAt: null,
+            serviceData:
+              r.serviceData && typeof r.serviceData === 'object'
+                ? { ...(r.serviceData as any), signedDateText: undefined }
+                : r.serviceData,
+          }));
         }
       }
 
@@ -4985,8 +5002,12 @@ export class DocumentsService {
         throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
       }
       const baseDocumentId = original.baseDocumentId || original.id;
+      // The ORIGINAL belongs in its own history. It carries baseDocumentId null
+      // (only revisions point back), so matching on that column alone listed
+      // Rev-1 and Rev-2 but never the document they were revised FROM — the one
+      // version a reader most wants to compare against (guru 2026-11-24).
       const documents = await this.prisma.document.findMany({
-        where: { organizationId, baseDocumentId },
+        where: { organizationId, OR: [{ id: baseDocumentId }, { baseDocumentId }] },
         orderBy: { createdAt: 'asc' },
         select: { id: true, name: true, createdAt: true, revisionNumber: true },
       });
