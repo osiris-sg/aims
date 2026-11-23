@@ -44,3 +44,12 @@ test("editor: WCT QO / DO / Invoice right box is Remarks on config.remarks; no C
   assert.doesNotMatch(src, /internalRemarks: next/);
   assert.match(src, /internalRemarks: \(existingData as any\)\?\.internalRemarks/);
 });
+
+test("the Subject column can be sorted (an accessor is needed for the header to sort)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../app/portal/components/DocumentListView.tsx", import.meta.url), "utf8");
+  const i = src.indexOf("id: SUBJECT_SORT,");
+  assert.ok(i > 0);
+  assert.match(src.slice(i, i + 400), /accessorFn: \(r: any\) => subjectCell\(r\)\?\.text \?\? ""/);
+  assert.match(src.slice(i, i + 400), /enableSorting: true/);
+});

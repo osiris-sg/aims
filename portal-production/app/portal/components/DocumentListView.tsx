@@ -508,6 +508,8 @@ export default function DocumentListView({
       ? {
           // WCT group: the Subject (server listSubject); a DO / Invoice with none of its own shows its quotation's, muted.
           id: SUBJECT_SORT,
+          // A column needs an accessor to be sortable at all (the sort itself runs on the server, sortColMap).
+          accessorFn: (r: any) => subjectCell(r)?.text ?? "",
           header: "Subject",
           enableSorting: true,
           cell: ({ row }: any) => {
