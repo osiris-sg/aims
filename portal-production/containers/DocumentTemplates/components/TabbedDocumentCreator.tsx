@@ -694,6 +694,19 @@ export default function TabbedDocumentCreator({
   // (<number>-R1, -R2…; the replaced version goes to Revision history) or to the current one.
   const revisionQuotation = isQuotationRevisionOnSaveEnabled && !isTemplateEditMode && ["QUOTATION", "QO", "QO1", "QO2", "QT"].includes(String(documentType || ""));
   const reviseOnSave = revisionQuotation && isDocumentConfirmedStatus && !isVoidedDoc && confirmedEditUnlocked && !isDocumentConfirmed;
+  // REVISION HISTORY — offered on anything that can actually be revised, not
+  // only the WCT quotation flow (guru 2026-11-24: "how come i cant see the
+  // revision history"). It used to sit on the legacy DocumentNameHeader, which
+  // this editor replaced, and the replacement was gated on revisionQuotation —
+  // so a Delivery Order, which "Create Revision" right below it will happily
+  // revise, had no way to look at its own history. The dialog handles the empty
+  // case ("No revisions yet"), so offering it costs nothing where there are none.
+  const canShowRevisionHistory =
+    !isTemplateEditMode &&
+    !!(existingData?.id || documentId) &&
+    ["QUOTATION", "QO", "QO1", "QO2", "QT", "INVOICE", "TI", "TI2", "DO", "DELIVERY_ORDER", "RDO", "RETURN_DELIVERY_ORDER"].includes(
+      String(documentType || ""),
+    );
   const reviseOnSaveRef = useRef(reviseOnSave);
   reviseOnSaveRef.current = reviseOnSave;
   // open = the Save choice is on screen; exitTo = leave for that route once saved.
@@ -6015,7 +6028,7 @@ export default function TabbedDocumentCreator({
             )}
             {/* Revisions are a sales-document idea: a receipt / voucher is edited in place, so a
                 locked one (lock dates, Lock, a posting with no document) never offers it. */}
-            {revisionQuotation && !!(existingData?.id || documentId) && (
+            {canShowRevisionHistory && (
               <MenuItem onClick={() => { closeMoreMenu(); setRevisionHistoryOpen(true); }} data-testid="revision-history-item">
                 <ListItemIcon><HistoryIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Revision history</ListItemText>
