@@ -582,9 +582,9 @@ function DocDefaultsTab({ control, setValue }: { control: any; setValue: (n: str
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const current = (selectedType && all[selectedType]) || { tnc: "", notes: "", footerMessage: "" };
+  const current = (selectedType && all[selectedType]) || { tnc: "", notes: "", footerMessage: "", quoteTerms: "" };
 
-  const updateField = (key: "tnc" | "notes" | "footerMessage", value: string) => {
+  const updateField = (key: "tnc" | "notes" | "footerMessage" | "quoteTerms", value: string) => {
     if (!selectedType) return;
     const next = {
       ...all,
@@ -622,7 +622,8 @@ function DocDefaultsTab({ control, setValue }: { control: any; setValue: (n: str
             const hasContent =
               !!all[d.code]?.tnc?.trim() ||
               !!all[d.code]?.notes?.trim() ||
-              !!all[d.code]?.footerMessage?.trim();
+              !!all[d.code]?.footerMessage?.trim() ||
+              !!all[d.code]?.quoteTerms?.trim();
             return (
               <MenuItem key={d.code} value={d.code}>
                 {d.label}
@@ -669,6 +670,22 @@ function DocDefaultsTab({ control, setValue }: { control: any; setValue: (n: str
             value={current.footerMessage || ""}
             onChange={(e) => updateField("footerMessage", e.target.value)}
             placeholder={t("footerPh")}
+            fullWidth
+          />
+          {/* Numbered terms (guru 2026-11-23). ONE TERM PER LINE — the numbers
+              are applied when the document renders, so terms can be added,
+              reworded or reordered here without ever renumbering by hand.
+              Write {paymentTerms} where the document's own payment terms
+              belong. Leaving this empty keeps the terms the document printed
+              before. Today the Biofuel quotation footer reads it. */}
+          <TextField
+            label={t("quoteTerms")}
+            multiline
+            minRows={4}
+            value={current.quoteTerms || ""}
+            onChange={(e) => updateField("quoteTerms", e.target.value)}
+            placeholder={t("quoteTermsPh")}
+            helperText={t("quoteTermsHelp")}
             fullWidth
           />
           <Box>

@@ -201,4 +201,10 @@ export class UpdateDocumentDto extends PartialType(CreateDocumentDto) {
   @IsInt()
   @IsOptional()
   version?: number;
+
+  // enableQuotationRevisionOnSave: save this edit of an accepted quotation as its next
+  // revision (<number>-R1…) instead of over the current one (documents/quotation-revision.ts).
+  @IsBoolean()
+  @IsOptional()
+  saveAsRevision?: boolean;
 }
