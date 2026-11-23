@@ -90,6 +90,16 @@ const IMPORTED_STATUS_TEXT: Record<string, string> = { PAID: 'Paid', INVOICED: '
  * Invoices are spun off later. Status is intentionally free-form for v1 — no
  * auto-advance based on linked-doc states yet.
  */
+/** The last signed / stamped DO file on a DO's attachments (label "Stamped DO"), or null. */
+export function stampedDoKeyOf(attachments: unknown): string | null {
+  const list = Array.isArray(attachments) ? attachments : [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const a: any = list[i];
+    if (a && typeof a.fileKey === 'string' && a.fileKey && String(a.label ?? '') === 'Stamped DO') return a.fileKey;
+  }
+  return null;
+}
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -1377,7 +1387,7 @@ export class OrdersService {
       docIds.length
         ? this.prisma.document.findMany({
             where: { id: { in: docIds }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } },
-            select: { id: true, name: true, status: true, documentTemplateId: true, config: true, createdAt: true },
+            select: { id: true, name: true, status: true, documentTemplateId: true, config: true, createdAt: true, attachments: true },
             orderBy: { createdAt: 'asc' },
           })
         : Promise.resolve([] as any[]),
@@ -1428,7 +1438,7 @@ export class OrdersService {
         type: { in: ['DELIVERY_ORDER', 'DO'] },
         OR: [{ config: { path: ['orderId'], equals: order.id } }, ...(linkedDoIds.length ? [{ id: { in: linkedDoIds } }] : [])],
       },
-      select: { id: true, name: true, status: true, documentTemplateId: true, config: true, createdAt: true },
+      select: { id: true, name: true, status: true, documentTemplateId: true, config: true, createdAt: true, attachments: true },
       orderBy: { createdAt: 'asc' },
     });
     const linkStamp = (id: string) => {
@@ -1458,6 +1468,8 @@ export class OrdersService {
           date: c.date ?? c.documentInfo?.date ?? null,
           completed,
           awaitingSignature: !completed && c.awaitingSignature === true,
+          // 2026-11-23: the signed / stamped DO uploaded on completion (Complete DO, Upload signed DO): the FILE column opens it.
+          stampedFileKey: completed ? stampedDoKeyOf(d.attachments) : null,
           invoiceId: c.orderInvoiceId && !String(c.orderInvoiceId).startsWith('claim:') ? c.orderInvoiceId : null,
           hasProducts: (Array.isArray(c.items) ? c.items : []).some((it: any) => it?.assetId),
           // Product rows still without a unit (one per unit): Complete DO picks them.

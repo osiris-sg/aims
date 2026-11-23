@@ -53,3 +53,12 @@ describe('balance DO after summary-line DOs', () => {
     expect(remainingQuoteLines(QUOTE.map((q, i) => ({ line: i, key: q.key, quantity: q.quantity })), left)).toEqual([{ line: 0, quantity: 3 }, { line: 1, quantity: 1 }]);
   });
 });
+
+describe('order page: the uploaded signed / stamped DO (FILE column, 2026-11-23)', () => {
+  const { stampedDoKeyOf } = jest.requireActual('./orders.service');
+  it('the last "Stamped DO" attachment, nothing else', () => {
+    expect(stampedDoKeyOf([{ fileKey: 'a', label: 'Stamped DO' }, { fileKey: 'b', label: 'Other' }, { fileKey: 'c', label: 'Stamped DO' }])).toBe('c');
+    expect(stampedDoKeyOf([{ fileKey: 'b', label: 'Other' }])).toBeNull();
+    expect(stampedDoKeyOf(null)).toBeNull();
+  });
+});

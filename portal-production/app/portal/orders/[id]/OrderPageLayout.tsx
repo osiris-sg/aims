@@ -49,7 +49,7 @@ function Field({ f }: { f: OrderField }) {
   );
 }
 
-function Card({ card, n, onClick }: { card: OrderCard; n: number; onClick: (e: React.MouseEvent) => void }) {
+function Card({ card, n, onClick, onUploadDo }: { card: OrderCard; n: number; onClick: (e: React.MouseEvent) => void; onUploadDo?: (doId: string) => void }) {
   const can = !!card.click;
   return (
     <Box
@@ -100,6 +100,21 @@ function Card({ card, n, onClick }: { card: OrderCard; n: number; onClick: (e: R
               </Box>
             )}
             {d.status ? ` · ${d.status}` : ""}
+            {/* 2026-11-23: a pending DO: the DO page's upload (Complete DO, Upload signed DO), from here. */}
+            {d.uploadDoId && onUploadDo && (
+              <Box
+                component="button"
+                type="button"
+                onClick={(e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  onUploadDo(d.uploadDoId!);
+                }}
+                data-tour="wct-order-card-upload-do"
+                sx={{ display: "block", p: 0, mt: 0.25, border: 0, background: "none", cursor: "pointer", color: "primary.main", font: "inherit", fontSize: "0.75rem", fontWeight: 600, textAlign: "left" }}
+              >
+                Upload completed DO
+              </Box>
+            )}
           </Typography>
         ))
       ) : !card.note ? (
@@ -231,6 +246,7 @@ export default function OrderPageLayout({
   onRow,
   onRowMenu,
   onFile,
+  onUploadDo,
   busy = {},
   alerts,
   photos = true,
@@ -244,6 +260,8 @@ export default function OrderPageLayout({
   onRow: (row: OrderDocRow) => void;
   onRowMenu: (row: OrderDocRow, pos: Pos) => void;
   onFile: (row: OrderDocRow) => void;
+  /** The DO card's "Upload completed DO" under a pending DO (2026-11-23). */
+  onUploadDo?: (doId: string) => void;
   busy?: Partial<Record<OrderAction["key"], boolean>>;
   alerts?: React.ReactNode;
   /** Off in the fixture preview (no API). */
@@ -289,7 +307,7 @@ export default function OrderPageLayout({
       <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }} data-section="tracker" data-tour="wct-order-hub">
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
           {m.cards.map((c, i) => (
-            <Card key={c.key} card={c} n={i + 1} onClick={(e) => onCard(c, at(e))} />
+            <Card key={c.key} card={c} n={i + 1} onClick={(e) => onCard(c, at(e))} onUploadDo={onUploadDo} />
           ))}
         </Stack>
       </Paper>

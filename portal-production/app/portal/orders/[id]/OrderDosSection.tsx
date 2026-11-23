@@ -23,6 +23,8 @@ export interface OrderDo {
   date?: string | null;
   completed: boolean;
   awaitingSignature: boolean;
+  /** The uploaded signed / stamped DO (completed by upload), for the FILE column. */
+  stampedFileKey?: string | null;
   invoiceId: string | null;
   hasProducts: boolean;
   /** Product rows without a unit yet: Complete DO picks one unit each. */
@@ -72,6 +74,7 @@ export function OrderDoMenu({
   onClose,
   cancelled,
   onCompleteDo,
+  onUploadDo,
   onSignLink,
   extra,
 }: {
@@ -79,6 +82,8 @@ export function OrderDoMenu({
   onClose: () => void;
   cancelled: boolean;
   onCompleteDo: (d: OrderDo) => void;
+  /** 2026-11-23: Complete DO opened on its "Upload signed DO" way (the DO page's upload, same flow). */
+  onUploadDo?: (d: OrderDo) => void;
   onSignLink: (d: OrderDo) => void;
   /** Round 24: the order page's row items after the DO's own (Unlink from order, Delete); an array, never a Fragment. */
   extra?: React.ReactNode[];
@@ -100,6 +105,11 @@ export function OrderDoMenu({
       {d && !d.completed && !cancelled && (
         <MenuItem onClick={() => { onClose(); onCompleteDo(d); }} data-tour="wct-order-complete-do">
           Complete DO
+        </MenuItem>
+      )}
+      {d && !d.completed && !cancelled && onUploadDo && (
+        <MenuItem onClick={() => { onClose(); onUploadDo(d); }} data-tour="wct-order-upload-do">
+          Upload completed DO
         </MenuItem>
       )}
       {d && !d.completed && !cancelled && <MenuItem onClick={() => void addJob(d)}>Add job</MenuItem>}

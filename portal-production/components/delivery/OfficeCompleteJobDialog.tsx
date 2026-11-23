@@ -45,6 +45,7 @@ export default function OfficeCompleteJobDialog({
   productSlots = [],
   onDone,
   doId,
+  initialMode,
 }: {
   open: boolean;
   onClose: () => void;
@@ -56,12 +57,14 @@ export default function OfficeCompleteJobDialog({
   onDone: (mode: Mode) => void;
   /** DO first (manual flow, 2026-11-13): complete this DO (deliveryId is unused then; the server uses its job if it has a scheduled one). */
   doId?: string;
+  /** The way it opens on (2026-11-23: the order page's "Upload completed DO" opens on Upload signed DO). */
+  initialMode?: Mode;
 }) {
   const isDo = !!doId;
   const { getToken } = useAuth();
   const sig = useRef<SignatureCanvas>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const [mode, setMode] = useState<Mode>("signature");
+  const [mode, setMode] = useState<Mode>(initialMode ?? "signature");
   const [name, setName] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);

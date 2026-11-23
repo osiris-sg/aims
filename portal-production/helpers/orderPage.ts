@@ -33,6 +33,8 @@ export interface OrderCardDoc {
   href?: string | null;
   /** Another company's $1-or-less "(NG)" invoice: greyed, "placeholder, not counted" on hover (2026-11-23). */
   placeholder?: boolean;
+  /** A pending DO on the DO card (manual order flow, 2026-11-23): "Upload completed DO" under it opens Complete DO's upload. */
+  uploadDoId?: string;
 }
 /** A card's click: its first document, else its add action (nothing for a card with neither). */
 export type OrderCardClick = { href: string } | { action: "add-do" | "service-report" | "create-invoice" } | null;
@@ -75,9 +77,11 @@ export interface OrderAction {
 }
 
 export interface OrderDocFile {
-  label: "PDF" | "Photos";
+  label: "PDF" | "Photos" | "File";
   /** An API path (signed URL or bytes back). */
   path: string;
+  /** A stored file opened directly by its key (the uploaded signed / stamped DO, 2026-11-23). */
+  fileKey?: string;
 }
 export interface OrderDocRow {
   key: string;
@@ -265,7 +269,13 @@ function workRows(o: any): OrderDocRow[] {
       owed: null,
       href,
       // The signed DO once its job is finished (the existing "Download signed DO").
-      file: d.completed && doneJob ? { label: "PDF", path: `/delivery-group-posts/delivery/${doneJob.id}/signed-do?documentId=${d.id}` } : null,
+      // 2026-11-23: a DO completed by uploading the signed / stamped DO (no job): that file.
+      file:
+        d.completed && doneJob
+          ? { label: "PDF", path: `/delivery-group-posts/delivery/${doneJob.id}/signed-do?documentId=${d.id}` }
+          : d.completed && d.stampedFileKey
+            ? { label: "File", path: "", fileKey: String(d.stampedFileKey) }
+            : null,
       // Round 29: a DO linked to an AIMS order (Link existing document): Open + Unlink, not the order's DO menu.
       // Round 33: a linked DO billed by Create invoice stays on the order while that invoice is live.
       ...(d.linkedOnly
@@ -430,6 +440,19 @@ export function nativeInvoiceAsk(o: any): string {
   return "Create an invoice now for what the completed DOs carry on top of the quotation? When there is nothing new to bill, the order's invoice opens instead.";
 }
 
+/**
+ * The DO card's pending DOs (manual order flow, 2026-11-23): "Upload completed DO" under each one not yet completed,
+ * not waiting for a sign link and not an ERP DO (the DO page's own upload; marks the docs in place and returns them).
+ */
+export function withDoUploads(docs: OrderCardDoc[], dos: any[], enabled: boolean): OrderCardDoc[] {
+  if (!enabled) return docs;
+  for (const d of docs) {
+    const p = (dos || []).find((x) => (x?.name || "DO") === d.label && !x.completed && !x.awaitingSignature && !x.imported);
+    if (p?.id) d.uploadDoId = p.id;
+  }
+  return docs;
+}
+
 export function nativeOrderPage(order: any, ctx: OrderPageContext = {}): OrderPageModel {
   // Round 29: an order marked complete reads Complete; its steps, Create invoice and the next steps read the status
   // its documents give underneath (completed.underlying).
@@ -458,7 +481,8 @@ export function nativeOrderPage(order: any, ctx: OrderPageContext = {}): OrderPa
   const cards = markCurrent(
     ORDER_CARD_KEYS.map((k) => {
       const s = byKey(k);
-      const docs = s.docs.map((d) => ({ label: d.label, status: d.status ?? null, href: d.href ?? null }));
+      const docs: OrderCardDoc[] = s.docs.map((d) => ({ label: d.label, status: d.status ?? null, href: d.href ?? null }));
+      if (k === "do") withDoUploads(docs, dos, manualFlow && !cancelled);
       // Linked quotations (round 29) sit with the order's own on the Quotation card.
       if (k === "quotation") for (const x of o.quotations ?? []) docs.push({ label: x.name || "Quotation", status: null, href: docHref(x.type || "QUOTATION", x.templateId ?? x.documentTemplateId, x.id) });
       return { key: k, title: s.title, done: s.done, current: false, date: s.date, note: s.note ?? null, subNote: null, docs, empty: "", click: cardClick(docs, add[k]) };
@@ -614,7 +638,11 @@ export function importedOrderPage(o: any, ctx: OrderPageContext = {}): OrderPage
   const firstInvDate = invoices.map((i) => i.date).filter(Boolean).sort()[0] ?? null;
   const reportLabel = (l: string) => (l.startsWith("#") ? `Service report ${l}` : l);
   const canCreate = !!o.canInvoice && !draft;
-  const doDocs: OrderCardDoc[] = (t("do").docs ?? []).map((d: any) => ({ label: d.label, status: d.status ?? null, href: d.href ?? null }));
+  const doDocs: OrderCardDoc[] = withDoUploads(
+    (t("do").docs ?? []).map((d: any) => ({ label: d.label, status: d.status ?? null, href: d.href ?? null })),
+    o.deliveryOrders ?? [],
+    manualFlow,
+  );
   const repDocs: OrderCardDoc[] = (t("serviceReport").docs ?? []).map((d: any) => ({ label: reportLabel(String(d.label)), status: d.status ?? null, href: d.href ?? null }));
   const cards = markCurrent(
     [

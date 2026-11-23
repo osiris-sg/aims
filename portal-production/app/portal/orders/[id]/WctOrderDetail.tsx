@@ -107,6 +107,15 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
   const [srMenu, setSrMenu] = useState<{ pos: Pos; doId: string | null } | null>(null);
   // DO first (manual flow, 2026-11-13): complete a DO with no job; its sign link; a DO row's menu.
   const [completeDo, setCompleteDo] = useState<OrderDo | null>(null);
+  // "Upload completed DO" (2026-11-23): the same Complete DO dialog, opened on Upload signed DO.
+  const [completeMode, setCompleteMode] = useState<"stamped_do" | undefined>(undefined);
+  const uploadDo = (d: OrderDo) => {
+    setCompleteMode("stamped_do");
+    setCompleteDo(d);
+  };
+  useEffect(() => {
+    if (!completeDo) setCompleteMode(undefined);
+  }, [completeDo]);
   const [signLinkDo, setSignLinkDo] = useState<OrderDo | null>(null);
   const [doMenu, setDoMenu] = useState<{ pos: Pos; d: OrderDo; row: OrderDocRow } | null>(null);
   // Unlink from order / Delete on a Documents row (Elroy 2026-11-19): asked first, naming the document.
@@ -453,6 +462,8 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
   // A file from the API: the quotation / invoice PDF (a signed URL back), the signed DO or a photos file (the bytes).
   const openFile = async (r: OrderDocRow) => {
     if (!r.file) return openRow(r);
+    // The uploaded signed / stamped DO: the stored file itself (as the DO's attachments open it).
+    if (r.file.fileKey) return void window.open(publicFileUrl(r.file.fileKey), "_blank", "noopener");
     const tab = window.open("", "_blank");
     try {
       const token = await getToken();
@@ -505,6 +516,10 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
   return (
     <OrderPageLayout
       model={model}
+      onUploadDo={(id) => {
+        const d = dos.find((x) => x.id === id);
+        if (d) uploadDo(d);
+      }}
       onBack={() => goBack("/portal/orders")}
       onAction={(a, e) => runAction(a, e)}
       onNextStep={(k, pos) => runHub(k, pos)}
@@ -532,7 +547,11 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
         menu={doMenu}
         onClose={() => setDoMenu(null)}
         cancelled={model.cancelled}
-        onCompleteDo={(d) => setCompleteDo(d)}
+        onCompleteDo={(d) => {
+          setCompleteMode(undefined);
+          setCompleteDo(d);
+        }}
+        onUploadDo={uploadDo}
         onSignLink={(d) => setSignLinkDo(d)}
         extra={doMenu ? rowItems(doMenu.row, () => setDoMenu(null)) : []}
       />
@@ -604,6 +623,7 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
           productSlots={(completeDo.products ?? []).map((p) => ({ assetId: p.assetId, name: p.name, quantity: 1 }))}
           jobLabel={completeDo.name || "the DO"}
           defaultName={order.customer?.name ?? null}
+          initialMode={completeMode}
           onDone={(mode) => {
             const d = completeDo;
             setCompleteDo(null);
