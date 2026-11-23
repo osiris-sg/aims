@@ -56,6 +56,7 @@ export function parseAdHocReturnNotes(notes: string | null | undefined): { custo
 
 import { enqueueDeliveryGroupPost } from '../delivery-group-posts/enqueue';
 import { isOrgFeatureEnabled } from 'src/common/org-features';
+import { OFFICE_DO_EDITS_FLAG, doContactRefresh } from './office-do-edits';
 import { QUOTATION_TO_DELIVERY_FLAG, applyQuotationLinkToDoConfig, attachJobToQuotationOrder, quotationLinesForJob } from './quotation-to-delivery';
 import { OPTIONAL_SALE_ORDER_FLAG, saleOrderMissing } from './optional-sale-order';
 import { isCalendarAddEnabled, parseLinkKind, parsePtwRemark, parsePtwStatus, parseWorkers } from './quick-jobs';
@@ -2552,6 +2553,13 @@ export class DeliveriesService {
         // Same for Attention: set explicitly so a re-derived (or cleared) value
         // replaces the old snapshot rather than merging under it.
         fragment.attention = scheduledAttention ?? null;
+        // enableOfficeDoEdits (Biofuel): also replace the top-level contact keys the
+        // Biofuel DO editor reads, so a changed or cleared Delivery contact never
+        // leaves the previous person's name / number behind. Only this regen of a
+        // still-scheduled run's draft DO; a signed DO is never touched here.
+        if (await isOrgFeatureEnabled(this.prisma, organizationId, OFFICE_DO_EDITS_FLAG)) {
+          Object.assign(fragment, doContactRefresh(scheduledAttention));
+        }
         // Re-stamp the quotation link on every regen: the rebuilt lines are
         // price-0 again, and the merge must not lose quotationNo/sourceDocument*.
         if (run.sourceQuotationId) {

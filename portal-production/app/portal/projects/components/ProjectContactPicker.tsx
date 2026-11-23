@@ -14,7 +14,9 @@ import {
   createFilterOptions,
 } from "@mui/material";
 import { useAuth } from "@clerk/nextjs";
+import AddIcon from "@mui/icons-material/Add";
 import { request } from "@/helpers/request";
+import { canSaveNewContact } from "@/helpers/newContact";
 
 /**
  * OSI-84 contact-people picker, now ROLE-AWARE. Multi-select DROPDOWN of the
@@ -91,6 +93,11 @@ interface Props {
   // `hiddenAssignments` below. Filtering the payload instead would delete the
   // hidden links the moment the office pressed save.
   roleView?: "ALL" | "DELIVERY";
+  // "inline" (enableOfficeDoEdits, Biofuel 2026-11-23): the schedule-delivery
+  // dialog's "Add new contact". Turns adding on (whatever allowAddContact says),
+  // requires a phone, offers the action inside the empty dropdown too, and drops
+  // the helper text under the field. Omitted = the original behaviour, unchanged.
+  addContactMode?: "inline";
 }
 
 // An in-dropdown "Add '<name>'" row — a synthetic option that is not a real
@@ -98,7 +105,9 @@ interface Props {
 type Option = ContactLite & { __isAdd?: boolean };
 const filter = createFilterOptions<Option>();
 
-export default function ProjectContactPicker({ customerId, value, onChange, disabled, label, showDetails = true, allowAddContact = true, roleView = "ALL" }: Props) {
+export default function ProjectContactPicker({ customerId, value, onChange, disabled, label, showDetails = true, allowAddContact: allowAddContactProp = true, roleView = "ALL", addContactMode }: Props) {
+  const inline = addContactMode === "inline";
+  const allowAddContact = allowAddContactProp || inline;
   const { getToken } = useAuth();
   const [options, setOptions] = useState<ContactLite[]>([]);
   const [loading, setLoading] = useState(false);
@@ -111,6 +120,9 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
   const [newName, setNewName] = useState("");
   const [newPhone, setNewPhone] = useState("");
   const [newEmail, setNewEmail] = useState("");
+  // What is typed in the field (inline mode only), so "Add new contact" in the
+  // empty dropdown can start the form with that name.
+  const [typed, setTyped] = useState("");
 
   // ── WHAT IS DISPLAYED vs WHAT IS SAVED ──────────────────────────────────────
   // The rule mirrors projectFirstContactAttention exactly: prefer group 'DO',
@@ -225,6 +237,7 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
   const createContact = async () => {
     const trimmed = newName.trim();
     if (!trimmed || !customerId) return;
+    if (inline && !newPhone.trim()) return;
     setCreating(true);
     setError(null);
     try {
@@ -267,6 +280,27 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
         getOptionLabel={(o) => (o.__isAdd ? `Add "${o.name}"` : `${o.name}${o.designation ? ` (${o.designation})` : ""}`)}
         isOptionEqualToValue={(a, b) => a.id === b.id}
         filterSelectedOptions
+        {...(inline
+          ? {
+              onInputChange: (_: React.SyntheticEvent, v: string) => setTyped(v),
+              noOptionsText:
+                customerId && !loading ? (
+                  <Button
+                    size="small"
+                    startIcon={<AddIcon fontSize="small" />}
+                    // Keep focus in the field so the popup does not close before the click lands.
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setNewName(typed.trim());
+                      setAddOpen(true);
+                    }}
+                    sx={{ textTransform: "none" }}
+                  >
+                    Add new contact
+                  </Button>
+                ) : undefined,
+            }
+          : {})}
         // Name + role chips on each row, so DO and Invoice are distinguishable
         // without opening anything. getOptionLabel stays plain text — it feeds
         // the search filter and the input value, which must not contain markup.
@@ -342,6 +376,9 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
                 color={roles.includes("DO") ? "primary" : "default"}
                 variant={roles.length ? "filled" : "outlined"}
                 {...chipProps}
+                {...(inline
+                  ? { sx: { height: "auto", maxWidth: "none", "& .MuiChip-label": { whiteSpace: "normal", overflow: "visible", textOverflow: "clip", py: 0.25 } } }
+                  : {})}
               />
             );
           })
@@ -359,6 +396,7 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
           }
             error={!!error}
             helperText={
+              inline ? error ?? undefined :
               error ??
               (customerId
                 ? allowAddContact
@@ -414,32 +452,55 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
       {allowAddContact && customerId &&
         (addOpen ? (
           <Box sx={{ p: 1.5, border: 1, borderColor: "divider", borderRadius: 1 }}>
-            <Typography variant="subtitle2" sx={{ mb: 1 }}>
-              New contact
-            </Typography>
-            <Grid container spacing={0.5}>
+            {!inline && (
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                New contact
+              </Typography>
+            )}
+            <Grid container spacing={inline ? 1 : 0.5}>
               <Grid item xs={12} md={4}>
-                <TextField label="Name" value={newName} onChange={(e) => setNewName(e.target.value)} size="small" fullWidth />
+                <TextField label="Name" value={newName} onChange={(e) => setNewName(e.target.value)} size="small" fullWidth required={inline} autoFocus={inline} />
               </Grid>
               <Grid item xs={12} md={4}>
-                <TextField label="Mobile" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} size="small" fullWidth />
+                <TextField
+                  label={inline ? "Phone" : "Mobile"}
+                  value={newPhone}
+                  onChange={(e) => setNewPhone(e.target.value)}
+                  size="small"
+                  fullWidth
+                  required={inline}
+                  {...(inline ? { type: "tel", inputProps: { inputMode: "tel" as const } } : {})}
+                />
               </Grid>
               <Grid item xs={12} md={4}>
-                <TextField label="Email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} size="small" fullWidth />
+                <TextField label="Email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} size="small" fullWidth {...(inline ? { type: "email" } : {})} />
               </Grid>
             </Grid>
             <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 1 }}>
               <Button size="small" onClick={resetAddForm} disabled={creating}>
                 Cancel
               </Button>
-              <Button size="small" variant="contained" onClick={() => void createContact()} disabled={creating || !newName.trim()}>
-                Add contact
+              <Button
+                size="small"
+                variant="contained"
+                onClick={() => void createContact()}
+                disabled={creating || !canSaveNewContact({ name: newName, phone: newPhone, requirePhone: inline })}
+              >
+                {inline ? "Save contact" : "Add contact"}
               </Button>
             </Stack>
           </Box>
         ) : (
-          <Button size="small" onClick={() => setAddOpen(true)} sx={{ alignSelf: "flex-start" }}>
-            + Add a new contact
+          <Button
+            size="small"
+            {...(inline ? { startIcon: <AddIcon fontSize="small" /> } : {})}
+            onClick={() => {
+              if (inline) setNewName(typed.trim());
+              setAddOpen(true);
+            }}
+            sx={{ alignSelf: "flex-start", ...(inline ? { textTransform: "none" } : {}) }}
+          >
+            {inline ? "Add new contact" : "+ Add a new contact"}
           </Button>
         ))}
     </Stack>

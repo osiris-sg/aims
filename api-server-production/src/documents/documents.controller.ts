@@ -359,7 +359,8 @@ export class DocumentsController {
     if (!organizationId) {
       throw new Error('User is not assigned to any organization');
     }
-    const out: any = await this.documentsService.updateDocument(updateDto, organizationId, actorFromReq(req));
+    // Office DO edits (enableOfficeDoEdits): portal saves only; WhatsApp assistant self-calls keep their lock.
+    const out: any = await this.documentsService.updateDocument(updateDto, organizationId, actorFromReq(req), { officeEdit: !(req as any).viaOperator });
     // Round 38: a quotation made from the Orders list "+" was linked to its order by this save.
     if (out?.linkedToOrder) (req as any).actionLogResult = { linkedToOrder: out.linkedToOrder };
     return out;

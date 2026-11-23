@@ -95,3 +95,34 @@ describe('ActionLogInterceptor — jobs calendar panel (WCT round 36)', () => {
     expect(rows[0]).toMatchObject({ action, resource: 'deliveries', resourceId: JOB, status: 'SUCCESS' });
   });
 });
+
+describe('ActionLogInterceptor — Delivery contacts "Add new contact" (enableOfficeDoEdits)', () => {
+  const CUST = '3a2b1c0d-2222-4c3b-9b1a-0b0b0b0b0b0b';
+  const PROJ = '4b3c2d1e-3333-4c3b-9b1a-0c0c0c0c0c0c';
+  it('POST /customers/:customerId/contacts logs a CREATE on the customer (not a VIEW)', async () => {
+    const req: any = {
+      ...base(),
+      originalUrl: `/customers/${CUST}/contacts`,
+      url: `/customers/${CUST}/contacts`,
+      params: { customerId: CUST },
+      body: { name: 'Tan Ah Kow', phone: '91234567' },
+    };
+    const { rows, out } = run(req, () => of({ id: 'c1' }));
+    await out;
+    expect(rows[0]).toMatchObject({ action: 'CREATE', resource: 'customers', resourceId: CUST, status: 'SUCCESS' });
+    expect(rows[0].details.body).toEqual({ name: 'Tan Ah Kow', phone: '91234567' });
+  });
+  it('PUT /projects/:id/contacts logs an UPDATE on the project', async () => {
+    const req: any = {
+      ...base(),
+      method: 'PUT',
+      originalUrl: `/projects/${PROJ}/contacts`,
+      url: `/projects/${PROJ}/contacts`,
+      params: { id: PROJ },
+      body: { contacts: [{ contactId: 'c1', group: null }] },
+    };
+    const { rows, out } = run(req, () => of({ ok: true }));
+    await out;
+    expect(rows[0]).toMatchObject({ action: 'UPDATE', resource: 'projects', resourceId: PROJ, status: 'SUCCESS' });
+  });
+});

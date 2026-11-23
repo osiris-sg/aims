@@ -86,6 +86,9 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   enableAssistantSignedDocLock: false,
   // Field app Pending card: "View full DO" even when the first line is typed text (Biofuel, 2026-11-21). Default OFF.
   enableFieldDoViewAnyLine: false,
+  // Biofuel 2026-11-23: office may edit confirmed / delivered / signed DOs in the portal
+  // (paper edit: status, DO number and signatures kept, no stock moves, logged old -> new).
+  enableOfficeDoEdits: false,
   // Role home (2026-11-06): /portal lands on the role-based home screen and
   // the org wears the role-home look on every page. Default OFF.
   enableRoleHome: false,

@@ -148,7 +148,7 @@ export default function ScheduleDeliveryDialog({
 }) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
-  const { isQuotationToDeliveryEnabled, isSiteClockLinkEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled, isOptionalSaleOrderEnabled, isJobsCalendarEnabled } = useOrganizationFeatures();
+  const { isQuotationToDeliveryEnabled, isSiteClockLinkEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled, isOptionalSaleOrderEnabled, isJobsCalendarEnabled, isOfficeDoEditsEnabled } = useOrganizationFeatures();
   // Round 39 #8 (WCT group: WCT orders + the jobs calendar): a large dialog, the form on the left and the day's jobs on
   // the right. Every other org keeps the old dialog.
   const split = !!isWctOrdersEnabled && !!isJobsCalendarEnabled;
@@ -1155,6 +1155,10 @@ export default function ScheduleDeliveryDialog({
                   showDetails={false}
                   roleView="DELIVERY"
                   label="Delivery contacts"
+                  // enableOfficeDoEdits (Biofuel): the office may add a contact here
+                  // (name + phone, email optional). It is saved to the customer and
+                  // selected at once, so the DO prints it. Other orgs: unchanged.
+                  {...(isOfficeDoEditsEnabled ? { addContactMode: "inline" as const } : {})}
                 />
 
                 {/* Missing a role -> show the customer-information link outright.

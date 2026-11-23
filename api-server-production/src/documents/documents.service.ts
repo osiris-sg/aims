@@ -50,6 +50,8 @@ import { fillEmptyOrderCustomer, invoiceRowsWithSplitParts, isWctOrdersEnabled, 
 import { isManualOrderFlow, manualAutoDraftsOff } from '../orders/manual-order-flow';
 import { skipsDoSaveStockRule } from './do-first-save';
 import { RDO_FREE_ROWS_FLAG, allowsRdoFreeRows, hasUnit, isRdoSigned, isRdoType } from './rdo-free-rows';
+import { OFFICE_DO_EDITS_FLAG, isOfficeDoEdit, officeDoEditChanges, pinOfficeDoEdit } from './office-do-edit';
+import { ActionLogService } from '../action-log/action-log.service';
 import { SOFT_DELETE_DRAFTS_FLAG, SOFT_DELETED_TYPE, WCT_STATUSES_FLAG, isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, LINE_GL_ACCOUNTS_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { linkedDocIdsForNumber, wantsLinkedSearch } from '../orders/linked-number-search';
@@ -150,6 +152,8 @@ export class DocumentsService {
     private deliveriesService: DeliveriesService,
     // Salesperson names for stored documents (withSalesPersonName). Global module; optional so bare test modules still build.
     @Optional() private clerkIdentity?: ClerkIdentityService,
+    // Office DO edit log (enableOfficeDoEdits). Global module; optional so bare test modules still build.
+    @Optional() private actionLog?: ActionLogService,
   ) {}
 
   /**
@@ -1477,7 +1481,7 @@ export class DocumentsService {
     return { released: true };
   }
 
-  async updateDocument(dto: UpdateDocumentDto, organizationId: string, actor?: DocumentActor) {
+  async updateDocument(dto: UpdateDocumentDto, organizationId: string, actor?: DocumentActor, opts: { officeEdit?: boolean } = {}) {
     try {
       const configAsPlainObject: any = dto.config ? dto.config : null;
       const id: any = dto.id ? dto.id : null;
@@ -1502,6 +1506,14 @@ export class DocumentsService {
       assertRecordUnlocked(existingDocument);
       assertNotVoided(existingDocument);
       carryRecordLock(existingDocument.config, configAsPlainObject);
+      // Office edits on confirmed / delivered / signed DOs (enableOfficeDoEdits,
+      // office-do-edit.ts): a paper edit. Status, DO number and signature keys stay
+      // as stored; the stock / assignment / ad-hoc blocks below are skipped.
+      const officeDoEdit =
+        isOfficeDoEdit(existingDocument.type, existingDocument.status, true, opts.officeEdit === true) &&
+        (await isOrgFeatureEnabled(this.prisma, organizationId, OFFICE_DO_EDITS_FLAG));
+      const officeDoBefore = officeDoEdit ? JSON.parse(JSON.stringify(existingDocument.config ?? {})) : null;
+      if (officeDoEdit) pinOfficeDoEdit(existingDocument as any, dto as any);
       if (isPeriodLockedDocType(existingDocument.type)) {
         const lockWhat = existingDocument.name || 'This document';
         await assertPeriodOpen(this.prisma, { organizationId, date: documentDay(existingDocument.config, existingDocument.createdAt), actorId: actor?.id, what: lockWhat });
@@ -2362,7 +2374,7 @@ export class DocumentsService {
       // AD_HOC ONLY. A scheduled run is born with its project and its DO is
       // committed by commitScheduledRunOnCompletion; attach rejects it outright.
       // The guard is here as well so the common case costs one indexed read.
-      const adHocAttach = await this.tryAttachProjectToAdHocRun(
+      const adHocAttach = officeDoEdit ? null : await this.tryAttachProjectToAdHocRun(
         updatedDocument.id,
         projectId,
         organizationId,
@@ -2393,7 +2405,7 @@ export class DocumentsService {
       );
       // RDO free-typed rows: rows with no unit are paper only (no stock move).
       const rdoFreeRows = allowsRdoFreeRows(dto.type || existingDocument.type, rdoFreeRowsOn);
-      if (!documentTypesExcludedFromInventory.includes(dto.type) && !doFirstOrderDo && dto.config && Array.isArray(dto.config.items)) {
+      if (!officeDoEdit && !documentTypesExcludedFromInventory.includes(dto.type) && !doFirstOrderDo && dto.config && Array.isArray(dto.config.items)) {
         // PHYSICAL items only — a service row has no unit to point at
         // (guru 2026-11-12). Same rule as the project-assignment block below.
         const itemsWithoutInventory = rdoFreeRows
@@ -2492,7 +2504,7 @@ export class DocumentsService {
       // RETURN_DELIVERY_ORDER, but 'RDO' is the variant alias callers pass
       // (same pair public-document.service.ts guards on).
       const isReturnDoc = dto.type === 'RETURN_DELIVERY_ORDER' || dto.type === 'RDO';
-      if (projectId && !isReturnDoc && dto.config?.items?.length) {
+      if (!officeDoEdit && projectId && !isReturnDoc && dto.config?.items?.length) {
         // Validate that all PHYSICAL items have inventoryItemId for project
         // assignments — service rows have no unit to assign and are skipped.
         const itemsWithoutInventory = dto.config.items.filter(
@@ -2711,6 +2723,27 @@ export class DocumentsService {
         }
       } catch (historyError) {
         console.error('Document history logging failed (save unaffected):', historyError);
+      }
+
+      // Office DO edit: one Activity Log row per save, old -> new per field, who.
+      if (officeDoEdit && this.actionLog) {
+        const changes = officeDoEditChanges(officeDoBefore, configAsPlainObject ?? existingDocument.config);
+        if (changes.length) {
+          void this.actionLog.log({
+            actorType: 'USER',
+            actorId: actor?.id || 'unknown',
+            actorName: actor?.name || (dto as any).savedBy || null,
+            actorEmail: actor?.email || null,
+            organizationId,
+            channel: 'web',
+            method: 'POST',
+            path: '/documents/update',
+            action: 'EDITED_AFTER_DELIVERY',
+            resource: 'documents',
+            resourceId: updatedDocument.id,
+            details: { document: existingDocument.name, status: existingDocument.status, changes: changes.slice(0, 40), more: Math.max(0, changes.length - 40) },
+          });
+        }
       }
 
       // Sync DocumentItem junction table for efficient item queries

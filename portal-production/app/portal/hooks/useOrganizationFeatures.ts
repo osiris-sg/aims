@@ -52,6 +52,7 @@ interface OrganizationFeatures {
   fieldEngineLive?: boolean;
   enableRealDoOnSchedule?: boolean;
   enableFieldDoViewAnyLine?: boolean;
+  enableOfficeDoEdits?: boolean;
   enableWctOrders?: boolean;
   enableWctMyJobs?: boolean;
   enableWctFinishModes?: boolean;
@@ -285,6 +286,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableAssistantSignedDocLock: false,
   // Field app Pending card: "View full DO" even when the first line is typed text (Biofuel, 2026-11-21). Default OFF.
   enableFieldDoViewAnyLine: false,
+  // Office DO edits (Biofuel, 2026-11-23): "Add new contact" in Schedule a delivery's Delivery contacts. Default OFF.
+  enableOfficeDoEdits: false,
   // Maintenance Dates (Biofuel, 2026-09): Service Reports -> Maintenance Dates.
   // A maintenance date per asset, which deployed units are done this cycle, and
   // a reminder 7 days before (push to field techs + office bell). Default OFF.
@@ -475,6 +478,7 @@ export function useOrganizationFeatures() {
     isCalendarHqView: features.calendarHqView ?? false,
     isRealDoOnScheduleEnabled: features.enableRealDoOnSchedule ?? false,
     isFieldDoViewAnyLineEnabled: features.enableFieldDoViewAnyLine ?? false,
+    isOfficeDoEditsEnabled: features.enableOfficeDoEdits ?? false,
     isWctOrdersEnabled: features.enableWctOrders ?? false,
     isWctMyJobsEnabled: features.enableWctMyJobs ?? false,
     isWctFinishModesEnabled: features.enableWctFinishModes ?? false,
