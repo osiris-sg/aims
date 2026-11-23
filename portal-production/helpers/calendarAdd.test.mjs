@@ -109,3 +109,11 @@ test("+ New is wired to the same menu and only behind the group calendar flag", 
   const cal = read("components/Dashboard/JobsCalendar.tsx");
   assert.match(cal, /newButton=\{!!isGroupCalendarEnabled\}/);
 });
+
+test("job side panel (23 Nov): rows wrap inside the panel, each document stays whole, no sideways scroll", () => {
+  const panel = read("components/Dashboard/jobs-calendar/StyledJobPanel.tsx");
+  assert.match(panel, /display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 0\.5, minWidth: 0 \}\} data-testid="panel-doc-list"/);
+  assert.match(panel, /whiteSpace: "nowrap", display: "inline-block"/);
+  assert.match(panel, /overflowWrap: "anywhere", minWidth: 0, flex: 1/);
+  assert.match(read("components/Dashboard/jobs-calendar/CalendarView.tsx"), /overflowY: "auto", overflowX: "hidden", flex: 1, minWidth: 0/);
+});

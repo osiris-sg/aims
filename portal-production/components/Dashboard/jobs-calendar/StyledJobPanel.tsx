@@ -58,7 +58,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <Typography variant="body2" color="text.secondary" sx={{ minWidth: 92, flexShrink: 0 }}>
         {label}
       </Typography>
-      <Typography variant="body2" component="div" sx={{ wordBreak: "break-word", minWidth: 0, flex: 1 }}>
+      {/* 2026-11-23: long values wrap inside the panel (never a horizontal scroll), a long word too. */}
+      <Typography variant="body2" component="div" sx={{ wordBreak: "break-word", overflowWrap: "anywhere", minWidth: 0, flex: 1 }}>
         {children}
       </Typography>
     </Stack>
@@ -344,9 +345,10 @@ export default function StyledJobPanel({
             </Row>
           ) : (
             <Row key={g.label} label={g.label}>
-              <Box sx={{ lineHeight: 1.7 }}>
+              {/* 2026-11-23: wraps to the next line between documents; each "number + status," stays together. */}
+              <Box sx={{ lineHeight: 1.7, display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 0.5, minWidth: 0 }} data-testid="panel-doc-list">
                 {(openGroups.includes(g.label) ? g.docs : g.docs.slice(0, PANEL_DOC_LIMIT)).map((d, i, shown) => (
-                  <Box component="span" key={d.key} sx={{ whiteSpace: "nowrap" }}>
+                  <Box component="span" key={d.key} sx={{ whiteSpace: "nowrap", display: "inline-block" }}>
                     <DocLink doc={d} onCross={openCross} />
                     {d.status && (
                       <Box component="span" sx={{ fontSize: "0.7rem", color: "text.secondary", ml: 0.5 }}>

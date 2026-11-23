@@ -828,7 +828,8 @@ function JobPanel({
           <CloseIcon fontSize="small" />
         </IconButton>
       </Stack>
-      <Box sx={{ p: 2, overflowY: "auto", flex: 1 }}>
+      {/* 2026-11-23: the panel never scrolls sideways; its rows wrap (StyledJobPanel Row / document lists). */}
+      <Box sx={{ p: 2, overflowY: "auto", overflowX: "hidden", flex: 1, minWidth: 0 }}>
         {event ? (
           event.style && event.source === "aims" ? (
             <StyledJobPanel event={event} actions={actions} onPatched={onPatched} onReschedulePreview={onReschedulePreview} clashes={clashes} onCrossOpen={onCrossOpen} />
