@@ -295,6 +295,16 @@ export default function page() {
         if (tmplCfg.internalColumns) documentData.internalColumns = tmplCfg.internalColumns;
       }
 
+      // PER-TEMPLATE Notes / T&C defaults (Biofuel 2026-11-24). Each quotation
+      // template carries its own standard wording in config.defaultValues
+      // (Sales reads differently from soil disposal, which reads differently
+      // again from monthly rental), so one org-wide default can no longer
+      // serve them all. Carried through as-is for the editor to use as a
+      // FALLBACK only — it never overwrites what a document already has, which
+      // is why this is a separate key rather than a write into documentData's
+      // own note / termsAndConditions.
+      if (tmplCfg.defaultValues) documentData.templateDefaults = tmplCfg.defaultValues;
+
       // Build metadata
       const metadata = {
         ...response.data,

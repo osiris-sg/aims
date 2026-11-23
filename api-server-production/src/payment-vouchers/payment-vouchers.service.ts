@@ -636,6 +636,10 @@ export class PaymentVouchersService {
   async save(organizationId: string, id: string, dtoIn: SaveVoucherDto, actor?: Actor) {
     const doc = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'PAYMENT_VOUCHER' } });
     if (!doc) throw new NotFoundException('Payment voucher not found');
+    // A locked voucher cannot be saved (common/record-lock.ts). Found 2026-11-23: the editor
+    // autosaved a locked, imported voucher just from opening it, which renumbered it, voided its
+    // journal and posted a new one.
+    assertRecordUnlocked(doc, 'changed');
     const cfg: any = doc.config || {};
     assertLedgerNotElsewhere(cfg, 'payment voucher');
     try {

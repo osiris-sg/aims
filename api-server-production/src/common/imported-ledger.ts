@@ -16,7 +16,10 @@ import { BadRequestException } from '@nestjs/common';
  *
  * So these documents are read-only. To change one, void it and key a new one.
  */
-export const LEDGER_ELSEWHERE_SOURCES = ['xero-import'] as const;
+// 'abss-import' (2026-11-23): WCT (S)'s vouchers and receipts made from its ABSS ledger
+// (scripts/wct-abss-documents.ts). Their ledger entry is the ABSS journal they are linked to.
+export const LEDGER_ELSEWHERE_SOURCES = ['xero-import', 'abss-import'] as const;
+const SOURCE_NAME: Record<string, string> = { 'xero-import': 'Xero', 'abss-import': 'ABSS' };
 
 export function ledgerLivesElsewhere(config: unknown): boolean {
   const source = (config as any)?.glSource;
@@ -26,7 +29,7 @@ export function ledgerLivesElsewhere(config: unknown): boolean {
 export function assertLedgerNotElsewhere(config: unknown, what: 'receipt' | 'payment voucher'): void {
   if (!ledgerLivesElsewhere(config)) return;
   throw new BadRequestException(
-    `This ${what} was imported from Xero, so its ledger entry is the imported journal, not one of its own. ` +
+    `This ${what} was imported from ${SOURCE_NAME[String((config as any)?.glSource)] || 'another system'}, so its ledger entry is the imported journal, not one of its own. ` +
       `Saving it here would post the same money to the GL twice. Void it and key a new ${what} if it needs to change.`,
   );
 }

@@ -12,6 +12,7 @@ import {
   Select,
   Menu,
   MenuItem,
+  Popover,
   FormControl,
   InputLabel,
   Button,
@@ -1419,7 +1420,7 @@ export default function TabbedDocumentCreator({
   const { pastDescriptions, isLoading: isLoadingDescriptions } = usePastDescriptions();
 
   // Inventory items for item table
-  const { inventoriesForDocument, catalogueComplete, catalogueTotal, searchCatalogue, rememberItems } = useGetInventoriesForItemTable();
+  const { inventoriesForDocument, catalogueComplete, catalogueTotal, searchCatalogue, rememberItems, patchItem } = useGetInventoriesForItemTable();
 
   // Documents for the Locate dialog: the latest 200 on this template, fetched
   // server-side and only while the dialog is open. It used to pull EVERY
@@ -1653,12 +1654,22 @@ export default function TabbedDocumentCreator({
     // → Doc Defaults) when the doc itself doesn't carry a value. Per-doc
     // edits still win. Looks up by doc type, and tolerates either the
     // canonical type or a templateVariant alias.
+    // PER-TEMPLATE standard wording sits BETWEEN the document's own value and
+    // the org default (Biofuel 2026-11-24): a Sales quotation, a soil-disposal
+    // quotation and a monthly rental quotation each carry their own Notes and
+    // T&C, so one org-wide pair can no longer serve every template. Precedence
+    // is deliberately document > template > org: a quotation that already has
+    // wording keeps it, so changing a template's standard never rewrites a
+    // quote someone has written. templateDefaults is supplied by the document
+    // page from the template's config.defaultValues.
     note: existingData?.documentInfo?.note
       || existingData?.note
+      || ((existingData as any)?.templateDefaults?.note)
       || ((organization as any)?.docTypeDefaults?.[documentType]?.notes)
       || "",
     termsAndConditions: existingData?.documentInfo?.termsAndConditions
       || existingData?.termsAndConditions
+      || ((existingData as any)?.templateDefaults?.termsAndConditions)
       || ((organization as any)?.docTypeDefaults?.[documentType]?.tnc)
       || "",
     // Numbered terms, stored on the quotation itself. Deliberately NOT defaulted
@@ -4212,6 +4223,59 @@ export default function TabbedDocumentCreator({
   // Revenue accounts first — that is what a sales line posts to (Accounts to Credit picker).
   const glRank = (a: { accountType?: string }) => (/SALES|INCOME|REVENUE/i.test(a.accountType || "") ? 0 : 1);
 
+  // Assign a GL account to the ITEM from the line's chip (guru 2026-11-24:
+  // "allow them to assign code here to an item and it will map the account so
+  // next time they select that item it will be attached"). This is not the old
+  // per-line override: the pick is saved on the product (rentalAccountCode or
+  // salesAccountCode, the Stock Card Rental / Sales mapping) or on the service
+  // in the Revenue master file, and the line takes the same account. Every
+  // later pick of that item self-codes.
+  const [glMapMenu, setGlMapMenu] = useState<{ pos: { left: number; top: number }; itemId: any } | null>(null);
+  const [glMapSaving, setGlMapSaving] = useState(false);
+  const glMapRow = glMapMenu ? (items || []).find((r: any) => r.id === glMapMenu.itemId) : null;
+  const glMapTarget = (() => {
+    if (!glMapRow) return null;
+    if (isServiceRow(glMapRow)) return { kind: "service" as const, code: String(glMapRow.itemCode || "").trim(), label: String(glMapRow.itemCode || "").trim() || "this service" };
+    const inv = glMapRow.inventoryItemId ? inventoriesForDocument.find((i: any) => i.id === glMapRow.inventoryItemId) : null;
+    if (!inv) return null;
+    const mode: "rental" | "sales" = glMapRow.revenueTag === "rental" ? "rental" : "sales";
+    return { kind: "asset" as const, id: String(inv.assetId || inv.asset?.id || inv.id), mode, label: inv.sku || glMapRow.itemCode || inv.name || "this item" };
+  })();
+  const openGlMapMenu = (e: React.MouseEvent, itemId: any) => {
+    e.stopPropagation();
+    void loadGlAccounts();
+    setGlMapMenu({ pos: { left: e.clientX, top: e.clientY }, itemId });
+  };
+  const assignGlToItem = async (acc: { id: string; code: string; name: string }) => {
+    const row = glMapRow;
+    const target = glMapTarget;
+    if (!row || !target) return;
+    setGlMapSaving(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Authentication required");
+      if (target.kind === "asset") {
+        const field = target.mode === "rental" ? "rentalAccountCode" : "salesAccountCode";
+        await request({ path: "/assets/update", method: "PUT" }, { id: target.id, [field]: acc.code }, token);
+        patchItem(row.inventoryItemId, { [field]: acc.code });
+      } else {
+        const res: any = await request({ path: `/revenue-items?activeOnly=true`, method: "GET", quiet: true }, {}, token);
+        const list: any[] = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
+        const rev = list.find((r) => String(r.code || "").trim().toUpperCase() === target.code.toUpperCase());
+        if (!rev) throw new Error(`${target.label} is not in the Revenue master file, so the account could not be saved on it.`);
+        await request({ path: `/revenue-items/${rev.id}`, method: "PATCH" }, { accountCode: acc.code }, token);
+      }
+      setItems((rows: any[]) => rows.map((r) => (r.id === row.id ? { ...r, accountCode: acc.code, accountName: acc.name } : r)));
+      setGlMapMenu(null);
+      toast.success(`${target.label} now posts to ${acc.code} ${acc.name}. Every line that picks it will carry this account.`);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || "The account could not be saved on the item";
+      toast.error(Array.isArray(msg) ? msg.join(", ") : String(msg));
+    } finally {
+      setGlMapSaving(false);
+    }
+  };
+
   // Xero-style per-document "History & notes" drawer (⋮ menu).
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
 
@@ -4766,6 +4830,10 @@ export default function TabbedDocumentCreator({
   const performManualSave = async (opts?: { silent?: boolean; asRevision?: boolean }): Promise<boolean> => {
     const silent = !!opts?.silent;
     if (silent && lockReadOnly) return false;
+    // A record-locked document is never saved behind the user's back: the autosave timer and
+    // the exit flush skip it (an imported voucher was renumbered and re-posted just by being
+    // opened, 2026-11-23). The server refuses the save as well.
+    if (silent && recordLocked) return false;
     // Save as revision: nothing saves an accepted quotation behind the user's back.
     if (silent && reviseOnSaveRef.current) return false;
     setSaveStatus("saving");
@@ -6126,6 +6194,51 @@ export default function TabbedDocumentCreator({
               </MenuItem>
             )}
           </Menu>
+          {/* GL account → ITEM mapping picker, opened from a line's GL chip. */}
+          <Popover
+            open={!!glMapMenu}
+            onClose={() => (glMapSaving ? undefined : setGlMapMenu(null))}
+            anchorReference="anchorPosition"
+            anchorPosition={glMapMenu?.pos}
+            slotProps={{ paper: { sx: { p: 1.5, width: 380, maxWidth: "calc(100vw - 32px)" } } }}
+          >
+            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+              GL account for {glMapTarget?.label || "this line"}
+            </Typography>
+            <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mb: 1 }}>
+              {glMapTarget?.kind === "service"
+                ? "Saved on the service in the Revenue master file: every line that picks it posts here."
+                : glMapTarget?.mode === "rental"
+                  ? "Saved as the item's Rental account (Stock Card → Rental tab): every rental line that picks it posts here."
+                  : "Saved as the item's Sales account (Stock Card → Sales tab): every line that picks it posts here."}
+            </Typography>
+            {glMapMenu && !glMapTarget ? (
+              <Typography variant="body2" sx={{ color: "warning.main" }}>
+                This line is not tied to an item in the catalogue, so there is nothing to save the account on. Pick the item from the Stock Card first.
+              </Typography>
+            ) : (
+              <Autocomplete
+                size="small"
+                autoHighlight
+                openOnFocus
+                disabled={glMapSaving}
+                options={(glAccounts ?? []).slice().sort((a, b) => glRank(a) - glRank(b) || a.code.localeCompare(b.code))}
+                getOptionLabel={(a) => `${a.code} ${a.name}`}
+                value={(glAccounts ?? []).find((a) => a.code === glMapRow?.accountCode) || null}
+                onChange={(_, acc) => { if (acc) void assignGlToItem(acc); }}
+                loading={glAccounts === null}
+                noOptionsText={glAccounts && glAccounts.length === 0 ? "No accounts in the chart of accounts" : "No account matches"}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    autoFocus
+                    placeholder="Search by code or name"
+                    InputProps={{ ...params.InputProps, endAdornment: (<>{glMapSaving ? <CircularProgress size={16} /> : null}{params.InputProps.endAdornment}</>) }}
+                  />
+                )}
+              />
+            )}
+          </Popover>
         </Box>
       </Box>
 
@@ -7727,16 +7840,26 @@ export default function TabbedDocumentCreator({
                                           LINES decide what posts, so the chip comes back: the office
                                           could not see that a line coded 202 was about to post
                                           (guru 2026-11-23: "how come i cant see gl name?"). */}
-                                      {(isInvoiceTypeDoc || isNoteTypeDoc) && (!headerGlMode || !String(formData.glAccountCode || "").trim()) && (
+                                      {(isInvoiceTypeDoc || isNoteTypeDoc) && (!headerGlMode || !String(formData.glAccountCode || "").trim()) && (() => {
+                                        // Clickable when the row is tied to an item the account can be
+                                        // SAVED ON (a product, or a coded service) and the document is
+                                        // editable: the pick maps the item, not just this line.
+                                        const glMappable = !confirmedReadOnly && !lockReadOnly && (isSvcRow ? !!String(item.itemCode || "").trim() : !!item.inventoryItemId);
+                                        const target = isSvcRow ? "the service" : item.revenueTag === "rental" ? "the item's Rental mapping" : "the item's Sales mapping";
+                                        return (
                                         <Tooltip
                                           title={
                                             item.accountCode
-                                              ? `Posts to GL account ${item.accountCode}${glAccountName(item.accountCode, item.accountName) ? ` — ${glAccountName(item.accountCode, item.accountName)}` : ""} · set by the item picked for this line`
-                                              : "No GL account yet — it comes from the item or service picked for this line"
+                                              ? `Posts to GL account ${item.accountCode}${glAccountName(item.accountCode, item.accountName) ? ` — ${glAccountName(item.accountCode, item.accountName)}` : ""} · set by the item picked for this line${glMappable ? ` · click to change it on ${target}` : ""}`
+                                              : glMappable
+                                                ? `No GL account yet — click to assign one to ${target}; every line that picks it will carry that account`
+                                                : "No GL account yet — it comes from the item or service picked for this line"
                                           }
                                         >
                                           <Typography
                                             variant="caption"
+                                            data-tour="editor-line-gl-chip"
+                                            onClick={glMappable ? (e) => openGlMapMenu(e, item.id) : undefined}
                                             sx={{
                                               display: "inline-block",
                                               mt: 0.25,
@@ -7745,6 +7868,7 @@ export default function TabbedDocumentCreator({
                                               fontVariantNumeric: "tabular-nums",
                                               color: item.accountCode ? "text.secondary" : "warning.main",
                                               bgcolor: (t) => alpha(item.accountCode ? t.palette.primary.main : t.palette.warning.main, t.palette.mode === "dark" ? 0.18 : 0.08),
+                                              ...(glMappable ? { cursor: "pointer", "&:hover": { textDecoration: "underline" } } : {}),
                                             }}
                                           >
                                             {item.accountCode ? (
@@ -7757,7 +7881,8 @@ export default function TabbedDocumentCreator({
                                             ) : "GL — none yet"}
                                           </Typography>
                                         </Tooltip>
-                                      )}
+                                        );
+                                      })()}
                                       {item.revenueTag && (
                                         <Typography variant="caption" sx={{ display: "block", color: "text.secondary", mt: 0.25 }}>({item.revenueTag})</Typography>
                                       )}
