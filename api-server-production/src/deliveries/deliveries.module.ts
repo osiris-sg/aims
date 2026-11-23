@@ -7,6 +7,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { SiteClockModule } from '../siteclock/siteclock.module';
 import { DeliveriesController } from './deliveries.controller';
 import { DeliveriesService } from './deliveries.service';
+import { UnitSwapService } from './unit-swap.service';
 
 @Module({
   // DocumentsModule exports DocumentsService — link/commit + createBasicDocument
@@ -22,7 +23,7 @@ import { DeliveriesService } from './deliveries.service';
   // SiteClockModule exports SiteClockLinkService — the WCT SiteClock job sync.
   imports: [forwardRef(() => DocumentsModule), forwardRef(() => ProjectsModule), NotificationsModule, SiteClockModule],
   controllers: [DeliveriesController],
-  providers: [DeliveriesService, OrderJobsService, PrismaService],
+  providers: [DeliveriesService, OrderJobsService, UnitSwapService, PrismaService],
   // Exported so MaintenanceReportsService can bridge standalone-run MSRs
   // (deliveryId set, documentId null) into the DeliveryItem state machine.
   exports: [DeliveriesService],

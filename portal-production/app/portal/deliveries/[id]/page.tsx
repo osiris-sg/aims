@@ -44,9 +44,11 @@ import LinkIcon from "@mui/icons-material/Link";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import NoteAddIcon from "@mui/icons-material/NoteAdd";
 import PlaceIcon from "@mui/icons-material/Place";
+import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import { request } from "@/helpers/request";
 import { useOrganization } from "@hooks/useOrganization";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { useRoleGate } from "@/app/portal/hooks/useRoleGate";
 import { useRunWords } from "@/app/portal/hooks/useRunWords";
 import { jobLabel, runTitle } from "@/helpers/jobWording";
 import { normalizeAssetClass } from "@/helpers/assetClass";
@@ -296,7 +298,10 @@ export default function DeliveryDetailPage() {
   // Service-job org (enableQuotationToDelivery — WCT 2026-10-27): runs are jobs
   // from an accepted quotation, not rental deployments. No project to attach,
   // and a line is Equipment or SERVICE (work on site) instead of Rental / Sale.
-  const { isQuotationToDeliveryEnabled: serviceJobs, isRealDoOnScheduleEnabled: realDoNumbers, isWctOrdersEnabled, isManualOrderFlowEnabled: manualFlow, features } = useOrganizationFeatures();
+  const { isQuotationToDeliveryEnabled: serviceJobs, isRealDoOnScheduleEnabled: realDoNumbers, isWctOrdersEnabled, isManualOrderFlowEnabled: manualFlow, isDeliveryUnitSwapEnabled, features } = useOrganizationFeatures();
+  // Swap unit (enableDeliveryUnitSwap, Biofuel 2026-11-23): Admin roles only; the API re-checks both.
+  const roleGate = useRoleGate();
+  const swapAllowed = !!isDeliveryUnitSwapEnabled && roleGate.names.some((n) => ["admin", "superadmin", "osirisadmin"].includes(n));
   const [completeOpen, setCompleteOpen] = useState(false);
   const [srUploading, setSrUploading] = useState(false);
   const srFileRef = React.useRef<HTMLInputElement>(null);
@@ -349,6 +354,13 @@ export default function DeliveryDetailPage() {
   const [unitsError, setUnitsError] = useState<string | null>(null);
   const [unitId, setUnitId] = useState<string | null>(null);
   const [linking, setLinking] = useState(false);
+  // Swap unit dialog (enableDeliveryUnitSwap): the line, its in-stock same-product units, the pick and the reason.
+  const [swapItem, setSwapItem] = useState<RunDetail["items"][number] | null>(null);
+  const [swapUnits, setSwapUnits] = useState<Array<{ id: string; sku: string; serialNumber: string | null }> | null>(null);
+  const [swapUnitsError, setSwapUnitsError] = useState<string | null>(null);
+  const [swapUnitId, setSwapUnitId] = useState("");
+  const [swapReason, setSwapReason] = useState("");
+  const [swapping, setSwapping] = useState(false);
 
   // Load the org's projects when the dialog opens. Scoped to the run's customer
   // when it has one — the backend refuses a cross-customer project, so offering
@@ -644,6 +656,55 @@ export default function DeliveryDetailPage() {
     }
   };
 
+  // Swap unit: load the in-stock units of the line's product when the dialog opens.
+  useEffect(() => {
+    if (!swapItem || !run) return;
+    let cancelled = false;
+    setSwapUnits(null);
+    setSwapUnitsError(null);
+    setSwapUnitId("");
+    setSwapReason("");
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const res = await request({ path: `/deliveries/${run.id}/items/${swapItem.id}/swap-candidates`, method: "GET", ownError: true }, {}, token);
+        if (res?.success === false) throw new Error(res?.message ?? "Could not load units");
+        const body = res?.data ?? res;
+        if (!cancelled) setSwapUnits(Array.isArray(body?.units) ? body.units : []);
+      } catch (e: any) {
+        if (!cancelled) setSwapUnitsError(e?.message ?? "Could not load units");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [swapItem, run?.id, getToken]);
+
+  const doSwapUnit = async () => {
+    if (!run || !swapItem || !swapUnitId || !swapReason.trim() || swapping) return;
+    setSwapping(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: `/deliveries/${run.id}/items/${swapItem.id}/swap-unit`, method: "POST", ownError: true },
+        { newInventoryId: swapUnitId, reason: swapReason.trim() },
+        token,
+      );
+      if (res?.success === false) throw new Error(res?.message ?? "Could not swap the unit");
+      const out = res?.data ?? res;
+      const drafts: Array<{ name: string | null }> = Array.isArray(out?.draftInvoicesToCheck) ? out.draftInvoicesToCheck : [];
+      const msg = out?.summary ?? "Unit swapped.";
+      if (drafts.length) toast.warning(msg, { autoClose: false });
+      else toast.success(msg, { autoClose: 12000 });
+      setSwapItem(null);
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not swap the unit");
+    } finally {
+      setSwapping(false);
+    }
+  };
+
   const doLinkUnit = async () => {
     if (!run || !linkItem || !unitId || linking) return;
     setLinking(true);
@@ -769,6 +830,16 @@ export default function DeliveryDetailPage() {
     })
     .slice(0, 25);
   const linkRawId = (linkItem?.description ?? "").replace(/^Untagged item:\s*/i, "").trim();
+  // Swap unit: a delivered outbound line with a unit (the API re-checks every rule).
+  const canSwapLine = (it: RunDetail["items"][number]) =>
+    swapAllowed &&
+    !isReturnRun &&
+    !!it.inventory &&
+    run.status !== "cancelled" &&
+    (run.status === "completed" || it.deliveryStatus === "not_installed" || it.deliveryStatus === "completed");
+  const canLinkLine = (it: RunDetail["items"][number]) => canLinkUnits && !it.asset && !it.inventory;
+  const showLineMenus = canLinkUnits || run.items.some(canSwapLine);
+  const menuLine = lineMenu ? run.items.find((i) => i.id === lineMenu.itemId) ?? null : null;
 
   const cancelScheduled = async () => {
     if (!run) return;
@@ -1113,7 +1184,7 @@ export default function DeliveryDetailPage() {
               <TableCell>Status</TableCell>
               <TableCell>{serviceJobs ? "Type" : "Rental / Sale"}</TableCell>
               <TableCell>Linked DO</TableCell>
-              {canLinkUnits && <TableCell align="right" />}
+              {showLineMenus && <TableCell align="right" />}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -1218,9 +1289,9 @@ export default function DeliveryDetailPage() {
                       <Typography variant="body2" color="text.secondary">—</Typography>
                     )}
                   </TableCell>
-                  {canLinkUnits && (
+                  {showLineMenus && (
                     <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                      {!it.asset && !it.inventory && (
+                      {(canLinkLine(it) || canSwapLine(it)) && (
                         <IconButton
                           size="small"
                           aria-label="Line actions"
@@ -1238,18 +1309,89 @@ export default function DeliveryDetailPage() {
         </Table>
       </TableContainer>
 
-      {/* Untagged line actions (ad-hoc returns). Anchored to the click position. */}
+      {/* Line actions: Link unit (untagged return lines), Swap unit (delivered unit lines). Anchored to the click position. */}
       <Menu open={!!lineMenu} onClose={() => setLineMenu(null)} anchorReference="anchorPosition" anchorPosition={lineMenu?.pos}>
-        <MenuItem
-          onClick={() => {
-            const it = run.items.find((i) => i.id === lineMenu?.itemId) ?? null;
-            setLineMenu(null);
-            setLinkItem(it);
-          }}
-        >
-          <LinkIcon fontSize="small" style={{ marginRight: 8 }} /> Link unit
-        </MenuItem>
+        {menuLine && canLinkLine(menuLine) && (
+          <MenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              setLineMenu(null);
+              setLinkItem(menuLine);
+            }}
+          >
+            <LinkIcon fontSize="small" style={{ marginRight: 8 }} /> Link unit
+          </MenuItem>
+        )}
+        {menuLine && canSwapLine(menuLine) && (
+          <MenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              setLineMenu(null);
+              setSwapItem(menuLine);
+            }}
+          >
+            <SwapHorizIcon fontSize="small" style={{ marginRight: 8 }} /> Swap unit
+          </MenuItem>
+        )}
       </Menu>
+      <Dialog open={!!swapItem} onClose={() => !swapping && setSwapItem(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Swap unit</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <TextField
+              size="small"
+              label="Current unit"
+              value={[swapItem?.inventory?.sku, swapItem?.asset?.name].filter(Boolean).join(" · ")}
+              InputProps={{ readOnly: true }}
+              inputProps={{ style: { fontFamily: "monospace" } }}
+            />
+            {swapUnitsError && <Alert severity="error">{swapUnitsError}</Alert>}
+            {swapUnits === null && !swapUnitsError ? (
+              <Box sx={{ display: "flex", justifyContent: "center", py: 2 }}>
+                <CircularProgress size={24} />
+              </Box>
+            ) : swapUnits && swapUnits.length === 0 ? (
+              <Alert severity="info">No unit of this product is in stock.</Alert>
+            ) : swapUnits ? (
+              <TextField
+                select
+                size="small"
+                label="New unit"
+                value={swapUnitId}
+                onChange={(e) => setSwapUnitId(e.target.value)}
+                required
+              >
+                {swapUnits.map((u) => (
+                  <MenuItem key={u.id} value={u.id} sx={{ fontFamily: "monospace" }}>
+                    {u.serialNumber && u.serialNumber !== u.sku ? `${u.sku} (S/N ${u.serialNumber})` : u.sku}
+                  </MenuItem>
+                ))}
+              </TextField>
+            ) : null}
+            <TextField
+              size="small"
+              label="Reason"
+              value={swapReason}
+              onChange={(e) => setSwapReason(e.target.value)}
+              required
+              multiline
+              minRows={2}
+              inputProps={{ maxLength: 500 }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSwapItem(null)} disabled={swapping}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => void doSwapUnit()}
+            disabled={!swapUnitId || !swapReason.trim() || swapping}
+            startIcon={swapping ? <CircularProgress size={16} color="inherit" /> : <SwapHorizIcon />}
+          >
+            Swap
+          </Button>
+        </DialogActions>
+      </Dialog>
       <Dialog open={!!linkItem} onClose={() => !linking && setLinkItem(null)} maxWidth="sm" fullWidth>
         <DialogTitle>Link a unit to &quot;{linkRawId || "this line"}&quot;</DialogTitle>
         <DialogContent>

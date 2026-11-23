@@ -126,3 +126,29 @@ describe('ActionLogInterceptor — Delivery contacts "Add new contact" (enableOf
     expect(rows[0]).toMatchObject({ action: 'UPDATE', resource: 'projects', resourceId: PROJ, status: 'SUCCESS' });
   });
 });
+
+describe('ActionLogInterceptor — Swap unit (enableDeliveryUnitSwap)', () => {
+  const ITEM = '7c2d3e4f-4444-4c3b-9b1a-0d0d0d0d0d0d';
+  it('POST /deliveries/:id/items/:itemId/swap-unit logs SWAP_UNIT on the run with the result', async () => {
+    const req: any = {
+      ...base(),
+      originalUrl: `/deliveries/${RUN}/items/${ITEM}/swap-unit`,
+      url: `/deliveries/${RUN}/items/${ITEM}/swap-unit`,
+      params: { id: RUN, itemId: ITEM },
+      body: { newInventoryId: 'u-new', reason: 'Wrong serial recorded' },
+    };
+    const { rows, out } = run(req, () => {
+      req.actionLogResult = { fromSerial: 'AIS2026013', toSerial: 'AIS2026021', draftInvoicesToCheck: [] };
+      return of({ ok: true });
+    });
+    await out;
+    expect(rows[0]).toMatchObject({ action: 'SWAP_UNIT', resource: 'deliveries', resourceId: RUN, status: 'SUCCESS' });
+    expect(rows[0].details.result).toEqual({ fromSerial: 'AIS2026013', toSerial: 'AIS2026021', draftInvoicesToCheck: [] });
+  });
+  it('GET .../swap-candidates is a VIEW', async () => {
+    const req: any = { ...base(), method: 'GET', originalUrl: `/deliveries/${RUN}/items/${ITEM}/swap-candidates`, url: `/deliveries/${RUN}/items/${ITEM}/swap-candidates`, params: { id: RUN, itemId: ITEM } };
+    const { rows, out } = run(req, () => of({ units: [] }));
+    await out;
+    expect(rows[0]?.action ?? 'VIEW').toBe('VIEW');
+  });
+});

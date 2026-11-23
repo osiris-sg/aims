@@ -123,6 +123,8 @@ const VERB_ACTIONS: Record<string, string> = {
   // WCT finish modes (2026-11-01): the admin verifies a stamped-DO / paper finish (reject is above);
   // the worker / office resubmits evidence for a rejected job.
   verify: 'VERIFY', 'resubmit-evidence': 'SUBMIT',
+  // Swap unit on a delivered run (enableDeliveryUnitSwap, Biofuel 2026-11-23).
+  'swap-unit': 'SWAP_UNIT',
   // WCT invoice per order: the admin's "Invoice now" on an order.
   'invoice-now': 'CREATE',
   // WCT jobs calendar (2026-11-04): "Link to…" puts a calendar job under an order.

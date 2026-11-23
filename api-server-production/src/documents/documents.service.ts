@@ -283,7 +283,7 @@ export class DocumentsService {
   private logDocumentEvent(opts: {
     documentId: string;
     organizationId: string;
-    action: 'CREATED' | 'EDITED' | 'EDITED_AFTER_CONFIRM' | 'EDIT_UNLOCKED' | 'APPROVED' | 'STATUS_CHANGED' | 'NOTE' | 'SENT' | 'EMAIL_FAILED' | 'DELETED' | 'LOCKED' | 'UNLOCKED' | 'VOIDED';
+    action: 'CREATED' | 'EDITED' | 'EDITED_AFTER_CONFIRM' | 'EDIT_UNLOCKED' | 'APPROVED' | 'STATUS_CHANGED' | 'NOTE' | 'SENT' | 'EMAIL_FAILED' | 'DELETED' | 'LOCKED' | 'UNLOCKED' | 'VOIDED' | 'UNIT_SWAPPED';
     detail: string;
     documentName?: string;
     actor?: DocumentActor;
@@ -305,6 +305,11 @@ export class DocumentsService {
     });
   }
 
+
+  /** Swap unit on a delivered run (enableDeliveryUnitSwap): the DO's history line. */
+  logUnitSwapHistory(opts: { documentId: string; organizationId: string; documentName?: string; detail: string; changes?: string[]; actor?: DocumentActor }): Promise<void> {
+    return this.logDocumentEvent({ ...opts, action: 'UNIT_SWAPPED' });
+  }
 
   // ── GL on save (no-draft model, 2026-07-15) ──────────────────────────────
   // Saving a transactional document posts it to the GL immediately; re-saving

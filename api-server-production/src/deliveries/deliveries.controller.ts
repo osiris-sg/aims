@@ -16,6 +16,8 @@ import { AckAllDto, AddItemPhotosDto, AssignDeliveryItemDto, FreeTypedEndDto, Fr
 import { ScheduleDeliveryDto, ClaimScheduledDto, ClaimReturnDto } from './dto/schedule-delivery.dto';
 import { ScheduleReturnDto } from './dto/schedule-return.dto';
 import { AdHocReturnDto } from './dto/adhoc-return.dto';
+import { SwapUnitDto } from './dto/swap-unit.dto';
+import { UnitSwapService } from './unit-swap.service';
 
 interface ClerkRequest extends Request {
   user?: { id?: string };
@@ -36,6 +38,7 @@ export class DeliveriesController {
     private readonly service: DeliveriesService,
     private readonly siteclock: SiteClockLinkService,
     private readonly orderJobs: OrderJobsService,
+    private readonly unitSwap: UnitSwapService,
   ) {}
 
   /**
@@ -828,6 +831,31 @@ export class DeliveriesController {
     return this.service.remove(id, org.id);
   }
 
+  // Swap unit (enableDeliveryUnitSwap, Admin only): in-stock units of the line's
+  // product that are on no open run, for the swap dialog.
+  @Get(':id/items/:itemId/swap-candidates')
+  @Permissions('documents:update')
+  swapCandidates(@Param('id') id: string, @Param('itemId') itemId: string, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.unitSwap.candidates(org.id, id, itemId, { ...actorWithEmail(req), isOsirisAdmin: !!req.isOsirisAdmin });
+  }
+
+  // Swap unit on a delivered outbound line (enableDeliveryUnitSwap, Admin only).
+  // Body { newInventoryId, reason }. The service writes its own SWAP_UNIT
+  // Activity Log row with the details; the interceptor logs this POST as SWAP_UNIT too.
+  @Post(':id/items/:itemId/swap-unit')
+  @Permissions('documents:update')
+  async swapUnit(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() dto: SwapUnitDto,
+    @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
+  ) {
+    const out = await this.unitSwap.swapUnit(org.id, id, itemId, dto ?? {}, { ...actorWithEmail(req), isOsirisAdmin: !!req.isOsirisAdmin });
+    req.actionLogResult = { fromSerial: out.fromSerial, toSerial: out.toSerial, draftInvoicesToCheck: out.draftInvoicesToCheck.map((d) => d.name ?? d.id) };
+    return out;
+  }
+
   // OsirisAdmin: permanently delete a CANCELLED run that committed nothing
   // (no real DO number, no stock moved, no invoice). The service re-checks it
   // all against live rows. What was removed rides on the Activity Log row.
@@ -838,6 +866,11 @@ export class DeliveriesController {
     req.actionLogResult = result;
     return result;
   }
+}
+
+/** actorOf + the Clerk user's first email (Activity Log / document history). */
+function actorWithEmail(req: any): { id?: string; name?: string; email?: string } {
+  return { ...actorOf(req), email: req?.user?.emailAddresses?.[0]?.emailAddress };
 }
 
 /** Who did it, for the verification fields (id + display name from the Clerk user). */

@@ -89,6 +89,9 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Biofuel 2026-11-23: office may edit confirmed / delivered / signed DOs in the portal
   // (paper edit: status, DO number and signatures kept, no stock moves, logged old -> new).
   enableOfficeDoEdits: false,
+  // Biofuel 2026-11-23: Admin "Swap unit" on a delivered run's unit line (old unit back to
+  // stock, same-product unit out on the same project; run line, proof, DO line follow).
+  enableDeliveryUnitSwap: false,
   // Role home (2026-11-06): /portal lands on the role-based home screen and
   // the org wears the role-home look on every page. Default OFF.
   enableRoleHome: false,

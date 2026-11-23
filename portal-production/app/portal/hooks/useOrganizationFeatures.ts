@@ -53,6 +53,7 @@ interface OrganizationFeatures {
   enableRealDoOnSchedule?: boolean;
   enableFieldDoViewAnyLine?: boolean;
   enableOfficeDoEdits?: boolean;
+  enableDeliveryUnitSwap?: boolean;
   enableWctOrders?: boolean;
   enableWctMyJobs?: boolean;
   enableWctFinishModes?: boolean;
@@ -288,6 +289,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableFieldDoViewAnyLine: false,
   // Office DO edits (Biofuel, 2026-11-23): "Add new contact" in Schedule a delivery's Delivery contacts. Default OFF.
   enableOfficeDoEdits: false,
+  // Swap unit on a delivered run, Admin only (Biofuel, 2026-11-23). Default OFF.
+  enableDeliveryUnitSwap: false,
   // Maintenance Dates (Biofuel, 2026-09): Service Reports -> Maintenance Dates.
   // A maintenance date per asset, which deployed units are done this cycle, and
   // a reminder 7 days before (push to field techs + office bell). Default OFF.
@@ -479,6 +482,7 @@ export function useOrganizationFeatures() {
     isRealDoOnScheduleEnabled: features.enableRealDoOnSchedule ?? false,
     isFieldDoViewAnyLineEnabled: features.enableFieldDoViewAnyLine ?? false,
     isOfficeDoEditsEnabled: features.enableOfficeDoEdits ?? false,
+    isDeliveryUnitSwapEnabled: features.enableDeliveryUnitSwap ?? false,
     isWctOrdersEnabled: features.enableWctOrders ?? false,
     isWctMyJobsEnabled: features.enableWctMyJobs ?? false,
     isWctFinishModesEnabled: features.enableWctFinishModes ?? false,

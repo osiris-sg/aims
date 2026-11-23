@@ -38,6 +38,8 @@ const ACTION_CHIPS: Record<string, { label: string; sx: object }> = {
   LOCKED: { label: "Locked", sx: { bgcolor: "#FBE2E2", color: "#8A1F1F" } },
   UNLOCKED: { label: "Unlocked", sx: { bgcolor: "#DCF5E4", color: "#116632" } },
   VOIDED: { label: "Voided", sx: { bgcolor: "#E5E7EB", color: "#374151" } },
+  // Swap unit on a delivered run (enableDeliveryUnitSwap, 2026-11-23).
+  UNIT_SWAPPED: { label: "Unit swapped", sx: { bgcolor: "#FBEEDC", color: "#8A5A00" } },
   APPROVED: { label: "Approved", sx: { bgcolor: "#DCF5E4", color: "#116632" } },
   STATUS_CHANGED: { label: "Status changed", sx: { bgcolor: "#FBEEDC", color: "#8A5A00" } },
   NOTE: { label: "Note", sx: { bgcolor: "#F0E8FB", color: "#5B2E98" } },
