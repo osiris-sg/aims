@@ -95,15 +95,9 @@ export function TopNavOrgSwitcher({ light = false }: { light?: boolean } = {}) {
 
   return (
     <Stack direction="row" alignItems="center" gap={0.25} sx={{ flexShrink: 0 }} data-tour="org-switcher">
-      <Tooltip
-        title={
-          memberMode
-            ? t("myOrgsTip")
-            : isOverride
-              ? t("viewingAsTip", { name: organization?.name ?? "", home: realOrganization?.name ?? "" })
-              : t("switch")
-        }
-      >
+      {/* Platform admin (2026-11-23): no hover tooltip, it covered the company list while picking. People with several
+          memberships keep theirs. */}
+      <Tooltip title={memberMode ? t("myOrgsTip") : ""} disableHoverListener={!memberMode} disableFocusListener={!memberMode} disableTouchListener={!memberMode}>
         <Autocomplete
           size="small"
           options={options}
