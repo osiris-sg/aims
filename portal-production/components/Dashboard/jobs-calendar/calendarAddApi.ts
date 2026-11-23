@@ -119,7 +119,9 @@ export function useCalendarStylePeople(open: boolean, orgId?: string | null) {
       live = false;
     };
   }, [open, on, api, orgId]);
-  return on ? state : { ...NO_STYLE, loaded: true };
+  // pending (2026-11-23): the WCT group's New job shows its Salesperson / COD / sticker / crew fields at once and fills
+  // them when the people arrive, instead of waiting for them.
+  return on ? { ...state, pending: !state.loaded } : { ...NO_STYLE, loaded: true, pending: false };
 }
 
 export interface JobCompanies {

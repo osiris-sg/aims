@@ -9,6 +9,7 @@ import { GroupOrg, groupJobCompanies, groupReadScope, memberOrgIds } from '../or
 import { calendarBadge, calendarLegend, isJobFieldsEnabled, jobFieldDefs, jobFieldValues } from '../deliveries/job-fields';
 import { jobCategoryDef, jobCategoryValues } from '../deliveries/job-category';
 import { CalendarNoteView, CalendarNotesService } from './calendar-notes.service';
+import { quotationIndex } from '../deliveries/quotation-search-index';
 import { CalendarStyleService } from './calendar-style.service';
 import { resolveSalespersonIds, salespersonAliases } from '../sales-report/salesperson-resolver';
 import { CALENDAR_STYLE_LEGEND, CalendarColours, StyleInput, mergeColours, quotationSalesmanCode, salespersonFromCode, styleOf } from './calendar-style';
@@ -89,8 +90,11 @@ export class JobsCalendarService {
   ) {}
 
   /** Group New job (WCT 2026-11-22): the companies a new job can go under (org-group.ts groupJobCompanies). */
-  companies(organizationId: string, userId: string | null, isAdmin: boolean) {
-    return groupJobCompanies(this.prisma, organizationId, userId, isAdmin);
+  async companies(organizationId: string, userId: string | null, isAdmin: boolean) {
+    const out: any = await groupJobCompanies(this.prisma, organizationId, userId, isAdmin);
+    // The New job form is opening: warm each listed company's quotation search in the background (2026-11-23).
+    for (const o of Array.isArray(out?.orgs) ? out.orgs : []) if (o?.id) quotationIndex.warm(this.prisma, o.id);
+    return out;
   }
 
   async get(organizationId: string, from: string, to: string, viewer?: { userId?: string | null }): Promise<JobsCalendarResponse> {
@@ -102,6 +106,8 @@ export class JobsCalendarService {
 
     // Calendar style (enableCalendarStyle): this org's flag decides for its own items and its children's.
     const styleOn = this.style ? await this.style.enabled(organizationId) : false;
+    // WCT group (2026-11-23): read this company's quotations for the New job search now, in the background.
+    if (styleOn) quotationIndex.warm(this.prisma, organizationId);
     // Round 39: the people list first, so each chip takes its salesperson's People panel colour (automatic ones too).
     const people = styleOn ? await this.people(organizationId) : null;
     const ownColours = styleOn ? withPanelFills(await this.style!.colours(organizationId), people) : null;

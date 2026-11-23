@@ -91,14 +91,17 @@ export default function QuickJobDialog({
   const [quotationBusy, setQuotationBusy] = useState(false);
   // Job category (WCT group): the org's list, null for every other org (no field shown, nothing sent).
   const [categoryDef, setCategoryDef] = useState<JobCategoryDef | null>(null);
+  const [categoryLoaded, setCategoryLoaded] = useState(false);
   const editCategory = edit?.category ?? null;
   useEffect(() => {
     if (!open) return;
     let live = true;
+    setCategoryLoaded(false);
     void api<JobCategoryDef | null>("GET", "/deliveries/job-category").then((res) => {
       if (!live) return;
       const def = res.ok && res.data && Array.isArray(res.data.options) && res.data.options.length ? res.data : null;
       setCategoryDef(def);
+      setCategoryLoaded(true);
       if (def) setForm((f) => ({ ...f, category: f.category && def.options.includes(f.category) ? f.category : categoryShown(def, editCategory) }));
     });
     return () => {
@@ -135,11 +138,24 @@ export default function QuickJobDialog({
 
   // Calendar style (enableCalendarStyle; disabled for every other org: no fields shown, nothing sent).
   const people = useCalendarStylePeople(open, orgFor);
+  // WCT group (calendar style orgs): every field shows straight away (2026-11-23); Company, Job category and the people
+  // fill in when their lists arrive, nothing waits on another request.
+  const wctForm = people.pending || people.enabled;
   const editId = edit?.id ?? null;
+  useEffect(() => {
+    if (!open || editId || !people.pending) return;
+    setForm((f) => ({ ...f, style: f.style ?? { salesperson: null, ptwApplicant: null, cod: false, sticker: false, team: "", crew: [] } }));
+  }, [open, editId, people.pending]);
   useEffect(() => {
     if (!open || !people.loaded || !people.enabled) return;
     if (!editId) {
-      setForm((f) => ({ ...f, style: f.style ?? { salesperson: people.defaultSalesperson, ptwApplicant: people.defaultApplicant, cod: false, sticker: false, team: "", crew: [] } }));
+      // The defaults fill only what is still empty (a pick made while the people loaded stays).
+      setForm((f) => ({
+        ...f,
+        style: f.style
+          ? { ...f.style, salesperson: f.style.salesperson ?? people.defaultSalesperson, ptwApplicant: f.style.ptwApplicant ?? people.defaultApplicant }
+          : { salesperson: people.defaultSalesperson, ptwApplicant: people.defaultApplicant, cod: false, sticker: false, team: "", crew: [] },
+      }));
       return;
     }
     let live = true;
@@ -198,7 +214,8 @@ export default function QuickJobDialog({
 
   const save = async () => {
     // PTW applicant only when a PTW is needed.
-    const styled = form.style ? { ...form, style: { ...form.style, ptwApplicant: form.ptwStatus === "NOT_NEEDED" ? null : form.style.ptwApplicant } } : form;
+    // The style fields go only to an org that has them (never the placeholders of an org that turned out not to).
+    const styled = form.style && wctForm ? { ...form, style: { ...form.style, ptwApplicant: form.ptwStatus === "NOT_NEEDED" ? null : form.style.ptwApplicant } } : { ...form, style: undefined };
     const { body: built, error: bad } = quickJobBody(styled);
     if (!built) return setError(bad || "Check the form");
     // Another company of the group: the server checks both orgs are in the same group.
@@ -253,6 +270,7 @@ export default function QuickJobDialog({
             </TextField>
           )}
           {companies?.group && edit && <TextField label="Company" size="small" fullWidth value={companyName(companies.current)} InputProps={{ readOnly: true }} disabled />}
+          {!companies && wctForm && <TextField label="Company" size="small" fullWidth value="" disabled InputProps={{ endAdornment: <CircularProgress size={14} /> }} data-tour="quick-job-company" />}
           {quotationOn && (
             <QuotationPicker key={`quotation-${orgFor ?? "own"}`} api={api} value={quotation} customerId={form.customerId} busy={quotationBusy} onChange={(o) => void pickQuotation(o)} />
           )}
@@ -265,7 +283,8 @@ export default function QuickJobDialog({
               ))}
             </TextField>
           )}
-          {/* Job category (WCT group) after the Quotation (2026-11-18). */}
+          {/* Job category (WCT group) after the Quotation (2026-11-18); shown at once while its list loads. */}
+          {!categoryDef && !categoryLoaded && wctForm && <TextField required label="Job category" size="small" fullWidth value="" disabled InputProps={{ endAdornment: <CircularProgress size={14} /> }} data-tour="quick-job-category" />}
           {categoryDef && (
             <TextField select required label="Job category" size="small" fullWidth value={form.category ?? categoryDef.defaultValue} onChange={(e) => set({ category: e.target.value })} data-tour="quick-job-category">
               {categoryDef.options.map((o) => (
@@ -358,7 +377,7 @@ export default function QuickJobDialog({
               )}
             </Stack>
           </Box>
-          {people.enabled && form.style && (
+          {wctForm && form.style && (
             <JobStyleFields
               value={form.style}
               onChange={(patch) => setForm((f) => ({ ...f, style: { ...f.style!, ...patch } }))}
@@ -421,7 +440,7 @@ function QuotationPicker({ api, value, customerId, busy, onChange }: { api: Retu
       if (latest.current !== path) return;
       setLoading(false);
       setOptions(res.ok && Array.isArray(res.data) ? res.data : []);
-    }, 250);
+    }, 300);
     return () => clearTimeout(t);
   }, [open, term, customerId, api]);
 

@@ -60,6 +60,7 @@ import { OFFICE_DO_EDITS_FLAG, doContactRefresh } from './office-do-edits';
 import { QUOTATION_TO_DELIVERY_FLAG, applyQuotationLinkToDoConfig, attachJobToQuotationOrder, quotationLinesForJob } from './quotation-to-delivery';
 import { OPTIONAL_SALE_ORDER_FLAG, saleOrderMissing } from './optional-sale-order';
 import { isCalendarAddEnabled, parseLinkKind, parsePtwRemark, parsePtwStatus, parseWorkers } from './quick-jobs';
+import { isOpenQuotation, matchIds, quotationIndex } from './quotation-search-index';
 import { QUOTATION_DOC_TYPES, isOpenDo, isUuid, jobRowsFromDo, likePattern, pickDoForJob, quotationCustomerIdOf, quotationCustomerNameOf, quotationSiteOf, quotationStatusLabel, quotationSubjectOf, searchLimit } from './quick-job-quotation';
 import { REAL_DO_ON_SCHEDULE_FLAG, cancelledDoConfig, isIssuedOnSchedule } from './do-number';
 import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/siteclock-link.service';
@@ -1006,41 +1007,53 @@ export class DeliveriesService {
    */
   async searchQuickJobQuotations(organizationId: string, query: { q?: string; customerId?: string; limit?: string | number }) {
     await this.assertCalendarAdd(organizationId);
-    const like = likePattern(query?.q);
+    const term = String(query?.q ?? '').trim().toLowerCase().slice(0, 100);
     const customerId = isUuid(query?.customerId?.trim()) ? query!.customerId!.trim() : null;
     const limit = searchLimit(query?.limit);
-    const rows: Array<{ id: string; name: string | null; status: string; config: any; customerName: string | null; orderId: string | null; orderNumber: string | null }> = await this.prisma.$queryRaw`
+    // 2026-11-23: match in the per-company index (quotation-search-index.ts), then read only what is shown.
+    const entries = await quotationIndex.entries(this.prisma, organizationId);
+    let customerIds: Set<string> | null = null;
+    if (term) {
+      const like = likePattern(term);
+      const hits: Array<{ id: string }> = await this.prisma.$queryRaw`SELECT id::text AS id FROM "Customer" WHERE "organizationId" = ${organizationId} AND name ILIKE ${like} ESCAPE '\\' LIMIT 500`;
+      customerIds = new Set(hits.map((h) => h.id));
+    }
+    const ids = matchIds(entries, { term, customerId, customerIds });
+    // Before typing: the newest OPEN quotations (no order yet, or its order not paid / closed / complete / cancelled).
+    // Typing: every match, newest first. A quotation whose order is cancelled never shows (as before).
+    const out: any[] = [];
+    for (let i = 0; i < ids.length && out.length < limit && i < 400; i += 40) {
+      const rows = await this.quotationRowsByIds(organizationId, ids.slice(i, i + 40));
+      for (const r of rows) {
+        if (r.orderStatus === 'CANCELLED') continue;
+        if (!term && !isOpenQuotation(r.orderStatus)) continue;
+        out.push(this.quotationOptionOf(r));
+        if (out.length >= limit) break;
+      }
+    }
+    return out;
+  }
+
+  /** The list fields of these quotations, in the order given (missing / deleted ones dropped). */
+  private async quotationRowsByIds(organizationId: string, ids: string[]) {
+    if (!ids.length) return [];
+    const rows: Array<{ id: string; name: string | null; status: string; config: any; customerName: string | null; orderId: string | null; orderNumber: string | null; orderStatus: string | null }> = await this.prisma.$queryRaw`
       SELECT d.id, d.name, d.status::text AS status,
              jsonb_build_object(
                'subject', d.config -> 'subject', 'documentInfo', jsonb_build_object('subject', d.config #> '{documentInfo,subject}', 'location', d.config #> '{documentInfo,location}', 'jobLocation', d.config #> '{documentInfo,jobLocation}'),
                'location', d.config -> 'location', 'deliveryTo', d.config -> 'deliveryTo', 'customerId', d.config -> 'customerId', 'customer', d.config -> 'customer', 'customerName', d.config -> 'customerName'
              ) AS config,
-             cu.name AS "customerName", o.id::text AS "orderId", o."orderNumber" AS "orderNumber"
+             cu.name AS "customerName", o.id::text AS "orderId", o."orderNumber" AS "orderNumber", o.status AS "orderStatus"
       FROM "Document" d
-      LEFT JOIN "Customer" cu ON cu.id::text = COALESCE(NULLIF(d.config #>> '{customer,id}', ''), NULLIF(d.config ->> 'customerId', '')) AND cu."organizationId" = d."organizationId"
+      LEFT JOIN "Customer" cu ON cu.id::text = d."listCustomerId" AND cu."organizationId" = d."organizationId"
       LEFT JOIN LATERAL (
         SELECT o.id, o."orderNumber", o.status FROM "Order" o
         WHERE o."organizationId" = d."organizationId" AND o."sourceQuotationId" = d.id
         ORDER BY o."createdAt" ASC LIMIT 1
       ) o ON true
-      WHERE d."organizationId" = ${organizationId}
-        AND d.type IN ('QUOTATION', 'QO', 'QO1', 'QO2', 'QT')
-        AND COALESCE(d.config ->> 'cancelled', 'false') <> 'true'
-        AND COALESCE(d.config ->> 'voided', 'false') <> 'true'
-        AND (o.status IS NULL OR o.status <> 'CANCELLED')
-        AND (${customerId}::text IS NULL OR COALESCE(NULLIF(d.config #>> '{customer,id}', ''), NULLIF(d.config ->> 'customerId', '')) = ${customerId}::text)
-        AND (
-          ${like}::text IS NULL
-          OR d.name ILIKE ${like} ESCAPE '\\'
-          OR d.config ->> 'subject' ILIKE ${like} ESCAPE '\\'
-          OR d.config #>> '{documentInfo,subject}' ILIKE ${like} ESCAPE '\\'
-          OR d.config ->> 'customerName' ILIKE ${like} ESCAPE '\\'
-          OR d.config #>> '{customer,name}' ILIKE ${like} ESCAPE '\\'
-          OR cu.name ILIKE ${like} ESCAPE '\\'
-        )
-      ORDER BY d."createdAt" DESC, d.id DESC
-      LIMIT ${limit}`;
-    return rows.map((r) => this.quotationOptionOf(r));
+      WHERE d."organizationId" = ${organizationId} AND d.id IN (${Prisma.join(ids.map((id) => Prisma.sql`${id}::uuid`))})`;
+    const at = new Map(ids.map((id, i) => [id, i]));
+    return rows.sort((a, b) => (at.get(a.id) ?? 0) - (at.get(b.id) ?? 0));
   }
 
   private quotationOptionOf(r: { id: string; name: string | null; status: string; config: any; customerName?: string | null; orderId?: string | null; orderNumber?: string | null }) {

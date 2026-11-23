@@ -15,6 +15,7 @@ jest.mock('src/orders/wct-orders', () => {
 
 import { BadRequestException } from '@nestjs/common';
 import { DeliveriesService } from './deliveries.service';
+import { quotationIndex } from './quotation-search-index';
 import { autoDraftDeliveryFromQuotation } from './quotation-to-delivery';
 import {
   isOpenDo,
@@ -364,18 +365,64 @@ describe('quick job with a quotation: linking on save', () => {
     expect(((await svc(db).quickJobQuotation(ORG, QO)) as any).siteOrAddress).toBe('1 Raffles Place, Singapore 048616');
   });
 
-  it('search: org-scoped SQL with the customer filter and escaped text', async () => {
-    const db = seed(GATE);
-    const s = svc(db);
+  // 2026-11-23: the search matches in the company's index (quotation-search-index.ts), then reads only the rows shown.
+  const indexRow = (id: string, name: string, subject: string, extra: Record<string, unknown> = {}) => ({
+    id, name, listSearch: 'test client', listCustomerId: CUST, subject, dsubject: null, cancelled: null, voided: null,
+    createdAt: new Date('2026-11-20T00:00:00Z'), updatedAt: new Date('2026-11-20T00:00:00Z'), ...extra,
+  });
+  const listRow = (id: string, name: string, subject: string, orderStatus: string | null = null) => ({
+    id, name, status: 'unconfirmed', config: { subject, customerId: CUST }, customerName: 'TEST Client', orderId: orderStatus ? uid(90) : null, orderNumber: orderStatus ? 'ORDW202611-001' : null, orderStatus,
+  });
+
+  it('search: matches number / customer / Subject in the index, cancelled ones never, reads only what is shown', async () => {
+    quotationIndex.invalidate();
+    const s = svc(seed(GATE));
     const prisma = s['prisma'] as any;
-    prisma.$queryRaw.mockResolvedValueOnce([{ id: QO, name: 'QO202611-0040', status: 'unconfirmed', config: { subject: 'Degrease', customerId: CUST }, customerName: 'TEST Client', orderId: null, orderNumber: null }]);
-    const rows = await s.searchQuickJobQuotations(ORG, { q: 'degr', customerId: CUST });
+    const OTHER = uid(70);
+    const GONE = uid(71);
+    prisma.$queryRawUnsafe = jest.fn(async () => [
+      indexRow(QO, 'QO202611-0040', 'Degrease'),
+      indexRow(OTHER, 'QO202611-0041', 'Paint'),
+      indexRow(GONE, 'QO202611-0042', 'Degrease again', { cancelled: 'true' }),
+    ]);
+    prisma.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([listRow(QO, 'QO202611-0040', 'Degrease')]);
+    const rows = await s.searchQuickJobQuotations(ORG, { q: 'DEGR', customerId: CUST });
     expect(rows).toEqual([expect.objectContaining({ id: QO, name: 'QO202611-0040', customerName: 'TEST Client', subject: 'Degrease', statusLabel: 'Not signed' })]);
-    const [strings, ...vals] = prisma.$queryRaw.mock.calls[0];
-    expect(strings.join('?')).toMatch(/"organizationId" = \?/);
-    expect(strings.join('?')).toMatch(/cancelled/);
-    expect(strings.join('?')).toMatch(/ORDER BY d."createdAt" DESC/);
-    expect(vals).toEqual(expect.arrayContaining([ORG, CUST, '%degr%', 20]));
+    expect(prisma.$queryRawUnsafe.mock.calls[0][1]).toBe(ORG);
+    const [customerSql, ...customerVals] = prisma.$queryRaw.mock.calls[0];
+    expect(customerSql.join('?')).toMatch(/FROM "Customer" WHERE "organizationId" = \?/);
+    expect(customerVals).toEqual(expect.arrayContaining([ORG, '%degr%']));
+    const [listSql, ...listVals] = prisma.$queryRaw.mock.calls[1];
+    expect(listSql.join('?')).toMatch(/d."organizationId" = \?/);
+    const shown = JSON.stringify(listVals);
+    expect(shown).toContain(QO);
+    expect(shown).not.toContain(OTHER);
+    expect(shown).not.toContain(GONE);
+    // Every search keeps the index: no second full read within seconds.
+    prisma.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    await s.searchQuickJobQuotations(ORG, { q: 'paint' });
+    expect(prisma.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+  });
+
+  it('before typing: the newest OPEN quotations (an order paid / closed / complete / cancelled leaves it out), max 20', async () => {
+    quotationIndex.invalidate();
+    const s = svc(seed(GATE));
+    const prisma = s['prisma'] as any;
+    const ids = Array.from({ length: 30 }, (_, i) => uid(100 + i));
+    prisma.$queryRawUnsafe = jest.fn(async () => ids.map((id, i) => indexRow(id, `QO-${i}`, 'Job', { createdAt: new Date(Date.UTC(2026, 10, 1, 0, i)) })));
+    const statuses = ['PAID', 'CLOSED', 'COMPLETED', 'CANCELLED', 'OPEN', null];
+    prisma.$queryRaw.mockImplementation(async (_s: any, ...vals: any[]) => {
+      const asked = ids.filter((id) => JSON.stringify(vals).includes(id));
+      return asked.map((id) => listRow(id, `QO-${ids.indexOf(id)}`, 'Job', statuses[ids.indexOf(id) % statuses.length]));
+    });
+    const rows = await s.searchQuickJobQuotations(ORG, {});
+    expect(rows.length).toBeLessThanOrEqual(20);
+    expect(rows.length).toBeGreaterThan(5);
+    expect(rows.every((r: any) => !r.orderNumber || r.statusLabel)).toBe(true);
+    const names = rows.map((r: any) => Number(String(r.name).slice(3)));
+    expect(names).toEqual([...names].sort((a, b) => b - a)); // newest first
+    for (const n of names) expect(['OPEN', null]).toContain(statuses[n % statuses.length]);
+    prisma.$queryRaw.mockReset();
   });
 });
 
