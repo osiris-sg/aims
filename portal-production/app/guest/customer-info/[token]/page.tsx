@@ -190,7 +190,12 @@ export default function CustomerInfoCollectPage() {
 
   const clean = (rows: ContactRow[]) =>
     rows
-      .map((r) => ({ name: r.name.trim(), email: r.email.trim(), phone: r.phone.trim() }))
+      // Blank email / phone are left out, not sent as "" (the server would reject a blank email).
+      .map((r) => {
+        const email = r.email.trim();
+        const phone = r.phone.trim();
+        return { name: r.name.trim(), ...(email ? { email } : {}), ...(phone ? { phone } : {}) };
+      })
       .filter((r) => r.name.length > 0);
 
   const submit = async () => {

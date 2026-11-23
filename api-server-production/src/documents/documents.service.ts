@@ -51,6 +51,8 @@ import { isManualOrderFlow, manualAutoDraftsOff } from '../orders/manual-order-f
 import { skipsDoSaveStockRule } from './do-first-save';
 import { RDO_FREE_ROWS_FLAG, allowsRdoFreeRows, hasUnit, isRdoSigned, isRdoType } from './rdo-free-rows';
 import { OFFICE_DO_EDITS_FLAG, isOfficeDoEdit, officeDoEditChanges, pinOfficeDoEdit } from './office-do-edit';
+import { deliveryDocLockReason } from './delivery-doc-lock';
+import { hasAdminRole } from '../common/admin-role';
 import { ActionLogService } from '../action-log/action-log.service';
 import { SOFT_DELETE_DRAFTS_FLAG, SOFT_DELETED_TYPE, WCT_STATUSES_FLAG, isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, LINE_GL_ACCOUNTS_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
@@ -1512,6 +1514,11 @@ export class DocumentsService {
       const officeDoEdit =
         isOfficeDoEdit(existingDocument.type, existingDocument.status, true, opts.officeEdit === true) &&
         (await isOrgFeatureEnabled(this.prisma, organizationId, OFFICE_DO_EDITS_FLAG));
+      // A delivered / signed DO: Admin role only (Biofuel 2026-11-23). Manager,
+      // field-tech and normal_user may still edit a confirmed DO not yet delivered.
+      if (officeDoEdit && (await deliveryDocLockReason(this.prisma as any, organizationId, existingDocument)) && !(await hasAdminRole(this.prisma as any, organizationId, actor?.id))) {
+        throw new HttpException('Only an Admin can edit a delivered or signed DO', HttpStatus.FORBIDDEN);
+      }
       const officeDoBefore = officeDoEdit ? JSON.parse(JSON.stringify(existingDocument.config ?? {})) : null;
       if (officeDoEdit) pinOfficeDoEdit(existingDocument as any, dto as any);
       if (isPeriodLockedDocType(existingDocument.type)) {

@@ -8,7 +8,10 @@ import {
   MaxLength,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
+
+// A blank field is a missing field: "" or spaces become undefined before validation (all orgs, 2026-11-23).
+const blankToUndefined = ({ value }: { value: unknown }) => (typeof value === 'string' && value.trim() === '' ? undefined : value);
 
 /**
  * Office: mint a Customer Information collection link for a chosen customer +
@@ -33,12 +36,14 @@ export class PublicContactDto {
   name!: string;
 
   @ApiProperty({ required: false })
+  @Transform(blankToUndefined)
   @IsOptional()
   @IsEmail()
   @MaxLength(200)
   email?: string;
 
   @ApiProperty({ required: false })
+  @Transform(blankToUndefined)
   @IsOptional()
   @IsString()
   @MaxLength(60)

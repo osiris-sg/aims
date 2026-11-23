@@ -82,6 +82,7 @@ import {
 } from "@mui/icons-material";
 import SendServiceReportDialog from "@/components/orders/SendServiceReportDialog";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { useRoleGate } from "@/app/portal/hooks/useRoleGate";
 import DoStatusTag from "@/components/DoStatusTag";
 import { docDoTag } from "@/helpers/doStatusTag";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
@@ -443,7 +444,9 @@ export default function TabbedDocumentCreator({
 }: DocumentCreatorProps) {
   const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled, isDocRemarksEnabled, isQuotationCategoryEnabled, isRackingLayoutEnabled, features: orgFeatureFlags } = useOrganizationFeatures();
   // RDO free-typed rows + signed-RDO lock (enableRdoFreeTypedRows, Biofuel 2026-11-19).
-  const { isRdoFreeTypedRowsEnabled, isOptionalSaleOrderEnabled, isLineGlAccountsEnabled } = useOrganizationFeatures();
+  const { isRdoFreeTypedRowsEnabled, isOptionalSaleOrderEnabled, isLineGlAccountsEnabled, isOfficeDoEditsEnabled } = useOrganizationFeatures();
+  // enableOfficeDoEdits: a delivered / signed DO is edited by Admins only (the server refuses the rest).
+  const roleGate = useRoleGate();
   // In-app Back (enableWctDocNav): history back when opened inside the app, else the parent list; off = the parent list.
   const { goBack } = useAppBack();
   // Manual order flow: after an order's invoice is emailed, offer to send its service report too.
@@ -935,6 +938,12 @@ export default function TabbedDocumentCreator({
   const isStockAdjustmentOut = documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT";
   const isStockAdjustment = isStockAdjustmentIn || isStockAdjustmentOut;
   const isDeliveryOrder = documentType === "DO" || documentType === "DELIVERY_ORDER";
+  const doEditNeedsAdmin =
+    !!isOfficeDoEditsEnabled &&
+    isDeliveryOrder &&
+    ["delivered_not_installed", "delivered_installed", "returned"].includes(String(documentStatus)) &&
+    !roleGate.loading &&
+    !roleGate.names.some((n) => ["admin", "superadmin", "osirisadmin"].includes(n));
   // An old-ERP DO (config.erpImport, WCT 2026-11-19) is read-only for good: no Edit unlock (the API refuses its saves).
   const isImportedDo = isDeliveryOrder && !!((existingData as any)?.config?.erpImport?.source ?? (existingData as any)?.erpImport?.source);
   // DO first: a saved DO that belongs to an order in the manual order flow.
@@ -5630,7 +5639,7 @@ export default function TabbedDocumentCreator({
               warning dialog, and every save after it lands in the document history
               as "Edited after confirm" under the user's name. Paid invoices stay
               locked — money is received through the receipt, not by editing. */}
-          {legacyLayout && confirmedReadOnly && !isPaidInvoice && !isImportedDo && !periodLocked && !recordLocked && !isVoidedDoc && !externalReadOnly && (
+          {legacyLayout && confirmedReadOnly && !isPaidInvoice && !isImportedDo && !doEditNeedsAdmin && !periodLocked && !recordLocked && !isVoidedDoc && !externalReadOnly && (
             <Button size="small" variant="contained" startIcon={<EditIcon />} onClick={() => setConfirmedEditWarningOpen(true)} sx={LEGACY_BTN.edit} data-tour="editor-legacy-edit">Edit</Button>
           )}
           {/* enableQuotationESign (2026-11-13): CIEL's "Send for signature" toolbar
@@ -5806,7 +5815,7 @@ export default function TabbedDocumentCreator({
               sx={{ fontWeight: 600 }}
             />
           ))}
-          {confirmedReadOnly && !isTemplateEditMode && !isPaidInvoice && !legacyLayout && !isImportedDo && !periodLocked && !recordLocked && !isVoidedDoc && !externalReadOnly && (
+          {confirmedReadOnly && !isTemplateEditMode && !isPaidInvoice && !legacyLayout && !isImportedDo && !doEditNeedsAdmin && !periodLocked && !recordLocked && !isVoidedDoc && !externalReadOnly && (
             <Button
               size="small"
               variant="outlined"
