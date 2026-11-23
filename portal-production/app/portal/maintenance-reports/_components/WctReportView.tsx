@@ -42,6 +42,48 @@ const API = (process.env.NEXT_PUBLIC_BACKEND_API_URL || "").replace(/\/$/, "");
 const A4_WIDTH_PX = 794;
 const SAVE_DELAY_MS = 700;
 
+// Browser print of the WCT service report (2026-11-23, same fix as the WCT
+// quotation / DO / invoice in ServerDocumentPreview's printServerDocument):
+// Chrome draws its own header (date, title) and footer (URL, page no.) in the
+// page margin when "Headers and footers" is ticked. With @page margin 0 it has
+// no room to, and the report carries its own margins instead. The server
+// paper (service-report-wct.ts) has a repeating outer table (table.sheet whose
+// thead is the letterhead) but no repeating footer, so: ~12mm top on every
+// page from padding in the repeated thead cell, 14mm sides and ~12mm bottom
+// from body padding, cloned onto every page fragment by box-decoration-break
+// (Chrome 130+; on an older engine pages 2+ lose only the bottom inset). Added
+// to the print frame only for the print and removed on afterprint, so the
+// on-screen paper and the server PDF (Puppeteer, its own margins) are unchanged.
+export const WCT_REPORT_PRINT_STYLE_ID = "aims-wct-report-browser-print";
+export const WCT_REPORT_BROWSER_PRINT_CSS = `@media print {
+  @page { size: A4; margin: 0 }
+  body { padding: 0 14mm 12mm; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+  table.sheet > thead > tr > td { padding-top: 12mm; }
+}`;
+
+/** Prints the report frame; the WCT paper gets the browser-print CSS just for the print. */
+export function printWctReport(w: Window): void {
+  const doc = w.document;
+  let style: HTMLStyleElement | null = null;
+  if (doc?.querySelector("table.sheet") && !doc.getElementById(WCT_REPORT_PRINT_STYLE_ID)) {
+    style = doc.createElement("style");
+    style.id = WCT_REPORT_PRINT_STYLE_ID;
+    style.textContent = WCT_REPORT_BROWSER_PRINT_CSS;
+    // Last in the document so it wins a tie with the renderer's own <style>.
+    (doc.body || doc.documentElement).appendChild(style);
+  }
+  const cleanup = () => {
+    style?.remove();
+    style = null;
+  };
+  // Chrome's print() returns once the dialog closes; Safari returns at once and
+  // fires afterprint later, so the style comes off on afterprint (print-only
+  // CSS, harmless on screen if that event never comes).
+  w.addEventListener("afterprint", cleanup, { once: true });
+  w.focus();
+  w.print();
+}
+
 type Grid = "before" | "after" | "photos";
 type Target = { k: string; g: Grid; i: number; filled: boolean };
 
@@ -368,13 +410,11 @@ export default function WctReportView({
       if (!frame || !plain) return;
       if (editable) {
         frame.onload = () => {
-          frame.contentWindow?.focus();
-          frame.contentWindow?.print();
+          if (frame.contentWindow) printWctReport(frame.contentWindow);
         };
         frame.srcdoc = plain;
-      } else {
-        frame.contentWindow?.focus();
-        frame.contentWindow?.print();
+      } else if (frame.contentWindow) {
+        printWctReport(frame.contentWindow);
       }
     } catch (e: any) {
       setError(e?.message ?? "Could not print");
