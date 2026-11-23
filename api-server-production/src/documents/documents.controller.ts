@@ -565,6 +565,15 @@ export class DocumentsController {
     }
     return await this.documentsService.listRevisions(id, organizationId);
   }
+  @Get(':id/revision-history')
+  @Permissions('documents:read')
+  async revisionHistory(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.revisionHistory(id, organizationId);
+  }
   @Post('asset/tag-template')
   @Permissions('documents:tag-template-to-asset')
   async tagTemplateToAsset(@Body() body: { assetId: string; templateId: string }, @Req() req: RequestWithOrganization) {

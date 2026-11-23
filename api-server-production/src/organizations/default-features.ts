@@ -105,6 +105,10 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Subject type (guru 2026-11-19, WCT group): a dropdown of AA / CD / MV / TS / VO on the left
   // of the Subject box on quotations and invoices; stored in the subject as "AA - text". Default OFF.
   enableSubjectType: false,
+  // Save as revision (guru 2026-11-23, WCT group): saving an edited ACCEPTED quotation asks
+  // "save as revision" (the number becomes <number>-R1, -R2…; the replaced version is kept
+  // in Revision history) or "save to this quotation". documents/quotation-revision.ts. Default OFF.
+  enableQuotationRevisionOnSave: false,
   // The Subject's type decides what an invoice posts (guru 2026-11-20, WCT only): one type =
   // one line, the subject, for the whole net on the type's account (MV 4-1000, CD 4-2000,
   // AA + VO 4-3000, TS 4-3500); types on different accounts = the priced lines only

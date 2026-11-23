@@ -595,7 +595,10 @@ export default function page() {
         // Optimistic-concurrency token from the editor's lock; the backend
         // rejects the save (409) if another editor saved in the meantime.
         version: data.version,
+        // enableQuotationRevisionOnSave: save this edit as the quotation's next revision (-R1…).
+        ...(data.saveAsRevision === true ? { saveAsRevision: true } : {}),
       };
+      if (configData && typeof configData === "object") delete (configData as any).saveAsRevision;
 
       console.log('Saving document with payload:', updatePayload);
 

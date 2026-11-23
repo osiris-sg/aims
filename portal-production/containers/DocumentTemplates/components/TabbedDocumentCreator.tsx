@@ -90,7 +90,7 @@ import DocumentHistoryDrawer from "./DocumentHistoryDrawer";
 import DocumentAttachmentsDialog from "./DocumentAttachmentsDialog";
 import QuotationSelectDialog from "./QuotationSelectDialog";
 import { AutoAwesome as AutoAwesomeIcon } from "@mui/icons-material";
-import CleanDocumentPreview from "./CleanDocumentPreview";
+import CleanDocumentPreview, { quoteTermsTextOf } from "./CleanDocumentPreview";
 import ServerDocumentPreview, { type ServerDocumentPreviewHandle } from "./ServerDocumentPreview";
 import { orderDocLine } from "@/helpers/wctOrders";
 import { LINK_DOC_FIELD, linkDocOn, pageKindOf as linkPageKindOf, remarksSplitOn, withLinkDocFields } from "@/helpers/linkDoc";
@@ -192,6 +192,8 @@ import { todayIso } from "@/helpers/orgToday";
 import { storedTotalsFor } from "@/helpers/erpImport";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
 import InvoiceSplitDialog from "./InvoiceSplitDialog";
+import { RevisionSaveDialog, RevisionHistoryDialog } from "./QuotationRevisionDialogs";
+import { nextRevisionName } from "@/helpers/quotationRevision";
 import { splitButtons } from "@/helpers/invoiceSplit";
 import { isDocVoided, docPaidOf } from "@/helpers/docStatus";
 import StatusChip from "@/components/StatusChip";
@@ -442,7 +444,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled, isDocRemarksEnabled, isQuotationCategoryEnabled, isRackingLayoutEnabled, features: orgFeatureFlags } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled, isDocRemarksEnabled, isQuotationCategoryEnabled, isRackingLayoutEnabled, isQuotationRevisionOnSaveEnabled, features: orgFeatureFlags } = useOrganizationFeatures();
   // RDO free-typed rows + signed-RDO lock (enableRdoFreeTypedRows, Biofuel 2026-11-19).
   const { isRdoFreeTypedRowsEnabled, isOptionalSaleOrderEnabled, isLineGlAccountsEnabled, isOfficeDoEditsEnabled } = useOrganizationFeatures();
   // enableOfficeDoEdits: a delivered / signed DO is edited by Admins only (the server refuses the rest).
@@ -685,6 +687,17 @@ export default function TabbedDocumentCreator({
   const isDocumentConfirmed = (isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType) || rdoSignedLock || periodLocked || recordLocked || !!externalReadOnly;
   const confirmedReadOnly = (isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType) || rdoSignedLock || periodLocked || recordLocked || !!externalReadOnly;
   const isDocumentEditable = !isDocumentConfirmed && !isTemplateEditMode;
+  // Save as revision (enableQuotationRevisionOnSave, WCT group, guru 2026-11-23): an ACCEPTED
+  // quotation unlocked with Edit does not autosave. Its Save asks: save as the next revision
+  // (<number>-R1, -R2…; the replaced version goes to Revision history) or to the current one.
+  const revisionQuotation = isQuotationRevisionOnSaveEnabled && !isTemplateEditMode && ["QUOTATION", "QO", "QO1", "QO2", "QT"].includes(String(documentType || ""));
+  const reviseOnSave = revisionQuotation && isDocumentConfirmedStatus && !isVoidedDoc && confirmedEditUnlocked && !isDocumentConfirmed;
+  const reviseOnSaveRef = useRef(reviseOnSave);
+  reviseOnSaveRef.current = reviseOnSave;
+  // open = the Save choice is on screen; exitTo = leave for that route once saved.
+  const [revisionSave, setRevisionSave] = useState<{ exitTo?: string } | null>(null);
+  const [revisionSaving, setRevisionSaving] = useState(false);
+  const [revisionHistoryOpen, setRevisionHistoryOpen] = useState(false);
 
   // Confirmed documents now open on the (read-only) edit screen, not preview.
   const [previewMode, setPreviewMode] = useState(initialPreviewMode);
@@ -1476,6 +1489,7 @@ export default function TabbedDocumentCreator({
         gstRegNo: "",
         note: "",
         termsAndConditions: "",
+        quotationTerms: "",
         bankDetails: "",
       },
     }
@@ -1645,6 +1659,15 @@ export default function TabbedDocumentCreator({
     termsAndConditions: existingData?.documentInfo?.termsAndConditions
       || existingData?.termsAndConditions
       || ((organization as any)?.docTypeDefaults?.[documentType]?.tnc)
+      || "",
+    // Numbered terms, stored on the quotation itself. Deliberately NOT defaulted
+    // from docTypeDefaults here: an empty value means "follow the org default",
+    // and quoteTermsTextOf resolves that chain for both the box and the print.
+    // Baking the org default in would freeze each quotation's terms at the
+    // moment it was opened, so later edits to the org default would stop
+    // reaching documents that had merely been viewed.
+    quotationTerms: existingData?.documentInfo?.quotationTerms
+      || existingData?.quotationTerms
       || "",
     footerMessage: existingData?.documentInfo?.footerMessage
       || existingData?.footerMessage
@@ -2564,19 +2587,32 @@ export default function TabbedDocumentCreator({
     }
 
     if (editingItemId != null) {
-      // Pencil edit — replace THIS row's product fields, keep its id/quantity.
+      // Re-picking THIS row's item (click on the Item cell) — swap the product
+      // fields, keep its id/quantity. The description, price and uom the user
+      // already keyed are THEIR work and stay (same rule as the service
+      // re-pick, guru 2026-09-29; back again 2026-11-23: "when I change the
+      // GL the description gets deleted and replaced with the default one —
+      // once they've keyed a description, changing the item code or GL code
+      // shouldn't take it"). Each is filled from the item only while empty;
+      // the code, stock link and GL account always update, that's the point.
       setItems(items.map((it: any) => {
         if (it.id !== editingItemId) return it;
         const qty = Number(it.quantity) || 1;
+        const hasDescription = String(it.description ?? "").replace(/<[^>]*>/g, "").trim() !== "";
+        const hasPrice = it.unitPrice !== null && it.unitPrice !== undefined && it.unitPrice !== "" && Number(it.unitPrice) !== 0;
+        const hasUom = String(it.uom ?? "").trim() !== "";
+        const unitPrice = hasPrice ? it.unitPrice : newItem.unitPrice;
         return {
           ...it,
           isService: false,
           itemCode: newItem.itemCode,
           inventoryItemId: newItem.inventoryItemId,
-          description: newItem.description,
-          unitPrice: newItem.unitPrice,
-          amount: qty * Number(newItem.unitPrice || 0),
-          ...(newItem.uom !== undefined ? { uom: newItem.uom } : {}),
+          description: hasDescription ? it.description : newItem.description,
+          unitPrice,
+          // A hand-typed amount survives too; only recompute when the price
+          // came from the item just picked.
+          amount: hasPrice ? it.amount : qty * Number(unitPrice || 0),
+          ...(newItem.uom !== undefined && !hasUom ? { uom: newItem.uom } : {}),
           // Reflect the NEW selection's GL account + rental/sale tag (overwrite,
           // and clear if the new pick is unmapped — don't keep the stale one).
           accountCode: newItem.accountCode ?? null,
@@ -4605,6 +4641,11 @@ export default function TabbedDocumentCreator({
   const handleBackClick = async () => {
     const backRoute = resolveBackRoute(documentType);
     const documentStatus = existingData?.status || "unconfirmed";
+    // Save as revision: unsaved edits on an accepted quotation ask revision / current first.
+    if (reviseOnSave && isDirtyRef.current) {
+      setRevisionSave({ exitTo: backRoute });
+      return;
+    }
     // Any confirmed (locked) document: nothing to save/clean up — just leave.
     if (!["draft", "unconfirmed"].includes(documentStatus)) {
       goBack(backRoute);
@@ -4718,9 +4759,11 @@ export default function TabbedDocumentCreator({
   // else is left unsaved with no toast — F9 / the exit prompt say why.
   // Receipts / vouchers no longer gate here: the server saves an incomplete
   // one out of the books (config.incompleteReason) and posts once complete.
-  const performManualSave = async (opts?: { silent?: boolean }): Promise<boolean> => {
+  const performManualSave = async (opts?: { silent?: boolean; asRevision?: boolean }): Promise<boolean> => {
     const silent = !!opts?.silent;
     if (silent && lockReadOnly) return false;
+    // Save as revision: nothing saves an accepted quotation behind the user's back.
+    if (silent && reviseOnSaveRef.current) return false;
     setSaveStatus("saving");
     saveErrorReportedRef.current = false;
     try {
@@ -4737,6 +4780,7 @@ export default function TabbedDocumentCreator({
           savedAt: ts,
           lastUsedBy: name,
           lastUsedAt: ts,
+          ...(opts?.asRevision ? { saveAsRevision: true } : {}),
         });
         await persistProjectLinkIfChanged();
       }
@@ -4797,12 +4841,37 @@ export default function TabbedDocumentCreator({
   };
   performManualSaveRef.current = performManualSave;
 
+  // Save as revision: the choice made in RevisionSaveDialog.
+  const saveRevisionChoice = async (asRevision: boolean) => {
+    const exitTo = revisionSave?.exitTo;
+    const number = String((formData?.documentInfo as any)?.documentNumber || formData?.name || existingData?.name || "");
+    setRevisionSaving(true);
+    try {
+      const ok = await performManualSave({ asRevision });
+      if (!ok) {
+        if (!saveErrorReportedRef.current) toast.error("Save failed — please try again");
+        return;
+      }
+      setRevisionSave(null);
+      toast.success(asRevision ? `Saved as ${nextRevisionName(number)}` : "Document saved");
+      if (exitTo) goBack(exitTo);
+      // The number changed on the server: reload so the editor shows the revision.
+      else if (asRevision) reloadAfterCommit();
+    } finally {
+      setRevisionSaving(false);
+    }
+  };
+
   // F9 (hotkey "save") with no Save button on screen: force the save now and
   // say why it cannot save (the autosave timer is silent about that).
   useEffect(() => {
     if (!autosaveActive) return;
     const onHotkey = async (e: Event) => {
       if ((e as CustomEvent).detail?.action !== "save") return;
+      if (reviseOnSaveRef.current) {
+        if (isDirtyRef.current) setRevisionSave({});
+        return;
+      }
       const ok = await performManualSaveRef.current();
       if (ok) toast.success("Document saved");
       else if (!saveErrorReportedRef.current && saveStatusRef.current === "error") toast.error("Save failed — please try again");
@@ -4859,6 +4928,11 @@ export default function TabbedDocumentCreator({
       }
       setSendEmailDocId(idForSend);
       setSendEmailDialogOpen(true);
+      return;
+    }
+    // Save as revision: unsaved edits on an accepted quotation are saved by choice first.
+    if (reviseOnSave && isDirtyRef.current) {
+      setRevisionSave({});
       return;
     }
     try {
@@ -4993,6 +5067,7 @@ export default function TabbedDocumentCreator({
   useEffect(() => {
     if (!autosaveActive) return;
     if (!isDirtyRef.current) return;
+    if (reviseOnSave) return; // saved by choice (revision / current), never by the timer
     const t = setTimeout(async () => {
       if (isAutosavingRef.current || !isDirtyRef.current) return;
       isAutosavingRef.current = true;
@@ -5004,7 +5079,7 @@ export default function TabbedDocumentCreator({
     }, 2000);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, formData, autosaveActive]);
+  }, [items, formData, autosaveActive, reviseOnSave]);
 
   // Hold the editor render until the template field config resolves, so the
   // loaded layout paints once instead of flashing the legacy fallback first.
@@ -5342,6 +5417,11 @@ export default function TabbedDocumentCreator({
                 </>
               )}
             </Typography>
+          )}
+          {reviseOnSave && (
+            <Button size="small" variant="contained" disabled={!hasUnsavedChanges || saveStatus === "saving"} onClick={() => setRevisionSave({})} data-testid="revision-save" sx={{ flexShrink: 0 }}>
+              Save
+            </Button>
           )}
         </Box>
         {/* Phone: the cluster must be allowed to shrink (flexShrink 0 sized it to
@@ -5873,7 +5953,14 @@ export default function TabbedDocumentCreator({
             )}
             {/* Revisions are a sales-document idea: a receipt / voucher is edited in place, so a
                 locked one (lock dates, Lock, a posting with no document) never offers it. */}
-            {isDocumentConfirmed && !isSettlementDoc && !externalReadOnly && (
+            {revisionQuotation && !!(existingData?.id || documentId) && (
+              <MenuItem onClick={() => { closeMoreMenu(); setRevisionHistoryOpen(true); }} data-testid="revision-history-item">
+                <ListItemIcon><HistoryIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Revision history</ListItemText>
+              </MenuItem>
+            )}
+            {/* enableQuotationRevisionOnSave quotations revise through Edit, then Save (-R1…), not here. */}
+            {isDocumentConfirmed && !isSettlementDoc && !externalReadOnly && !revisionQuotation && (
               <MenuItem onClick={() => { closeMoreMenu(); handleCreateRevision(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Create Revision</ListItemText>
@@ -8581,6 +8668,38 @@ export default function TabbedDocumentCreator({
                       </Grid>
                     )}
 
+                    {/* The numbered terms that print under the totals (guru 2026-11-23:
+                        "put it here ... just allow them to edit that part here"). ONE TERM
+                        PER LINE — the numbers are applied when the document prints, so a
+                        term can be added, reworded or reordered without renumbering.
+                        {paymentTerms} is replaced with this quotation's own payment terms.
+
+                        The box opens pre-filled with what the quotation currently prints
+                        (its own saved terms, else the org's Doc Defaults, else Biofuel's
+                        standard four) — quoteTermsTextOf is the SAME resolver the preview
+                        uses, so the box can never disagree with the paper. Editing stores
+                        the text on this quotation only; clearing it falls back to the
+                        org default again. */}
+                    {isBiofuel && (documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
+                      /* data-enter-ignore: ENTER MUST MAKE A NEW TERM here. The editor's
+                         global rule is Enter = next field, Shift+Enter = newline
+                         (helpers/enterAdvance.ts), but this box is a LIST typed one term
+                         per line and it sits directly under Notes and Terms & Conditions,
+                         two rich-text boxes where Enter already starts a new line. Leaving
+                         the default on would make the middle box of three jump focus
+                         mid-list. Shift+Enter still works. */
+                      <Grid item xs={12} data-enter-ignore sx={{ display: "flex", flexDirection: "column" }}>
+                        <TextField
+                          fullWidth
+                          multiline
+                          minRows={4}
+                          value={quoteTermsTextOf(formData.quotationTerms, organization, documentType)}
+                          onChange={(e) => setFormData({ ...formData, quotationTerms: e.target.value })}
+                          InputProps={{ sx: { fontSize: "0.875rem" } }}
+                        />
+                      </Grid>
+                    )}
+
                     {/* Quotation-specific fields */}
                     {documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" && (
                       <>
@@ -9537,6 +9656,26 @@ export default function TabbedDocumentCreator({
       {/* Edit-after-confirm warning (guru 2026-09-09): unlocking is an
           explicit, deliberate act — and every subsequent save is recorded in
           the document history as "Edited after confirm" with the actor. */}
+      <RevisionSaveDialog
+        open={!!revisionSave}
+        number={String((formData?.documentInfo as any)?.documentNumber || formData?.name || existingData?.name || "")}
+        busy={revisionSaving}
+        onClose={() => setRevisionSave(null)}
+        onSave={saveRevisionChoice}
+        onDiscard={revisionSave?.exitTo ? () => {
+          const to = revisionSave.exitTo as string;
+          isDirtyRef.current = false;
+          setHasUnsavedChanges(false);
+          setRevisionSave(null);
+          goBack(to);
+        } : undefined}
+      />
+      <RevisionHistoryDialog
+        open={revisionHistoryOpen}
+        documentId={(existingData?.id || documentId) as string | undefined}
+        onClose={() => setRevisionHistoryOpen(false)}
+        onOpenVersion={(id) => { setRevisionHistoryOpen(false); router.push(withActiveOrg(`/portal/documents/open/${id}`)); }}
+      />
       <Dialog open={confirmedEditWarningOpen} onClose={() => setConfirmedEditWarningOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Edit confirmed document?</DialogTitle>
         <DialogContent>

@@ -10,6 +10,7 @@ interface OrganizationFeatures {
   hideAppSwitcher?: boolean;
   enableWctStatusFlow?: boolean;
   enableSubjectType?: boolean;
+  enableQuotationRevisionOnSave?: boolean;
   subjectTypeSetsAccount?: boolean;
   enableQuotationGst?: boolean;
   enableQuotationTotalsToggle?: boolean;
@@ -259,6 +260,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Subject type (WCT group, 2026-11-19): a dropdown of AA / CD / MV / TS / VO on the left of
   // the Subject box; stored in the subject itself as "AA - text" (helpers/subjectType.ts). Default OFF.
   enableSubjectType: false,
+  // Save as revision (WCT group, 2026-11-23): saving an edited accepted quotation asks revision (-R1…) or current. Default OFF.
+  enableQuotationRevisionOnSave: false,
   // Server-side (2026-11-20, WCT only): the Subject's type decides what the invoice posts (one subject line, or its priced lines).
   subjectTypeSetsAccount: false,
   // GST on quotations (2026-11-14): the printed quotation shows the GST row and
@@ -529,6 +532,7 @@ export function useOrganizationFeatures() {
     // Field module: the areas that are on (empty when the group flag is off).
     fieldAreas: fieldAreasOn(features as Record<string, unknown>),
     isSubjectTypeEnabled: features.enableSubjectType ?? FEATURE_FLAG_DEFAULTS.enableSubjectType,
+    isQuotationRevisionOnSaveEnabled: features.enableQuotationRevisionOnSave ?? FEATURE_FLAG_DEFAULTS.enableQuotationRevisionOnSave,
     isQuotationGstEnabled: features.enableQuotationGst ?? FEATURE_FLAG_DEFAULTS.enableQuotationGst,
     isQuotationTotalsToggleEnabled: features.enableQuotationTotalsToggle ?? FEATURE_FLAG_DEFAULTS.enableQuotationTotalsToggle,
     isRecurringInvoicesEnabled: features.enableRecurringInvoices ?? FEATURE_FLAG_DEFAULTS.enableRecurringInvoices,

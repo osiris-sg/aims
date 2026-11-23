@@ -54,6 +54,7 @@ import { OFFICE_DO_EDITS_FLAG, isOfficeDoEdit, officeDoEditChanges, pinOfficeDoE
 import { deliveryDocLockReason } from './delivery-doc-lock';
 import { hasAdminRole } from '../common/admin-role';
 import { ActionLogService } from '../action-log/action-log.service';
+import { QUOTATION_REVISION_FLAG, nextRevision } from './quotation-revision';
 import { SOFT_DELETE_DRAFTS_FLAG, SOFT_DELETED_TYPE, WCT_STATUSES_FLAG, isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, LINE_GL_ACCOUNTS_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { linkedDocIdsForNumber, wantsLinkedSearch } from '../orders/linked-number-search';
@@ -1774,6 +1775,29 @@ export class DocumentsService {
         }
       }
 
+      // Save as revision (enableQuotationRevisionOnSave, quotation-revision.ts): this save of an
+      // accepted quotation takes the next "-Rn" number; the version it replaces is copied
+      // under the old number after the write below.
+      let revision: { name: string; revisionNumber: number } | null = null;
+      if ((dto as any).saveAsRevision === true) {
+        const isQuotation = String(existingDocument.type).toUpperCase() === 'QUOTATION';
+        if (!configAsPlainObject || !isQuotation || !wasConfirmedBeforeSave || !existingDocument.name) {
+          throw new HttpException('Only an accepted quotation can be saved as a revision.', HttpStatus.BAD_REQUEST);
+        }
+        if (!(await isOrgFeatureEnabled(this.prisma as any, organizationId, QUOTATION_REVISION_FLAG))) {
+          throw new HttpException('Saving as a revision is not turned on for this organisation.', HttpStatus.BAD_REQUEST);
+        }
+        revision = nextRevision(existingDocument.name, existingDocument.revisionNumber);
+        if ('documentNumber' in configAsPlainObject) configAsPlainObject.documentNumber = revision.name;
+        if (configAsPlainObject.documentInfo && typeof configAsPlainObject.documentInfo === 'object') configAsPlainObject.documentInfo.documentNumber = revision.name;
+        dto.name = revision.name;
+        // The editor's save does not send who accepted the quotation; a revision keeps it.
+        for (const k of ['confirmedBy', 'confirmedAt']) {
+          const was = (existingDocument.config as any)?.[k];
+          if (was != null && configAsPlainObject[k] == null) configAsPlainObject[k] = was;
+        }
+      }
+
       // Sync Document.name with the editable "Purchase Order No." / document
       // number on the form. When the user types a custom number into the
       // documentNumber field it becomes the document's authoritative name,
@@ -1890,6 +1914,7 @@ export class DocumentsService {
           name: intendedName,
           // Link to project if projectId exists in config
           projectId: projectId || undefined,
+          ...(revision ? { revisionNumber: revision.revisionNumber } : {}),
           // Bump the optimistic-concurrency counter on every successful save so
           // any other editor holding an older copy is rejected on their save.
           version: { increment: 1 },
@@ -1900,6 +1925,39 @@ export class DocumentsService {
         } as any,
       });
       if (pendingOrderId) linkedToOrder = await this.linkPendingQuotation(pendingOrderId, organizationId, updatedDocument, actor);
+
+      // Save as revision: keep the version just replaced, read-only, under its old number.
+      // After the write above, because two documents cannot hold one number.
+      if (revision) {
+        const family = existingDocument.baseDocumentId || existingDocument.id;
+        await this.prisma.document.create({
+          data: {
+            documentTemplateId: existingDocument.documentTemplateId,
+            type: existingDocument.type,
+            organizationId,
+            status: existingDocument.status,
+            name: existingDocument.name,
+            projectId: existingDocument.projectId ?? undefined,
+            baseDocumentId: family,
+            revisionNumber: existingDocument.revisionNumber ?? 0,
+            config: {
+              ...((existingDocument.config as any) || {}),
+              voided: true,
+              supersededBy: revision.name,
+              cancelledReason: `Replaced by ${revision.name}`,
+              cancelledAt: new Date().toISOString(),
+            } as any,
+          } as any,
+        });
+        void this.logDocumentEvent({
+          documentId: id,
+          organizationId,
+          action: 'EDITED_AFTER_CONFIRM',
+          detail: `Saved as revision ${revision.name} (was ${existingDocument.name})`,
+          documentName: revision.name,
+          actor,
+        });
+      }
 
       // Order.linkedDocuments stores a *snapshot* of each linked doc's name —
       // so when the user renames a PO/DO/Invoice (typically by typing a custom
@@ -3711,7 +3769,7 @@ export class DocumentsService {
     const partNames = existingDocs.map((d) => d.name || '').filter((n) => /^\d+-\d+$/.test(n.slice(namePrefix.length)));
     const parts = new Set(partNames.length ? await splitPartNamesAmong(this.prisma as any, organizationId, partNames) : []);
     for (const d of existingDocs) {
-      const name = d.name || '';
+      const name = (d.name || '').replace(/-R\d+$/, ''); // a "-Rn" revision holds its serial
       const match = parts.has(name) ? name.slice(namePrefix.length).match(/^(\d+)-/) : name.match(/-(\d+)$/);
       if (match) nextSerial = Math.max(nextSerial, parseInt(match[1], 10) + 1);
     }
@@ -3823,7 +3881,7 @@ export class DocumentsService {
       const partNames = existingDocs.map((d) => d.name || '').filter((n) => /^\d+-\d+$/.test(n.slice(namePrefix.length)));
       const parts = new Set(partNames.length ? await splitPartNamesAmong(this.prisma as any, organizationId, partNames) : []);
       for (const d of existingDocs) {
-        const name = d.name || '';
+        const name = (d.name || '').replace(/-R\d+$/, ''); // a "-Rn" revision holds its serial
         const match = parts.has(name) ? name.slice(namePrefix.length).match(/^(\d+)-/) : name.match(/-(\d+)$/);
         if (match) {
           nextSerial = Math.max(nextSerial, parseInt(match[1], 10) + 1);
@@ -4870,6 +4928,23 @@ export class DocumentsService {
       throw new HttpException(`List revisions failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
+  /**
+   * Revision history (enableQuotationRevisionOnSave): the live document and every version
+   * it replaced, newest first. `current` = the live one (the family's own row).
+   */
+  async revisionHistory(documentId: string, organizationId: string) {
+    const doc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { id: true, baseDocumentId: true } });
+    if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    const family = doc.baseDocumentId || doc.id;
+    const rows = await this.prisma.document.findMany({
+      where: { organizationId, OR: [{ id: family }, { baseDocumentId: family }] },
+      select: { id: true, name: true, createdAt: true, updatedAt: true, revisionNumber: true },
+    });
+    return rows
+      .map((r) => ({ id: r.id, name: r.name, revisionNumber: r.revisionNumber ?? 0, current: r.id === family, at: r.id === family ? r.updatedAt : r.createdAt }))
+      .sort((a, b) => Number(b.current) - Number(a.current) || b.revisionNumber - a.revisionNumber);
+  }
+
   async getAllDocuments(organizationId: string) {
     try {
       // Fetch-all list. The heavy config keys (items text, logo/stamp images,
