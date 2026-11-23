@@ -20,7 +20,7 @@ import DateInput from "@/components/DateInput";
 import { orderPageModel } from "@/helpers/orderPage";
 import { applicantLabel, crewLine, timeWindow, type CalendarEvent } from "./calendarModel";
 import {
-  PANEL_DOC_LIMIT, PTW_PILLS, applyToggle, canEditOnCalendar, colourCircle, crossOrgOpen, customerOf, panelDocGroups, panelDocsFallback, panelDocsFromOrder, ptwPillOf, ptwStatusOf, toggleRequest,
+  PANEL_DOC_LIMIT, PTW_PILLS, applyToggle, canEditOnCalendar, colourCircle, crossOrgOpen, customerOf, panelDocGroups, panelDocsFallback, panelDocsFromOrder, postponedLabel, ptwPillOf, ptwStatusOf, toggleRequest,
   type Clash, type PanelDoc, type PanelToggle, type RescheduleTarget,
 } from "./calendarPanel";
 import type { StylePerson } from "./calendarAddApi";
@@ -117,6 +117,9 @@ export default function StyledJobPanel({
   onReschedulePreview,
   clashes,
   onCrossOpen,
+  onEdit,
+  onComplete,
+  onJump,
 }: {
   event: CalendarEvent;
   actions?: CalendarActions;
@@ -126,8 +129,14 @@ export default function StyledJobPanel({
   onReschedulePreview: (t: RescheduleTarget | null) => void;
   clashes: Clash[];
   onCrossOpen: (orgId: string, href: string) => void;
+  /** One job form (2026-11-24): "Edit" at the top right opens the job pop-up; "Complete job" its sign-off. */
+  onEdit?: (e: CalendarEvent) => void;
+  onComplete?: (e: CalendarEvent) => void;
+  /** Postponed pair: click the other job's date to go there and open it. */
+  onJump?: (link: { id: string; date: string }) => void;
 }) {
-  const editable = !!actions && canEditOnCalendar(e);
+  // The record a postponed job left on its old date is a record only: no edits, no actions (2026-11-24).
+  const editable = !!actions && canEditOnCalendar(e) && !e.recordOnly;
   const cross = crossOrgOpen(e);
   const openCross = cross ? (href: string) => onCrossOpen(cross.orgId, href) : undefined;
   const customer = customerOf(e);
@@ -161,8 +170,8 @@ export default function StyledJobPanel({
 
   // Team / crew: typed here, saved when the field is left (or Enter).
   // Round 39 B4: the free text part (teamText) when the API sends it, else the whole text as before.
-  const [team, setTeam] = useState(e.teamText ?? e.team ?? "");
-  useEffect(() => setTeam(e.teamText ?? e.team ?? ""), [e.id, e.team, e.teamText]);
+  const [team, setTeam] = useState(e.teamText ?? (e.crewPicks?.length ? "" : e.team) ?? "");
+  useEffect(() => setTeam(e.teamText ?? (e.crewPicks?.length ? "" : e.team) ?? ""), [e.id, e.team, e.teamText, e.crewPicks]);
   const { isWorkersTeamsEnabled } = useOrganizationFeatures();
   const crewOn = !!isWorkersTeamsEnabled && !e.foreign;
 
@@ -277,9 +286,24 @@ export default function StyledJobPanel({
           {e.orgName}
         </Typography>
       )}
-      <Typography variant="h6" component="div" sx={{ fontWeight: 600, lineHeight: 1.3, textDecoration: e.cancelled ? "line-through" : "none", wordBreak: "break-word" }}>
-        {customer}
-      </Typography>
+      <Stack direction="row" spacing={1} alignItems="flex-start">
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="h6" component="div" sx={{ fontWeight: 600, lineHeight: 1.3, textDecoration: e.cancelled ? "line-through" : "none", wordBreak: "break-word" }}>
+            {customer}
+          </Typography>
+          {/* Shop name (2026-11-24): the shop big, the customer small under it. */}
+          {e.shopName && e.customer && e.shopName.trim() !== e.customer.trim() && (
+            <Typography variant="body2" color="text.secondary" sx={{ wordBreak: "break-word" }}>
+              {e.customer}
+            </Typography>
+          )}
+        </Box>
+        {editable && onEdit && !e.cancelled && (
+          <Button size="small" variant="outlined" onClick={() => onEdit(e)} data-tour="jobs-calendar-panel-edit" sx={{ flexShrink: 0 }}>
+            Edit
+          </Button>
+        )}
+      </Stack>
       {e.subject && (
         <Typography variant="body2" sx={{ mt: 0.5, wordBreak: "break-word" }}>
           {e.subject}
@@ -290,9 +314,18 @@ export default function StyledJobPanel({
           {remarks}
         </Typography>
       )}
-      {(e.cancelled || e.postponed) && (
-        <Stack direction="row" spacing={0.75} sx={{ mt: 1 }}>
-          {e.cancelled ? <Chip size="small" label="❌ Cancelled" /> : <Chip size="small" label="⭕ On hold" />}
+      {(e.cancelled || e.postponed || e.postponedFrom) && (
+        <Stack direction="row" spacing={0.75} sx={{ mt: 1 }} flexWrap="wrap" useFlexGap>
+          {e.cancelled ? (
+            <Chip size="small" label="❌ Cancelled" />
+          ) : e.postponedTo ? (
+            <Chip size="small" label={`⭕ ${postponedLabel(e)}`} clickable={!!onJump} onClick={onJump ? () => onJump(e.postponedTo!) : undefined} data-testid="postponed-to" />
+          ) : e.postponed ? (
+            <Chip size="small" label="⭕ On hold" />
+          ) : null}
+          {e.postponedFrom && !e.cancelled && (
+            <Chip size="small" variant="outlined" label={postponedLabel({ postponedFrom: e.postponedFrom })} clickable={!!onJump} onClick={onJump ? () => onJump(e.postponedFrom!) : undefined} data-testid="postponed-from" />
+          )}
         </Stack>
       )}
       <Divider sx={{ my: 1.5 }} />
@@ -415,7 +448,8 @@ export default function StyledJobPanel({
                   Category
                 </Typography>
                 <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 0.5 }}>
-                  {actions.categories.map((c) => (
+                  {/* A retired category the job already has (e.g. Site visit, 2026-11-24) stays shown on that job. */}
+                  {[...actions.categories, ...(e.category && !actions.categories.some((c) => c.toLowerCase() === e.category!.toLowerCase()) ? [e.category] : [])].map((c) => (
                     <Pill key={c} label={c} on={(e.category ?? "").toLowerCase() === c.toLowerCase()} onClick={() => void toggle({ kind: "category", category: c })} />
                   ))}
                 </Stack>
@@ -501,12 +535,13 @@ export default function StyledJobPanel({
 
       <Divider sx={{ my: 1.5 }} />
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-        {e.href && !e.foreign && (
-          <Button component={Link} href={e.href} size="small" variant="contained" disableElevation>
-            Open job
+        {/* One job form (2026-11-24): no "Open job"; Complete job here (the customer sign-off, as before). */}
+        {editable && onComplete && !e.cancelled && e.status === "scheduled" && (
+          <Button size="small" variant="contained" disableElevation onClick={() => onComplete(e)} data-tour="jobs-calendar-panel-complete">
+            Complete job
           </Button>
         )}
-        {cross && (
+        {cross && !e.recordOnly && (
           <Button size="small" variant="contained" disableElevation onClick={() => onCrossOpen(cross.orgId, cross.href)}>
             {`Open job in ${e.orgName || "its company"}`}
           </Button>

@@ -47,7 +47,28 @@ export interface JobStyleMeta {
    * Stamped by the server only (never from a form); null for a job not cancelled there.
    */
   calendarCancel: { from: string; at: string; byId: string | null } | null;
+  /** Shop name (2026-11-24): shown instead of the customer everywhere when filled; suggested per customer. */
+  shopName: string | null;
+  /**
+   * Postpone keeps the old event (2026-11-24): the job moved to a new date keeps `postponedFrom` (the record left on
+   * the old date); that record has `recordOnly` + `postponedTo` (the job's new date). Server-stamped only.
+   */
+  postponedTo: JobLink | null;
+  postponedFrom: JobLink | null;
+  recordOnly: boolean;
 }
+
+/** A link to the other job of a postponed pair: its id and its date (yyyy-MM-dd). */
+export interface JobLink {
+  id: string;
+  date: string;
+}
+const linkOf = (v: any): JobLink | null => (v && typeof v === 'object' && idOf(v.id) && /^\d{4}-\d{2}-\d{2}$/.test(String(v.date ?? '')) ? { id: idOf(v.id)!, date: String(v.date) } : null);
+/** Shop name: one line, at most 120 characters (null when empty). */
+export const shopNameOf = (v: unknown): string | null => {
+  const t = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
+  return t ? t.slice(0, 120) : null;
+};
 
 export const EMPTY_JOB_STYLE: JobStyleMeta = {
   salespersonId: null,
@@ -61,6 +82,10 @@ export const EMPTY_JOB_STYLE: JobStyleMeta = {
   team: null,
   crew: [],
   calendarCancel: null,
+  shopName: null,
+  postponedTo: null,
+  postponedFrom: null,
+  recordOnly: false,
 };
 
 export interface CrewPick {
@@ -87,10 +112,43 @@ export function crewOf(v: unknown): CrewPick[] {
   return out;
 }
 
+/** A name compared without case or extra spaces ("team  a" = "Team A"). */
+export const crewKey = (s: string | null | undefined): string => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+/** The free text in pieces, as the picker splits it ("Team B + Ah Seng" = two pieces). */
+const teamPieces = (team: string | null | undefined): string[] =>
+  String(team ?? '')
+    .split(/\s+\+\s+/)
+    .map((s) => s.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+/**
+ * 2026-11-24 (Team / crew chips duplicated or came back after a delete): a job's picks and free text with no
+ * duplicates. A pick once (same id, or same kind and name, any case); a piece of free text once (any case) and
+ * never when it is a pick's name. Pieces are kept as typed. Every read and save goes through it (jobStyleOf).
+ */
+export function dedupeCrewTeam(crew: CrewPick[], team: string | null): { crew: CrewPick[]; team: string | null } {
+  const picks: CrewPick[] = [];
+  for (const c of crew) {
+    const k = crewKey(c.name);
+    if (picks.some((x) => x.kind === c.kind && (x.id === c.id || (!!k && crewKey(x.name) === k)))) continue;
+    picks.push(c);
+  }
+  const seen = new Set(picks.map((p) => crewKey(p.name)).filter(Boolean));
+  const free: string[] = [];
+  for (const t of teamPieces(team)) {
+    if (seen.has(crewKey(t))) continue;
+    seen.add(crewKey(t));
+    free.push(t);
+  }
+  return { crew: picks, team: free.length ? free.join(' + ').slice(0, TEAM_MAX) : null };
+}
+
 /** What the calendar, the panel and the WhatsApp list show: picked teams / workers first, then the free text. */
 export function crewText(m: Pick<JobStyleMeta, 'crew' | 'team'> | null | undefined): string | null {
   if (!m) return null;
-  const parts = [...(m.crew ?? []).map((c) => c.name).filter(Boolean), m.team ?? ''].filter(Boolean);
+  const d = dedupeCrewTeam(m.crew ?? [], m.team ?? null);
+  const parts = [...d.crew.map((c) => c.name).filter(Boolean), d.team ?? ''].filter(Boolean);
   return parts.length ? parts.join(' + ') : null;
 }
 
@@ -104,6 +162,7 @@ const nameOf = (v: unknown): string | null => (typeof v === 'string' && v.trim()
 /** A stored value as meta (anything malformed reads as empty). */
 export function jobStyleOf(raw: unknown): JobStyleMeta {
   const v: any = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const crew = dedupeCrewTeam(crewOf(v.crew), teamOf(v.team));
   return {
     salespersonId: idOf(v.salespersonId),
     salespersonName: idOf(v.salespersonId) ? nameOf(v.salespersonName) : null,
@@ -113,9 +172,13 @@ export function jobStyleOf(raw: unknown): JobStyleMeta {
     postponed: v.postponed === true,
     sticker: v.sticker === true,
     createdById: idOf(v.createdById),
-    team: teamOf(v.team),
-    crew: crewOf(v.crew),
+    team: crew.team,
+    crew: crew.crew,
     calendarCancel: cancelOf(v.calendarCancel),
+    shopName: shopNameOf(v.shopName),
+    postponedTo: linkOf(v.postponedTo),
+    postponedFrom: linkOf(v.postponedFrom),
+    recordOnly: v.recordOnly === true,
   };
 }
 
@@ -167,6 +230,10 @@ export function parseJobStylePatch(body: any): Partial<JobStyleMeta> {
   if (body && 'team' in body) {
     if (body.team !== null && typeof body.team !== 'string') throw new BadRequestException('Team / crew must be text');
     out.team = teamOf(body.team);
+  }
+  if (body && 'shopName' in body) {
+    if (body.shopName !== null && typeof body.shopName !== 'string') throw new BadRequestException('Shop name must be text');
+    out.shopName = shopNameOf(body.shopName);
   }
   // Round 39 B4: picked teams / workers (names are re-read from the org's Workers & Teams before saving).
   if (body && 'crew' in body) {

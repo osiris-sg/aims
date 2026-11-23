@@ -14,6 +14,10 @@ export interface CalendarCrew {
 
 export interface CalendarEvent {
   id: string;
+  /** Technician Site Visit (a note drawn as a job, 2026-11-24): opens the Note dialog. */
+  noteId?: string;
+  noteKind?: "technician_site_visit";
+  note?: import("@/helpers/calendarAdd").CalendarNote;
   source: "aims" | "siteclock";
   kind: EventKind;
   title: string;
@@ -75,6 +79,12 @@ export interface CalendarEvent {
   createdBy?: { id: string; name: string | null } | null;
   /** Round 36 (2026-11-20, calendar style): the panel and the WhatsApp list (calendarPanel.ts). */
   customer?: string | null;
+  /** Shop name (2026-11-24, WCT group): shown instead of the customer everywhere when filled. */
+  shopName?: string | null;
+  /** Postpone keeps the old event (2026-11-24): the other job of the pair (id + date); recordOnly = the old one. */
+  postponedTo?: { id: string; date: string } | null;
+  postponedFrom?: { id: string; date: string } | null;
+  recordOnly?: boolean;
   subject?: string | null;
   remarks?: string | null;
   team?: string | null;
@@ -132,6 +142,8 @@ export interface CalendarPayload {
   notes?: Array<import("@/helpers/calendarAdd").CalendarNote & GroupTag & { createdBy?: { id: string; name: string | null } | null }>;
   /** Group calendar: the orgs shown, own org first (absent otherwise). */
   group?: { orgs: Array<{ id: string; name: string }> };
+  /** Singapore public holidays in the range (2026-11-24, calendar style orgs; absent otherwise). */
+  holidays?: import("@/helpers/publicHolidays").PublicHoliday[];
   /** Calendar style (enableCalendarStyle): present = styled chips and the icon legend. */
   style?: { legend: Array<{ icon: string; label: string }> };
   /** hideSiteClockJobs (WCT group): the server left SiteClock-created jobs out (absent otherwise). */

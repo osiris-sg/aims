@@ -188,6 +188,12 @@ export interface CalendarEvent {
   ptwStatus?: string;
   quotationStatus?: string | null;
   calendarCancelled?: true;
+  /** Shop name (2026-11-24, calendar style): the name shown instead of the customer when filled. */
+  shopName?: string;
+  /** Postpone keeps the old event (2026-11-24): the other job of the pair and its date; recordOnly = the old one. */
+  postponedTo?: { id: string; date: string };
+  postponedFrom?: { id: string; date: string };
+  recordOnly?: true;
 }
 
 /** Group calendar: an item of another org the viewer may not open loses every link (numbers and details stay). */
@@ -392,4 +398,26 @@ export function titleWithoutNumbers(title: string): string {
     .replace(/^(Return\s+)?#\d+\s+/i, (_m, r) => r ?? '')
     .trim();
   return t || title;
+}
+
+/** A public holiday on the jobs calendar (calendar style orgs, 2026-11-24). */
+export interface CalendarHoliday {
+  date: string;
+  name: string;
+}
+
+/**
+ * Public holidays for the jobs calendar (calendar style orgs, 2026-11-24), read from the Field module's public
+ * holidays table (FieldPublicHoliday). Rows of several orgs (the group's) become one list: in [from, to], one per
+ * date (the first org's name wins), by date.
+ */
+export function holidaysInRange(rows: Array<{ date?: unknown; name?: unknown }>, from: string, to: string): CalendarHoliday[] {
+  const out = new Map<string, string>();
+  for (const r of rows) {
+    const date = typeof r?.date === 'string' ? r.date.trim().slice(0, 10) : '';
+    const name = typeof r?.name === 'string' ? r.name.replace(/\s+/g, ' ').trim() : '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !name || date < from || date > to || out.has(date)) continue;
+    out.set(date, name);
+  }
+  return [...out].sort(([a], [b]) => a.localeCompare(b)).map(([date, name]) => ({ date, name }));
 }

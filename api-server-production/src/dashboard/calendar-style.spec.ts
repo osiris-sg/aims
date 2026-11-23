@@ -190,7 +190,7 @@ describe('calendar style: people', () => {
     expect(parseJobStylePatch({})).toEqual({});
     expect(() => parseJobStylePatch({ cod: 'yes' })).toThrow(BadRequestException);
     expect(() => parseJobStylePatch({ salesperson: { name: 'x' } })).toThrow(BadRequestException);
-    expect(jobStyleOf('junk')).toEqual({ salespersonId: null, salespersonName: null, ptwApplicantId: null, ptwApplicantName: null, cod: false, postponed: false, sticker: false, createdById: null, team: null, crew: [], calendarCancel: null });
+    expect(jobStyleOf('junk')).toEqual({ salespersonId: null, salespersonName: null, ptwApplicantId: null, ptwApplicantName: null, cod: false, postponed: false, sticker: false, createdById: null, team: null, crew: [], calendarCancel: null, shopName: null, postponedTo: null, postponedFrom: null, recordOnly: false });
   });
 
   it('✅ counts only completed / signed DOs: not drafts, not cancelled or voided', () => {
@@ -733,6 +733,8 @@ describe('round 36: Cancel job / Undo and Postpone / Reschedule from the panel',
           return { count: 1 };
         }),
         update: jest.fn(async ({ data }: any) => Object.assign(svc.run, data)),
+        // 2026-11-24: Reschedule leaves a record-only copy on the old date.
+        create: jest.fn(async ({ data }: any) => ((svc.created = [...(svc.created ?? []), data]), { id: `rec${svc.created.length}` })),
       },
       document: { findFirst: jest.fn(), update: jest.fn(), delete: jest.fn(), findMany: jest.fn(async () => []) },
       order: { findFirst: jest.fn(async () => null), findUnique: jest.fn(async () => null), update: jest.fn() },
@@ -740,7 +742,12 @@ describe('round 36: Cancel job / Undo and Postpone / Reschedule from the panel',
       customFieldValue: {
         findMany: jest.fn(async () => (svc.stored ? [{ entityId: 'j', value: svc.stored }] : [])),
         findUnique: jest.fn(async () => (svc.stored ? { value: svc.stored } : null)),
-        upsert: jest.fn(async ({ update }: any) => ((svc.stored = update.value), {})),
+        upsert: jest.fn(async ({ where, update }: any) => {
+          const id = where?.customFieldId_entityId?.entityId ?? 'j';
+          svc.values = { ...(svc.values ?? {}), [id]: update.value };
+          if (id === 'j') svc.stored = update.value;
+          return {};
+        }),
       },
     };
     svc.siteclock = { touch: jest.fn() };
@@ -783,6 +790,12 @@ describe('round 36: Cancel job / Undo and Postpone / Reschedule from the panel',
     expect(timed).toMatchObject({ onHold: false, scheduledAllDay: false });
     expect(s.run.scheduledFor.toISOString()).toBe('2026-11-25T06:30:00.000Z');
     expect(s.stored.postponed).toBe(false);
+    // Postpone keeps the old event (2026-11-24): a record-only copy stays on 20 Nov, both linked.
+    expect(s.created).toHaveLength(1);
+    expect(s.created[0]).toMatchObject({ status: 'scheduled', isDraft: false, scheduledFor: new Date('2026-11-20T02:00:00Z') });
+    expect(s.created[0].orderId).toBeUndefined();
+    expect(s.values.rec1).toMatchObject({ postponed: true, recordOnly: true, postponedTo: { id: 'j', date: '2026-11-25' } });
+    expect(s.stored.postponedFrom).toEqual({ id: 'rec1', date: '2026-11-20' });
     expect(s.redateRunDo).toHaveBeenCalledWith('j', 'org');
     const allDay = await s.rescheduleJob('j', 'org', { date: '2026-11-26' });
     expect(allDay).toMatchObject({ scheduledAllDay: true });

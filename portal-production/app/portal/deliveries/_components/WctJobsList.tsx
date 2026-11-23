@@ -19,6 +19,8 @@ import { JOB_TABS, ORDER_JOB_STATE_LABEL, jobsTab, orderJobStateColor, verifiedT
 import StatusPill from "@/app/portal/orders/_components/StatusPill";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 import DateInput from "@/components/DateInput";
+import JobEditHost, { type JobEditTarget } from "@/components/Dashboard/jobs-calendar/JobEditHost";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 // WCT Jobs (enableWctOrders, 2026-11-03): the Jobs menu page (/portal/deliveries).
 // A WCT job is a service visit from an order (stored as a delivery run). Title
@@ -55,6 +57,11 @@ export default function WctJobsList({ fixture }: { fixture?: JobsFixture } = {})
   const pathname = usePathname();
   const params = useSearchParams();
   const { getToken } = useAuth();
+  // One job form (WCT group, calendar style, 2026-11-24): a job opens in the job pop-up, not a page.
+  const { features } = useOrganizationFeatures();
+  const oneForm = features?.enableCalendarStyle === true;
+  const [jobEdit, setJobEdit] = useState<JobEditTarget | null>(null);
+  const openJob = (id: string) => (oneForm ? setJobEdit({ id, mode: "edit" }) : router.push(`/portal/deliveries/${id}`));
   const state = jobsTab(params.get("status"));
   const [rows, setRows] = useState<JobRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -187,7 +194,7 @@ export default function WctJobsList({ fixture }: { fixture?: JobsFixture } = {})
       cell: ({ row }: any) => <StatusPill label={ORDER_JOB_STATE_LABEL[row.original.state] ?? row.original.state} color={orderJobStateColor(row.original.state)} />,
     },
     kebabColumn((row: JobRow) => [
-      { label: "Open job", onClick: () => router.push(`/portal/deliveries/${row.id}`) },
+      { label: oneForm ? "Edit job" : "Open job", onClick: () => openJob(row.id) },
       ...(row.order ? [{ label: "Open order", onClick: () => router.push(`/portal/orders/${row.order!.id}`) }] : []),
       ...(row.state === "to_verify" || row.state === "rejected" ? [{ label: "Verify", onClick: () => void act(row, "verify") }] : []),
       ...(row.state === "to_verify" ? [{ label: "Reject", destructive: true, onClick: () => { setReason(""); setRejecting(row); } }] : []),
@@ -238,8 +245,8 @@ export default function WctJobsList({ fixture }: { fixture?: JobsFixture } = {})
     <MainCard>
       <PageTable
         noSelectionColumn
-        onRowClick={(r: any) => router.push(`/portal/deliveries/${r.id}`)}
-        rowHref={(r: any) => `/portal/deliveries/${r.id}`}
+        onRowClick={(r: any) => openJob(r.id)}
+        rowHref={oneForm ? undefined : (r: any) => `/portal/deliveries/${r.id}`}
         columns={[bulk.column, ...(columns)]}
         data={rows}
         tableName="Jobs"
@@ -282,6 +289,7 @@ export default function WctJobsList({ fixture }: { fixture?: JobsFixture } = {})
           </Button>
         </DialogActions>
       </Dialog>
+      {oneForm && <JobEditHost target={jobEdit} onClose={() => setJobEdit(null)} onSaved={() => void load()} />}
     </MainCard>
   );
 }

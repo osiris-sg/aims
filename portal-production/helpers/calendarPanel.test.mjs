@@ -6,8 +6,9 @@ import assert from "node:assert/strict";
 import {
   applyToggle, canEditOnCalendar, chipLines, chipTone, colourCircle, crossOrgOpen, DEFAULT_EXPORT_HEADER, exportDateLine, exportLine, exportText, exportTime,
   filterCount, filterEvents, NO_APPLICANT, NO_FILTERS, panelDocsFallback, panelDocsFromOrder, parseFilters, ptwPillOf, rescheduleClashes, returnOrgAction,
-  returnOrgMarker, shortAddress, toggleRequest, tomorrowSgt,
+  returnOrgMarker, shortAddress, toggleRequest, tomorrowSgt, customerOf, hoverLines, scheduleLines, postponedLabel, assignedWorkers,
 } from "../components/Dashboard/jobs-calendar/calendarPanel.ts";
+import { readFileSync as readSrc } from "node:fs";
 
 const style = (over = {}) => ({ fill: "#039be5", text: "#ffffff", bar: null, icons: [], greyed: false, prefix: null, ...over });
 const ev = (over = {}) => ({
@@ -314,4 +315,60 @@ test("export (23 Nov): all-day jobs and all-day notes first as 'All day', then t
   assert.equal(exportText([], { from: "2026-11-25", to: "2026-11-25", header: "" }, notes), ["*25/11/2026, Wednesday*", "*SCHEDULE*", "All day - Leave · Ali"].join("\n\n"));
   // Cancelled all-day jobs follow the usual rule (left out unless ticked).
   assert.ok(!exportText([ev({ allDay: true, start: "2026-11-24", cancelled: true, customer: "Gone Co" })], { from: "2026-11-24", to: "2026-11-24", header: "" }).includes("Gone Co"));
+});
+
+
+// ── 2026-11-24 batch: Shop name, hover, Schedule row, postponed pair, holidays in the export ─────────────────────
+test("name rule: Shop name when filled, else the customer", () => {
+  assert.equal(customerOf(ev({ customer: "Gokoku Pte Ltd", shopName: "Gokoku Japanese Bakery" })), "Gokoku Japanese Bakery");
+  assert.equal(customerOf(ev({ customer: "Gokoku Pte Ltd", shopName: "  " })), "Gokoku Pte Ltd");
+});
+
+test("hover: name, time, Salesperson, Created by, PTW applicant, Team / crew, Assigned workers; no order or job number", () => {
+  const e = ev({ title: "ORDW202611-002 · #15 Spicy", customer: "Spicy", shopName: "Spicy @ Vivo", salesperson: { id: "s", name: "Henry Hoo" }, createdBy: { id: "c", name: "Kherry" }, team: "Team B", worker: "Ali", crew: [{ name: "Ali" }, { name: "Bala" }], orderNumber: "ORDW202611-002", deliveryNumber: 15 });
+  const lines = hoverLines(e, "9:00 am – 10:00 am", "Bala");
+  assert.deepEqual(lines, ["Spicy @ Vivo", "9:00 am – 10:00 am", "Salesperson: Henry Hoo", "Created by: Kherry", "PTW applicant: Bala", "Team / crew: Team B", "Assigned workers: Ali, Bala"]);
+  assert.ok(!lines.join(" ").includes("ORDW") && !lines.join(" ").includes("#15"));
+  assert.deepEqual(assignedWorkers({ worker: "ali", crew: [{ name: "Ali" }] }), ["ali"]);
+});
+
+test("Schedule row (phone format): line 1 name @ address (subject) - team | remarks; line 2 workers · QO · salesperson · created by", () => {
+  const l = scheduleLines(ev({ customer: "Gokoku", address: "Vivo City #B2-09, Singapore 098585", subject: "CD 1 x Air Cleaner", team: "Team B", remarks: "Please don't wear uniform", worker: "Ali", quotationNumber: "Q-013776", salesperson: { id: "s", name: "Kherry" }, createdBy: { id: "c", name: "joyna" } }));
+  assert.deepEqual(l, { name: "Gokoku", where: "Vivo City #B2-09", subject: "CD 1 x Air Cleaner", team: "Team B", remarks: "Please don't wear uniform", line2: "Ali · Q-013776 · Kherry · Created by joyna" });
+});
+
+test("postponed pair: labels, export line of the old record, records always listed", () => {
+  assert.equal(postponedLabel({ postponedTo: { id: "b", date: "2026-12-05" } }), "Postponed to 05/12");
+  assert.equal(postponedLabel({ postponedFrom: { id: "a", date: "2026-11-28" } }), "Postponed from 28/11");
+  assert.equal(postponedLabel({}), "");
+  const rec = ev({ id: "aims:a", customer: "Old Co", postponed: true, recordOnly: true, postponedTo: { id: "b", date: "2026-12-05" }, start: "2026-11-28T02:00:00.000Z", end: "2026-11-28T03:00:00.000Z" });
+  const live = ev({ id: "aims:c", customer: "Live Co", start: "2026-11-28T06:00:00.000Z", end: "2026-11-28T07:00:00.000Z" });
+  assert.equal(exportLine(rec), "⭕ Postponed to 05/12 - Old Co");
+  const out = exportText([live, rec], { from: "2026-11-28", to: "2026-11-28", header: "" });
+  assert.equal(out, ["*28/11/2026, Saturday*", "*SCHEDULE*", "⭕ Postponed to 05/12 - Old Co", "2pm - Live Co"].join("\n\n"));
+});
+
+test("public holiday at the top of its day in the export (a day with only the holiday too)", () => {
+  const out = exportText([], { from: "2026-12-25", to: "2026-12-25", header: "" }, [], [{ date: "2026-12-25", name: "Christmas Day" }]);
+  assert.equal(out, ["*25/12/2026, Friday*", "Public holiday: Christmas Day", "*SCHEDULE*"].join("\n\n"));
+});
+
+test("one job form wiring: panel Edit top right + Complete job, no Open job; old job page redirects to the calendar", () => {
+  const read = (p) => readSrc(new URL(`../${p}`, import.meta.url), "utf8");
+  const panel = read("components/Dashboard/jobs-calendar/StyledJobPanel.tsx");
+  assert.match(panel, /data-tour="jobs-calendar-panel-edit"/);
+  assert.match(panel, /data-tour="jobs-calendar-panel-complete"/);
+  assert.ok(!/>\s*Open job\s*</.test(panel), "no Open job button");
+  assert.match(panel, /const editable = !!actions && canEditOnCalendar\(e\) && !e\.recordOnly;/);
+  const dialog = read("components/Dashboard/jobs-calendar/QuickJobDialog.tsx");
+  assert.match(dialog, /label="Shop name"/);
+  assert.match(dialog, /<JobEditDetails/);
+  assert.match(dialog, /Complete job/);
+  const page = read("app/portal/deliveries/[id]/page.tsx");
+  assert.match(page, /router\.replace\(`\/portal\/deliveries\/calendar\?\$\{next\.toString\(\)\}`\)/);
+  assert.match(page, /const oneForm = features\?\.enableCalendarStyle === true;/);
+  assert.match(read("app/portal/deliveries/_components/WctJobsList.tsx"), /oneForm \? setJobEdit\(\{ id, mode: "edit" \}\)/);
+  const view = read("components/Dashboard/jobs-calendar/CalendarView.tsx");
+  assert.match(view, /SCHEDULE_FONT = \{ text: "0\.875rem", time: "0\.75rem", row2: "0\.75rem" \}/);
+  assert.match(view, /holidayCalendarInputs\(holidays \?\? \[\]\)/);
 });

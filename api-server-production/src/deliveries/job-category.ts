@@ -21,7 +21,14 @@ import { JOB_ENTITY, isJobFieldsEnabled } from './job-fields';
  */
 export const JOB_CATEGORY_FIELD = 'job_category';
 export const JOB_CATEGORY_LABEL = 'Job category';
-export const DEFAULT_JOB_CATEGORIES = ['Service order', 'Delivery', 'Site visit', 'Others'] as const;
+// "Site visit" left the default list on 2026-11-24 (calendar style orgs add it as a Note instead).
+export const DEFAULT_JOB_CATEGORIES = ['Service order', 'Delivery', 'Others'] as const;
+/**
+ * Categories no NEW job may pick any more (2026-11-24, calendar style orgs): "Site visit" is now a calendar Note
+ * type (Site visit / Technician Site Visit). Stored lists and jobs are not changed: a job that already has it keeps
+ * it and still sees it when edited (`keep`).
+ */
+export const RETIRED_FOR_NEW_JOBS = ['site visit'];
 const MAX_OPTIONS = 30;
 const MAX_LEN = 60;
 
@@ -65,6 +72,17 @@ export function categoryDefOf(row: { id: string; options?: unknown; defaultValue
   if (!options.length) return null;
   const d = row.defaultValue && options.includes(row.defaultValue) ? row.defaultValue : options[0];
   return { id: row.id, options, defaultValue: d };
+}
+
+/**
+ * The list a form offers: the retired categories left out, except `keep` (the job's own pick when editing). The
+ * default moves to the first left when it was retired. Nothing left: the list as stored.
+ */
+export function forNewJobs(def: JobCategoryDef, keep?: string | null): JobCategoryDef {
+  const k = typeof keep === 'string' ? keep.trim().toLowerCase() : '';
+  const options = def.options.filter((o) => !RETIRED_FOR_NEW_JOBS.includes(o.toLowerCase()) || o.toLowerCase() === k);
+  if (!options.length) return def;
+  return { ...def, options, defaultValue: options.includes(def.defaultValue) ? def.defaultValue : options[0] };
 }
 
 /** What a job shows: its stored pick, else the default (blank = "Service order"). */

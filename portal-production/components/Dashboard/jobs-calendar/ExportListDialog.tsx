@@ -24,7 +24,7 @@ export default function ExportListDialog({
   open: boolean;
   onClose: () => void;
   /** The jobs (and all-day notes) from..to as the calendar shows them (filters and people list applied). */
-  loadEvents: (from: string, to: string) => Promise<{ events: CalendarEvent[]; notes: ExportNote[] }>;
+  loadEvents: (from: string, to: string) => Promise<{ events: CalendarEvent[]; notes: ExportNote[]; holidays?: Array<{ date: string; name: string }> }>;
   loadHeader?: () => Promise<string | null>;
 }) {
   const [mode, setMode] = useState<"day" | "range">("day");
@@ -33,7 +33,7 @@ export default function ExportListDialog({
   const [includeCancelled, setIncludeCancelled] = useState(false);
   const [includeOnHold, setIncludeOnHold] = useState(false);
   const [header, setHeader] = useState(DEFAULT_EXPORT_HEADER);
-  const [events, setEvents] = useState<{ events: CalendarEvent[]; notes: ExportNote[] } | null>(null);
+  const [events, setEvents] = useState<{ events: CalendarEvent[]; notes: ExportNote[]; holidays?: Array<{ date: string; name: string }> } | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -61,7 +61,7 @@ export default function ExportListDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, from, end, rangeError]);
 
-  const text = useMemo(() => (events ? exportText(events.events, { from, to: end, header, includeCancelled, includeOnHold }, events.notes) : ""), [events, from, end, header, includeCancelled, includeOnHold]);
+  const text = useMemo(() => (events ? exportText(events.events, { from, to: end, header, includeCancelled, includeOnHold }, events.notes, events.holidays ?? []) : ""), [events, from, end, header, includeCancelled, includeOnHold]);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text);

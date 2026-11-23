@@ -4,7 +4,7 @@ import { PrismaService } from '../common/prisma.service';
 import { runAsOrg } from '../common/tenancy/tenant-context';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { SiteClockLinkService } from '../siteclock/siteclock-link.service';
-import { buildCalendarEvents, CalendarEvent, CalendarRun, CalendarSiteClockJob, CALENDAR_TZ, checkRange, chipLabelOf, rangeInstants, stripLinks } from './jobs-calendar';
+import { buildCalendarEvents, CalendarEvent, CalendarHoliday, CalendarRun, CalendarSiteClockJob, CALENDAR_TZ, checkRange, chipLabelOf, holidaysInRange, rangeInstants, stripLinks } from './jobs-calendar';
 import { GroupOrg, groupJobCompanies, groupReadScope, memberOrgIds } from '../organizations/org-group';
 import { calendarBadge, calendarLegend, isJobFieldsEnabled, jobFieldDefs, jobFieldValues } from '../deliveries/job-fields';
 import { jobCategoryDef, jobCategoryValues } from '../deliveries/job-category';
@@ -21,6 +21,7 @@ import { quotationStatusLabel } from '../orders/quotation-status-label';
 import { crewText } from '../deliveries/job-style';
 import { currentCrewNames } from '../workers-teams/crew';
 import { quotationSubjectOf } from '../deliveries/quick-job-quotation';
+import { isTsv, tsvEvent } from './calendar-note-types';
 
 export const JOBS_CALENDAR_FLAG = 'enableJobsCalendar';
 /**
@@ -67,6 +68,8 @@ export interface JobsCalendarResponse {
    * person hides what they created. Absent for every other org.
    */
   people?: PanelPerson[];
+  /** Calendar style (WCT group, 2026-11-24): public holidays in the range, from the Field public holidays table (absent otherwise). */
+  holidays?: CalendarHoliday[];
 }
 
 /** Calendar style for one org's part: on, plus (group calendar child) the parent's colours, which win. */
@@ -118,9 +121,11 @@ export class JobsCalendarService {
       groupReadScope(this.prisma, organizationId, 'jobsCalendar'),
     ]);
     const hq = await isOrgFeatureEnabled(this.prisma, organizationId, CALENDAR_HQ_VIEW_FLAG);
+    const holidays = styleOn ? await this.holidays([organizationId, ...(scope.group ? scope.orgs.map((o) => o.id) : [])], from, to) : null;
     const withHq = (r: JobsCalendarResponse): JobsCalendarResponse => {
       const out = hq ? { ...r, hqView: true as const } : r;
-      return people ? { ...out, people } : out;
+      const withPeople = people ? { ...out, people } : out;
+      return holidays ? { ...withPeople, holidays } : withPeople;
     };
     // Gate off (or no children): exactly the org's own calendar.
     if (!scope.group) return withHq(own);
@@ -142,6 +147,23 @@ export class JobsCalendarService {
     const parts = await Promise.all(orgs.map((o) => searchOrg(this.prisma, o, q)));
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: CALENDAR_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     return { results: orderHits(parts.flat(), today).slice(0, SEARCH_LIMIT) };
+  }
+
+  /**
+   * Calendar style (2026-11-24): public holidays in the range from the Field module's table (FieldPublicHoliday), the
+   * viewing org's rows first, then its group's. Never fails the calendar (null = left out).
+   */
+  private async holidays(orgIds: string[], from: string, to: string): Promise<CalendarHoliday[] | null> {
+    try {
+      const ids = [...new Set(orgIds)];
+      const rows = await Promise.all(
+        ids.map((id) => runAsOrg(id, () => this.prisma.fieldPublicHoliday.findMany({ where: { organizationId: id, date: { gte: from, lte: to } }, select: { date: true, name: true } }))),
+      );
+      return holidaysInRange(rows.flat(), from, to);
+    } catch (err: any) {
+      this.logger.warn(`holidays: ${err?.message}`);
+      return null;
+    }
   }
 
   /** Calendar style: the people list (job and note creators of this org, plus its Sales members). */
@@ -273,6 +295,11 @@ export class JobsCalendarService {
           return { ...n, createdBy: id ? { id, name: names.get(id)?.name ?? null } : null };
         });
       }
+      // Technician Site Visit notes (2026-11-24): drawn exactly like a job (events), not as a note bar.
+      if (shownNotes?.some(isTsv)) {
+        events = [...events, ...(await this.tsvEvents(shownNotes.filter(isTsv), colours))].sort((a, b) => a.start.localeCompare(b.start) || a.title.localeCompare(b.title));
+        shownNotes = shownNotes.filter((n) => !isTsv(n));
+      }
     }
     return {
       from,
@@ -393,10 +420,31 @@ export class JobsCalendarService {
         salesperson: salespersonId ? { id: salespersonId, name: salesName } : null,
         ptwApplicant: applicantId ? { id: listed?.id ?? applicantId, name: applicantName, ...(listed && !listed.inList ? { inList: false } : {}) } : null,
         ...(m?.sticker ? { sticker: true } : {}),
-        chipLabel: chipLabelOf(run, e.title),
+        // Shop name (2026-11-24): the name everywhere when filled, the customer under it in the panel.
+        chipLabel: m?.shopName || chipLabelOf(run, e.title),
+        ...(m?.shopName ? { shopName: m.shopName } : {}),
+        // Postpone keeps the old event (2026-11-24): the pair links both ways; the old one is a record only.
+        ...(m?.postponedTo ? { postponedTo: m.postponedTo } : {}),
+        ...(m?.postponedFrom ? { postponedFrom: m.postponedFrom } : {}),
+        ...(m?.recordOnly ? { recordOnly: true as const } : {}),
         createdBy: m?.createdById ? { id: m.createdById, name: names.get(m.createdById)?.name ?? null } : null,
         style: styleOf(input, colours),
       };
+    });
+  }
+
+  /**
+   * Calendar style: Technician Site Visit notes as job events (calendar-note-types.ts tsvEvent), coloured by their
+   * salesperson through the same styleOf the jobs use (the salesperson's current name when known).
+   */
+  private async tsvEvents(notes: CalendarNoteView[], colours: CalendarColours): Promise<CalendarEvent[]> {
+    const spIds = new Set(notes.map((n) => (n.details as any)?.salesperson?.id).filter((x): x is string => typeof x === 'string'));
+    const names: Map<string, { name: string | null }> = spIds.size ? await this.style!.names(spIds) : new Map();
+    return notes.map((n) => {
+      const sp = (n.details as any)?.salesperson as { id: string; name: string | null } | undefined;
+      const salesperson = sp?.id ? { id: sp.id, name: names.get(sp.id)?.name ?? sp.name ?? null } : null;
+      const input: StyleInput = { cancelled: false, postponed: false, ptwStatus: null, doCount: 0, cod: false, category: null, salespersonId: salesperson?.id ?? null, ptwApplicantId: null };
+      return tsvEvent(n, { style: styleOf(input, colours), salesperson, createdBy: n.createdBy ?? null });
     });
   }
 

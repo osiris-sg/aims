@@ -7,7 +7,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Autocomplete, Chip, TextField } from "@mui/material";
 import { useCalendarApi } from "./calendarAddApi";
-import { chipsToValue, crewChips, crewLabel, crewOptionList, sameCrew, type CrewChip, type CrewOptions, type CrewPick } from "@/helpers/crewPicker";
+import { chipsToValue, crewChips, crewLabel, crewOptionList, sameCrew, sameValue, type CrewChip, type CrewOptions, type CrewPick } from "@/helpers/crewPicker";
 
 /** The org's active teams and workers (GET /workers-teams/picker), read once per page. */
 let cached: { at: number; org: string; data: CrewOptions } | null = null;
@@ -60,7 +60,13 @@ export default function CrewPicker({
   const list = useMemo(() => crewOptionList(options), [options]);
   const value = useMemo(() => crewChips(crew, team), [crew, team]);
   const [input, setInput] = useState("");
-  const commit = (chips: CrewChip[]) => onChange(chipsToValue(chips));
+  // 2026-11-24: duplicates (any case, or text equal to a pick's name) are dropped, and nothing is sent when the
+  // field did not change, so a deleted chip is not saved back by a stale copy.
+  const commit = (chips: CrewChip[]) => {
+    const next = chipsToValue(chips);
+    if (sameValue(next, chipsToValue(value))) return;
+    onChange(next);
+  };
   return (
     <Autocomplete<CrewChip, true, false, true>
       multiple

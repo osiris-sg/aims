@@ -17,6 +17,7 @@ import type { PickerCustomer } from "@/app/portal/hooks/api/useCustomerPicker";
 import { ptwOptions, quickJobBody, sgtParts, type PtwStatus, type QuickJobForm } from "@/helpers/calendarAdd";
 import { useCalendarApi, useCalendarStylePeople, useJobCompanies, useSiteClockWorkers, type WorkerOption } from "./calendarAddApi";
 import JobStyleFields from "./JobStyleFields";
+import JobEditDetails, { type JobEditRun } from "./JobEditDetails";
 import { applyQuotationPick, doOptionLabel, needsDoPick, quotationLabel, quotationRow, quotationSearchPath, type QuotationDetail, type QuotationOption } from "@/helpers/quickJobQuotation";
 import { categoryShown, type JobCategoryDef } from "@/helpers/jobCategory";
 import DateInput from "@/components/DateInput";
@@ -49,6 +50,10 @@ export default function QuickJobDialog({
   edit,
   withQuotation = false,
   initialQuotationId = null,
+  run = null,
+  createdBy = null,
+  onComplete,
+  onRunChanged,
 }: {
   open: boolean;
   onClose: () => void;
@@ -64,6 +69,14 @@ export default function QuickJobDialog({
   withQuotation?: boolean;
   /** New job with Quotation: picked when the dialog opens (the order page's Add job, 2026-11-17): Customer, Site and the DO follow. */
   initialQuotationId?: string | null;
+  /** One job form (WCT group, 2026-11-24), Edit only: the full job (items, proof of job, its DO), shown read only. */
+  run?: JobEditRun | null;
+  /** Edit: who made the job (read only). */
+  createdBy?: string | null;
+  /** Edit: "Complete job" in the footer (the customer sign-off, as the job page did). */
+  onComplete?: () => void;
+  /** Edit: the job changed outside the form (location, verification): reload it. */
+  onRunChanged?: () => void;
 }) {
   const baseApi = useCalendarApi();
   const phone = useMediaQuery((t: any) => t.breakpoints.down("sm"));
@@ -97,7 +110,7 @@ export default function QuickJobDialog({
     if (!open) return;
     let live = true;
     setCategoryLoaded(false);
-    void api<JobCategoryDef | null>("GET", "/deliveries/job-category").then((res) => {
+    void api<JobCategoryDef | null>("GET", `/deliveries/job-category${editCategory ? `?keep=${encodeURIComponent(editCategory)}` : ""}`).then((res) => {
       if (!live) return;
       const def = res.ok && res.data && Array.isArray(res.data.options) && res.data.options.length ? res.data : null;
       setCategoryDef(def);
@@ -144,7 +157,7 @@ export default function QuickJobDialog({
   const editId = edit?.id ?? null;
   useEffect(() => {
     if (!open || editId || !people.pending) return;
-    setForm((f) => ({ ...f, style: f.style ?? { salesperson: null, ptwApplicant: null, cod: false, sticker: false, team: "", crew: [] } }));
+    setForm((f) => ({ ...f, style: f.style ?? { salesperson: null, ptwApplicant: null, cod: false, sticker: false, team: "", crew: [], shopName: "" } }));
   }, [open, editId, people.pending]);
   useEffect(() => {
     if (!open || !people.loaded || !people.enabled) return;
@@ -154,7 +167,7 @@ export default function QuickJobDialog({
         ...f,
         style: f.style
           ? { ...f.style, salesperson: f.style.salesperson ?? people.defaultSalesperson, ptwApplicant: f.style.ptwApplicant ?? people.defaultApplicant }
-          : { salesperson: people.defaultSalesperson, ptwApplicant: people.defaultApplicant, cod: false, sticker: false, team: "", crew: [] },
+          : { salesperson: people.defaultSalesperson, ptwApplicant: people.defaultApplicant, cod: false, sticker: false, team: "", crew: [], shopName: "" },
       }));
       return;
     }
@@ -165,7 +178,7 @@ export default function QuickJobDialog({
       const person = (id: string | null | undefined, name: string | null | undefined) => (id ? { id, name: name || people.applicants.find((p) => p.id === id)?.name || id } : null);
       setForm((f) => ({
         ...f,
-        style: { salesperson: person(d?.salespersonId, d?.salespersonName), ptwApplicant: person(d?.ptwApplicantId, d?.ptwApplicantName) ?? people.defaultApplicant, cod: !!d?.cod, sticker: !!d?.sticker, team: d?.team ?? "", crew: Array.isArray(d?.crew) ? d.crew : [] },
+        style: { salesperson: person(d?.salespersonId, d?.salespersonName), ptwApplicant: person(d?.ptwApplicantId, d?.ptwApplicantName) ?? people.defaultApplicant, cod: !!d?.cod, sticker: !!d?.sticker, team: d?.team ?? "", crew: Array.isArray(d?.crew) ? d.crew : [], shopName: d?.shopName ?? "" },
       }));
     });
     return () => {
@@ -308,6 +321,10 @@ export default function QuickJobDialog({
             size="small"
             fullWidth
           />
+          {/* Shop name (WCT group, 2026-11-24): optional, under Customer; this customer's earlier shop names suggested. */}
+          {wctForm && form.style && (
+            <ShopNameField api={api} customerId={form.customerId} value={form.style.shopName ?? ""} onChange={(v) => setForm((f) => ({ ...f, style: { ...f.style!, shopName: v } }))} />
+          )}
           <TextField label="Site / address" size="small" fullWidth value={form.siteAddress} onChange={(e) => set({ siteAddress: e.target.value })} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
             <DateInput label="Date" size="small" value={form.date} onChange={(e) => set({ date: e.target.value })} InputLabelProps={{ shrink: true }} sx={{ flex: 1 }} />
@@ -347,7 +364,7 @@ export default function QuickJobDialog({
                   {...params}
                   label="Assigned workers"
                   placeholder={form.workers.length ? "" : "None"}
-                  helperText={workers.error || "The first worker gets the job in SiteClock; the others are listed in its notes."}
+                  helperText={workers.error || (wctForm ? undefined : "The first worker gets the job in SiteClock; the others are listed in its notes.")}
                   error={!!workers.error}
                 />
               )}
@@ -387,6 +404,18 @@ export default function QuickJobDialog({
               showApplicant={form.ptwStatus !== "NOT_NEEDED"}
             />
           )}
+          {edit && run && (
+            <JobEditDetails
+              run={run}
+              createdBy={createdBy}
+              saveLocation={async (v) => {
+                const r = await api<any>("PATCH", `/deliveries/job-location/${edit.id}`, { machineLocation: v });
+                if (r.ok) onRunChanged?.();
+                return { ok: r.ok, message: r.message };
+              }}
+              onChanged={() => onRunChanged?.()}
+            />
+          )}
           {error && <Alert severity="error">{error}</Alert>}
         </Stack>
           }
@@ -405,6 +434,11 @@ export default function QuickJobDialog({
             </Button>
           ))}
         <Box sx={{ flex: 1 }} />
+        {edit && onComplete && run?.status === "scheduled" && (
+          <Button variant="outlined" onClick={onComplete} disabled={saving} data-tour="job-edit-complete">
+            Complete job
+          </Button>
+        )}
         <Button onClick={onClose} disabled={saving}>
           Cancel
         </Button>
@@ -413,6 +447,32 @@ export default function QuickJobDialog({
         </Button>
       </DialogActions>
     </Dialog>
+  );
+}
+
+/** Shop name (WCT group, 2026-11-24): free text, with this customer's earlier shop names suggested. */
+function ShopNameField({ api, customerId, value, onChange }: { api: ReturnType<typeof useCalendarApi>; customerId: string | null; value: string; onChange: (v: string) => void }) {
+  const [options, setOptions] = useState<string[]>([]);
+  useEffect(() => {
+    if (!customerId) return setOptions([]);
+    let live = true;
+    void api<{ names: string[] }>("GET", `/deliveries/shop-names?customerId=${encodeURIComponent(customerId)}`).then((r) => {
+      if (live) setOptions(r.ok && Array.isArray(r.data?.names) ? r.data!.names : []);
+    });
+    return () => {
+      live = false;
+    };
+  }, [api, customerId]);
+  return (
+    <Autocomplete<string, false, false, true>
+      freeSolo
+      options={options}
+      inputValue={value}
+      onInputChange={(_e, v) => onChange(v)}
+      size="small"
+      fullWidth
+      renderInput={(params) => <TextField {...params} label="Shop name" inputProps={{ ...params.inputProps, maxLength: 120, "data-tour": "quick-job-shop-name" }} />}
+    />
   );
 }
 

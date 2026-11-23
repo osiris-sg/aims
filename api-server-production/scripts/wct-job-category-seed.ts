@@ -1,6 +1,7 @@
 /**
  * Job category (WCT group, 2026-11-17): seed the list
- *   Service order (default) · Delivery · Site visit · Others
+ *   Service order (default) · Delivery · Others
+ *   ("Site visit" dropped 2026-11-24: it is a calendar Note type now; orgs already seeded keep their list)
  * as the job_category job field (CustomField entityType 'Delivery', fieldType
  * 'select', required, defaultValue 'Service order') for the 4 WCT group orgs:
  * WCT (S) …0001, WCT Racking …0002, YMM Kitchen …0003, BC Air …0004.
@@ -23,7 +24,7 @@ import { randomUUID } from 'crypto';
 import { Client } from 'pg';
 
 const ORGS = ['5c700000-0000-4000-8000-5c7000000001', '5c700000-0000-4000-8000-5c7000000002', '5c700000-0000-4000-8000-5c7000000003', '5c700000-0000-4000-8000-5c7000000004'];
-const CATEGORIES = ['Service order', 'Delivery', 'Site visit', 'Others'];
+const CATEGORIES = ['Service order', 'Delivery', 'Others'];
 const FIELD = 'job_category';
 const env = process.argv.includes('--env') ? process.argv[process.argv.indexOf('--env') + 1] : 'dev';
 const apply = process.argv.includes('--apply');

@@ -1,3 +1,4 @@
+import { runAsOrg } from '../common/tenancy/tenant-context';
 import { assertImportedOrderOpen } from '../orders/imported-orders';
 import { randomBytes, randomUUID } from 'crypto';
 import * as QRCode from 'qrcode';
@@ -82,7 +83,7 @@ import { EMPTY_JOB_STYLE, withListedApplicant, defaultPtwApplicant, hasJobStyleP
 import { runNoun } from './job-wording';
 import { wctBrandStamp } from '../maintenance-reports/wct-brand';
 import { withRunLease } from './run-lease';
-import { bySchedule, orgTimeZone, scheduleFields } from './all-day';
+import { bySchedule, orgTimeZone, scheduleFields, ymdIn } from './all-day';
 @Injectable()
 export class DeliveriesService {
   private readonly logger = new Logger(DeliveriesService.name);
@@ -1208,11 +1209,16 @@ export class DeliveriesService {
   /** Edit a quick job (still scheduled, still without an order): same fields as the add form. */
   async updateQuickJob(id: string, organizationId: string, body: any) {
     await this.assertCalendarAdd(organizationId);
-    const run = await this.prisma.delivery.findFirst({ where: { id, organizationId }, select: { id: true, status: true, orderId: true } });
+    const run = await this.prisma.delivery.findFirst({ where: { id, organizationId }, select: { id: true, status: true, orderId: true, customerId: true } });
     if (!run) throw new NotFoundException('Job not found');
-    if (run.orderId) throw new BadRequestException('This job is under an order now: edit it from its page with the full form');
+    // One job form (WCT group, calendar style, 2026-11-24): a job under an order is edited with the same form; its
+    // customer stays the order's. Other orgs: as before (the full form on the job page).
+    const oneForm = await isCalendarStyleEnabled(this.prisma, organizationId);
+    if (run.orderId && !oneForm) throw new BadRequestException('This job is under an order now: edit it from its page with the full form');
     if (run.status !== 'scheduled') throw new BadRequestException(`Only a scheduled job can be edited (this one is ${run.status})`);
+    if ((await jobStyleValues(this.prisma, organizationId, [id])).get(id)?.recordOnly) throw new BadRequestException('This is the record of a postponed job: edit the job itself');
     const f = await this.quickJobFields(organizationId, body, id);
+    if (run.orderId && run.customerId && f.customerId !== run.customerId) throw new BadRequestException("This job is under an order: its customer is the order's");
     await this.prisma.delivery.update({
       where: { id },
       data: {
@@ -1298,20 +1304,117 @@ export class DeliveriesService {
     const run = await this.prisma.delivery.findFirst({ where: { id, organizationId }, select: { id: true, status: true, isDraft: true } });
     if (!run) throw new NotFoundException('Job not found');
     if (run.isDraft || run.status !== 'scheduled') throw new BadRequestException(`Only a scheduled job can be postponed or rescheduled (this one is ${run.isDraft ? 'a draft' : run.status})`);
+    if ((await jobStyleValues(this.prisma, organizationId, [id])).get(id)?.recordOnly) throw new BadRequestException('This is the record of a postponed job: reschedule the job itself');
     if (body?.onHold === true) {
       await saveJobStyle(this.prisma, organizationId, id, { postponed: true });
       return { id, onHold: true };
     }
     const target = parseRescheduleTarget(body);
+    const tz = await orgTimeZone(this.prisma, organizationId);
     const sched = target.time
-      ? { scheduledFor: zonedInstant(target.date, target.time, await orgTimeZone(this.prisma, organizationId)), scheduledAllDay: false }
+      ? { scheduledFor: zonedInstant(target.date, target.time, tz), scheduledAllDay: false }
       : await this.scheduleOf(target.date, true, organizationId);
+    // Postpone keeps the old event (WCT group, 2026-11-24): a record-only copy stays on the old date (greyed, ⭕,
+    // "Postponed to dd/mm"; no order / QO / DO links, so order job counts and DO actions are unchanged), and the job
+    // itself, with all its links, moves to the new date ("Postponed from dd/mm"). Both point at each other.
+    const before = await this.prisma.delivery.findFirst({
+      where: { id, organizationId },
+      select: { scheduledFor: true, scheduledAllDay: true, customerId: true, siteAddress: true, notes: true, direction: true, ptwStatus: true, ptwRemark: true, crewWorkers: true },
+    });
+    const oldDate = before?.scheduledFor ? ymdIn(before.scheduledFor, tz) : null;
+    const record = before?.scheduledFor && oldDate && oldDate !== target.date ? await this.postponedRecord(organizationId, id, before, target.date) : null;
     await this.prisma.delivery.update({ where: { id }, data: { scheduledFor: sched.scheduledFor, scheduledAllDay: sched.scheduledAllDay } });
-    await saveJobStyle(this.prisma, organizationId, id, { postponed: false });
+    await saveJobStyle(this.prisma, organizationId, id, { postponed: false, ...(record && oldDate ? { postponedFrom: { id: record, date: oldDate } } : {}) });
     await this.redateRunDo(id, organizationId);
     await this.ensureScheduledServiceReport(id, organizationId);
     await this.siteclock?.touch(organizationId, id);
     return { id, onHold: false, scheduledFor: sched.scheduledFor, scheduledAllDay: sched.scheduledAllDay };
+  }
+
+  /**
+   * The record a postponed job leaves on its old date (2026-11-24): same customer, site, remarks, time and calendar
+   * fields, marked postponed + recordOnly with a link to the job's new date. No items, order, quotation or DO.
+   */
+  private async postponedRecord(organizationId: string, jobId: string, before: any, newDate: string): Promise<string | null> {
+    const meta = (await jobStyleValues(this.prisma, organizationId, [jobId])).get(jobId) ?? EMPTY_JOB_STYLE;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const latest = await this.prisma.delivery.findFirst({ where: { organizationId }, orderBy: { deliveryNumber: 'desc' }, select: { deliveryNumber: true } });
+      try {
+        const made = await this.prisma.delivery.create({
+          data: {
+            organizationId,
+            deliveryNumber: (latest?.deliveryNumber ?? 0) + 1,
+            status: 'scheduled',
+            isDraft: false,
+            scheduledFor: before.scheduledFor,
+            scheduledAllDay: !!before.scheduledAllDay,
+            customerId: before.customerId ?? null,
+            siteAddress: before.siteAddress ?? null,
+            notes: before.notes ?? null,
+            ...(before.direction ? { direction: before.direction } : {}),
+            ptwStatus: before.ptwStatus ?? undefined,
+            ptwRemark: before.ptwRemark ?? null,
+            ...(before.crewWorkers !== undefined && before.crewWorkers !== null ? { crewWorkers: before.crewWorkers } : {}),
+          },
+          select: { id: true },
+        });
+        await saveJobStyle(this.prisma, organizationId, made.id, {
+          salespersonId: meta.salespersonId,
+          salespersonName: meta.salespersonName,
+          ptwApplicantId: meta.ptwApplicantId,
+          ptwApplicantName: meta.ptwApplicantName,
+          cod: meta.cod,
+          sticker: meta.sticker,
+          createdById: meta.createdById,
+          team: meta.team,
+          crew: meta.crew,
+          shopName: meta.shopName,
+          postponed: true,
+          recordOnly: true,
+          postponedTo: { id: jobId, date: newDate },
+        });
+        return made.id;
+      } catch (err: any) {
+        if (err?.code === 'P2002') continue;
+        throw err;
+      }
+    }
+    return null;
+  }
+
+  /** Shop names used on this customer's jobs (most used first, 20 at most). Calendar style orgs only. */
+  async shopNames(organizationId: string, customerId: string): Promise<{ names: string[] }> {
+    if (!(await isCalendarStyleEnabled(this.prisma, organizationId))) return { names: [] };
+    if (!/^[0-9a-f-]{36}$/i.test(customerId)) return { names: [] };
+    const rows: Array<{ name: string; n: number }> = await runAsOrg(organizationId, () =>
+      this.prisma.$queryRaw`
+        SELECT btrim(v.value ->> 'shopName') AS name, count(*)::int AS n
+        FROM "CustomFieldValue" v
+        JOIN "CustomField" f ON f.id = v."customFieldId" AND f."organizationId" = ${organizationId} AND f."fieldName" = 'job_calendar_style'
+        JOIN "Delivery" d ON d.id::text = v."entityId" AND d."organizationId" = ${organizationId}
+        WHERE d."customerId" = ${customerId}::uuid AND coalesce(btrim(v.value ->> 'shopName'), '') <> ''
+        GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 20`,
+    );
+    return { names: rows.map((r) => r.name) };
+  }
+
+  /** "Location on site" on the job's DO (config.machineLocation, printed under Deliver To). Not on a completed DO. */
+  async setJobLocation(id: string, organizationId: string, body: any) {
+    if (!(await isCalendarStyleEnabled(this.prisma, organizationId))) throw new NotFoundException('Not enabled for this organisation');
+    const raw = body?.machineLocation;
+    if (raw !== null && raw !== undefined && typeof raw !== 'string') throw new BadRequestException('Location on site must be text');
+    const value = typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+    const item = await this.prisma.deliveryItem.findFirst({ where: { deliveryId: id, documentId: { not: null }, delivery: { organizationId } }, select: { documentId: true } });
+    if (!item?.documentId) throw new BadRequestException('This job has no DO yet: the location goes on its DO');
+    const doc = await this.prisma.document.findFirst({ where: { id: item.documentId, organizationId }, select: { id: true, status: true, config: true } });
+    if (!doc) throw new NotFoundException('DO not found');
+    if (String(doc.status).startsWith('delivered')) throw new BadRequestException('The DO is completed: its location can no longer change');
+    const c: any = doc.config || {};
+    const next = { ...c };
+    if (value) next.machineLocation = value;
+    else delete next.machineLocation;
+    await this.prisma.document.update({ where: { id: doc.id }, data: { config: next } });
+    return { id, machineLocation: value || null };
   }
 
   /** PTW "Rejected" exists only with the calendar style (enableCalendarStyle). */

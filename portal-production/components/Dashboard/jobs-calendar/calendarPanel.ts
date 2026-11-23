@@ -23,7 +23,61 @@ export function ptwStatusIcon(status: string | null | undefined): string {
 export const ptwStatusOf = (e: Pick<CalendarEvent, "ptwStatus" | "ptw">): string => String(e.ptwStatus || e.ptw?.status || "NOT_NEEDED").toUpperCase();
 
 /** The customer as a chip and the panel title show it: the customer, else the chip label, else the title without numbers. */
-export const customerOf = (e: Pick<CalendarEvent, "customer" | "chipLabel" | "title">): string => e.customer?.trim() || e.chipLabel?.trim() || titleWithoutNumbers(e.title);
+/** The job's name everywhere (chips, schedule, hover, panel, export, search): Shop name when filled (2026-11-24), else the customer. */
+export const customerOf = (e: Pick<CalendarEvent, "customer" | "chipLabel" | "title"> & { shopName?: string | null }): string =>
+  e.shopName?.trim() || e.customer?.trim() || e.chipLabel?.trim() || titleWithoutNumbers(e.title);
+
+const ddmm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+/** "Postponed to 05/12" (the record left on the old date) or "Postponed from 28/11" (the job on its new date); "" otherwise. */
+export function postponedLabel(e: Pick<CalendarEvent, "postponedTo" | "postponedFrom">): string {
+  if (e.postponedTo?.date) return `Postponed to ${ddmm(e.postponedTo.date)}`;
+  if (e.postponedFrom?.date) return `Postponed from ${ddmm(e.postponedFrom.date)}`;
+  return "";
+}
+
+/** Assigned workers: the SiteClock lead and the rest of the crew, each once. */
+export function assignedWorkers(e: Pick<CalendarEvent, "worker" | "crew">): string[] {
+  const out: string[] = [];
+  for (const n of [e.worker, ...(e.crew ?? []).map((c) => c.name)]) {
+    const t = String(n ?? "").trim();
+    if (t && !out.some((x) => x.toLowerCase() === t.toLowerCase())) out.push(t);
+  }
+  return out;
+}
+
+/** Hover (2026-11-24): name, time, Salesperson, Created by, PTW applicant, Team / crew, Assigned workers. No order / job numbers. */
+export function hoverLines(e: CalendarEvent, time: string, applicant: string | null): string[] {
+  const workers = assignedWorkers(e);
+  return [
+    customerOf(e),
+    time,
+    e.salesperson?.name ? `Salesperson: ${e.salesperson.name}` : "",
+    e.createdBy?.name ? `Created by: ${e.createdBy.name}` : "",
+    applicant ? `PTW applicant: ${applicant}` : "",
+    e.team?.trim() ? `Team / crew: ${e.team.trim()}` : "",
+    workers.length ? `Assigned workers: ${workers.join(", ")}` : "",
+  ].filter(Boolean);
+}
+
+/**
+ * Schedule view row (2026-11-24, the phone format). Line 1: name @ address (subject) - team, then | remarks.
+ * Line 2: assigned workers · QO no. · salesperson · created by.
+ */
+export function scheduleLines(e: CalendarEvent): { name: string; where: string; subject: string; team: string; remarks: string; line2: string } {
+  const subject = plainText(e.subject);
+  const remarks = plainText(e.remarks);
+  return {
+    name: customerOf(e),
+    where: shortAddressOf(e.address),
+    subject,
+    team: plainText(e.team),
+    // Remarks prefilled from the quotation's Subject are not repeated.
+    remarks: remarks && remarks.toLowerCase() !== subject.toLowerCase() ? remarks : "",
+    line2: [assignedWorkers(e).join(", "), e.quotationNumber ?? "", e.salesperson?.name ?? "", e.createdBy?.name ? `Created by ${e.createdBy.name}` : ""].filter(Boolean).join(" · "),
+  };
+}
+const plainText = (s: string | null | undefined) => String(s ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).join(", ").replace(/\s+/g, " ").trim();
+const shortAddressOf = (a: string | null | undefined) => shortAddress(a);
 
 export interface ChipLines {
   /** "9am" / "8:30pm"; "" for an all-day job. */
@@ -42,7 +96,8 @@ export interface ChipLines {
 export function chipLines(e: CalendarEvent): ChipLines {
   const icons = [doIcon(e.doCount), e.cancelled ? "❌" : "", e.postponed && !e.cancelled ? "⭕" : "", e.sticker ? "📌" : "", e.cod ? "🟫" : ""].filter(Boolean).join(" ");
   const ptw = ptwStatusIcon(ptwStatusOf(e));
-  const row2 = [e.style?.prefix ?? "", ptw, ptw ? e.style?.applicantIcon ?? "" : ""].filter(Boolean).join(" ");
+  // Postponed pair (2026-11-24): "Postponed to dd/mm" on the old record, "Postponed from dd/mm" on the moved job.
+  const row2 = [e.style?.prefix ?? "", ptw, ptw ? e.style?.applicantIcon ?? "" : "", postponedLabel(e)].filter(Boolean).join(" ");
   return { time: e.allDay ? "" : compactTime(e.start), icons, customer: customerOf(e), row2 };
 }
 
@@ -474,6 +529,8 @@ export function shortAddress(a: string | null | undefined): string {
 
 /** "4pm - Ajiya Okonomiyaki Restaurant @ E!Avenue #02-346 (Subject) - Team A *Remarks*". */
 export function exportLine(e: CalendarEvent): string {
+  // The record a postponed job left on its old date (2026-11-24).
+  if (e.recordOnly && e.postponedTo?.date) return `⭕ Postponed to ${ddmm(e.postponedTo.date)} - ${plain(customerOf(e))}`;
   const time = exportTime(e);
   const where = shortAddress(e.address);
   const subject = plain(e.subject);
@@ -512,7 +569,8 @@ export function exportJobs(events: CalendarEvent[], o: Pick<ExportOptions, "from
   for (const e of events) {
     if (e.source !== "aims") continue;
     if (e.cancelled && !o.includeCancelled) continue;
-    if (e.postponed && !e.cancelled && !o.includeOnHold) continue;
+    // A postponed job's record on its old date is always listed (as "⭕ Postponed to dd/mm"); other on-hold jobs when asked.
+    if (e.postponed && !e.cancelled && !e.recordOnly && !o.includeOnHold) continue;
     const day = dayOfEvent(e);
     if (day < o.from || day > o.to) continue;
     by.set(day, [...(by.get(day) ?? []), e]);
@@ -552,16 +610,21 @@ export function exportNotes(notes: ExportNote[], o: Pick<ExportOptions, "from" |
  * ("All day - …": all-day jobs, then all-day notes, 2026-11-23) and the timed jobs by time, a blank line between
  * everything. Days with nothing on them are left out; nothing at all = "".
  */
-export function exportText(events: CalendarEvent[], o: ExportOptions, notes: ExportNote[] = []): string {
+export function exportText(events: CalendarEvent[], o: ExportOptions, notes: ExportNote[] = [], holidays: Array<{ date: string; name: string }> = []): string {
   const by = exportJobs(events, o);
   const noteDays = exportNotes(notes, o);
   const header = plain(o.header);
-  return [...new Set([...by.keys(), ...noteDays.keys()])]
+  // Public holidays (2026-11-24): at the top of their day, right under the date.
+  const hol = holidays.filter((h) => h && h.date >= o.from && h.date <= o.to && plain(h.name));
+  return [...new Set([...by.keys(), ...noteDays.keys(), ...hol.map((h) => h.date)])]
     .sort()
     .map((day) => {
       const jobs = by.get(day) ?? [];
-      const lines = [...jobs.filter((e) => e.allDay).map(exportLine), ...(noteDays.get(day) ?? []).map(exportNoteLine), ...jobs.filter((e) => !e.allDay).map(exportLine)];
-      return [exportDateLine(day), ...(header ? [header] : []), "*SCHEDULE*", ...lines].join("\n\n");
+      // All-day jobs, all-day notes, postponed records ("⭕ Postponed to dd/mm"), then the timed jobs by time.
+      const live = jobs.filter((e) => !e.recordOnly);
+      const lines = [...live.filter((e) => e.allDay).map(exportLine), ...(noteDays.get(day) ?? []).map(exportNoteLine), ...jobs.filter((e) => e.recordOnly).map(exportLine), ...live.filter((e) => !e.allDay).map(exportLine)];
+      const dayHol = hol.filter((h) => h.date === day).map((h) => `Public holiday: ${plain(h.name)}`);
+      return [exportDateLine(day), ...dayHol, ...(header ? [header] : []), "*SCHEDULE*", ...lines].join("\n\n");
     })
     .join("\n\n");
 }

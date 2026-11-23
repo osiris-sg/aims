@@ -23,20 +23,41 @@ export const splitFree = (text: string | null | undefined): string[] =>
     .map((s) => s.trim())
     .filter(Boolean);
 
-/** A job's value as chips: the picks first, then the free text. */
-export const crewChips = (crew: CrewPick[] | null | undefined, team: string | null | undefined): CrewChip[] => [...(crew ?? []), ...splitFree(team)];
+/** A name compared without case or extra spaces ("team  a" = "Team A"). */
+export const crewKey = (s: string | null | undefined): string => String(s ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 
-/** Chips back to what the API takes: { crew, team } (team = the free text, "" when none). */
-export function chipsToValue(chips: CrewChip[]): { crew: CrewPick[]; team: string } {
-  const crew: CrewPick[] = [];
-  const free: string[] = [];
+/**
+ * Chips with no duplicates: a pick once (same id, or same kind and name); a piece of text once (any case) and never
+ * when it is a pick's name. 2026-11-24: the calendar panel passes the job's WHOLE text ("Team A", picks included)
+ * as the free text when the job has no free text of its own, so the picks came back as text chips (a duplicate,
+ * and a chip that came back after it was deleted). Dropping text equal to a pick's name stops both.
+ */
+export function dedupeChips(chips: CrewChip[]): CrewChip[] {
+  const picks: CrewPick[] = [];
   for (const c of chips) {
-    if (typeof c === "string") {
-      const t = c.replace(/\s+/g, " ").trim();
-      if (t && !free.includes(t)) free.push(t);
-    } else if (!crew.some((x) => x.kind === c.kind && x.id === c.id)) crew.push({ kind: c.kind, id: c.id, name: c.name });
+    if (typeof c === "string") continue;
+    if (picks.some((x) => (x.kind === c.kind && x.id === c.id) || (x.kind === c.kind && crewKey(x.name) && crewKey(x.name) === crewKey(c.name)))) continue;
+    picks.push({ kind: c.kind, id: c.id, name: c.name });
   }
-  return { crew, team: free.join(" + ") };
+  const seen = new Set(picks.map((p) => crewKey(p.name)).filter(Boolean));
+  const out: CrewChip[] = [...picks];
+  for (const c of chips) {
+    if (typeof c !== "string") continue;
+    const t = c.replace(/\s+/g, " ").trim();
+    if (!t || seen.has(crewKey(t))) continue;
+    seen.add(crewKey(t));
+    out.push(t);
+  }
+  return out;
+}
+
+/** A job's value as chips: the picks first, then the free text (duplicates dropped, see dedupeChips). */
+export const crewChips = (crew: CrewPick[] | null | undefined, team: string | null | undefined): CrewChip[] => dedupeChips([...(crew ?? []), ...splitFree(team)]);
+
+/** Chips back to what the API takes: { crew, team } (team = the free text, "" when none). Text is kept as typed. */
+export function chipsToValue(chips: CrewChip[]): { crew: CrewPick[]; team: string } {
+  const clean = dedupeChips(chips);
+  return { crew: clean.filter((c): c is CrewPick => typeof c !== "string"), team: clean.filter((c): c is string => typeof c === "string").join(" + ") };
 }
 
 /** The dropdown: teams first, then workers, each by name. */
@@ -48,4 +69,8 @@ export const crewOptionList = (o: CrewOptions | null | undefined): CrewPick[] =>
 export const crewLabel = (c: CrewChip): string => (typeof c === "string" ? c : c.name);
 export const sameCrew = (a: CrewChip, b: CrewChip): boolean => (typeof a === "string" || typeof b === "string" ? a === b : a.kind === b.kind && a.id === b.id);
 /** The text the job shows (same rule as the API's crewText). */
-export const crewDisplay = (crew: CrewPick[] | null | undefined, team: string | null | undefined): string => [...(crew ?? []).map((c) => c.name), team ?? ""].filter(Boolean).join(" + ");
+export const crewDisplay = (crew: CrewPick[] | null | undefined, team: string | null | undefined): string => crewChips(crew, team).map(crewLabel).filter(Boolean).join(" + ");
+
+/** Two { crew, team } values hold the same chips (same picks in the same order, same text). */
+export const sameValue = (a: { crew: CrewPick[]; team: string }, b: { crew: CrewPick[]; team: string }): boolean =>
+  a.team === b.team && a.crew.length === b.crew.length && a.crew.every((c, i) => c.kind === b.crew[i].kind && c.id === b.crew[i].id);

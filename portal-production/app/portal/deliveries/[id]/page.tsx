@@ -780,11 +780,25 @@ export default function DeliveryDetailPage() {
     }
   };
 
+  // One job form (WCT group, calendar style, 2026-11-24): this page is gone; old links land on the calendar on the
+  // job's day with its side panel open (?open=schedule / complete still open the job pop-up / Complete job).
+  const oneForm = features?.enableCalendarStyle === true;
+  useEffect(() => {
+    if (!oneForm || !run || typeof window === "undefined") return;
+    const open = new URLSearchParams(window.location.search).get("open");
+    const date = run.scheduledFor ? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(run.scheduledFor)) : null;
+    const next = new URLSearchParams({ job: run.id });
+    if (date) next.set("date", date);
+    if (open === "schedule") next.set("open", "edit");
+    else if (open === "complete") next.set("open", "complete");
+    router.replace(`/portal/deliveries/calendar?${next.toString()}`);
+  }, [oneForm, run, router]);
+
   // Orders hub (?open=…, 2026-11-13): the order page's next-step button and the
   // orders list's row menu open this page's own dialog, once.
   const openedFromOrder = React.useRef(false);
   useEffect(() => {
-    if (!run || openedFromOrder.current || typeof window === "undefined") return;
+    if (!run || oneForm || openedFromOrder.current || typeof window === "undefined") return;
     openedFromOrder.current = true;
     const open = new URLSearchParams(window.location.search).get("open");
     if (open === "schedule" && run.status === "scheduled") setEditOpen(true);
@@ -792,7 +806,7 @@ export default function DeliveryDetailPage() {
     else if (open === "upload") setTimeout(() => document.querySelector('[data-tour="run-upload-service-report"]')?.scrollIntoView({ behavior: "smooth", block: "center" }), 400);
   }, [run, manualFlow]);
 
-  if (loading) {
+  if (loading || (oneForm && run)) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", py: 10 }}>
         <CircularProgress />

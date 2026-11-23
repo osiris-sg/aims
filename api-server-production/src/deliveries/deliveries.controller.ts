@@ -18,6 +18,10 @@ import { ScheduleReturnDto } from './dto/schedule-return.dto';
 import { AdHocReturnDto } from './dto/adhoc-return.dto';
 import { SwapUnitDto } from './dto/swap-unit.dto';
 import { UnitSwapService } from './unit-swap.service';
+import { Optional } from '@nestjs/common';
+import { PrismaService } from 'src/common/prisma.service';
+import { isOrgFeatureEnabled } from 'src/common/org-features';
+import { forNewJobs } from './job-category';
 
 interface ClerkRequest extends Request {
   user?: { id?: string };
@@ -39,7 +43,13 @@ export class DeliveriesController {
     private readonly siteclock: SiteClockLinkService,
     private readonly orderJobs: OrderJobsService,
     private readonly unitSwap: UnitSwapService,
+    @Optional() private readonly prisma?: PrismaService,
   ) {}
+
+  /** Calendar style orgs (WCT group, 2026-11-24): "Site visit" is a Note type now, so the forms leave it out. */
+  private async retireSiteVisit(organizationId: string): Promise<boolean> {
+    return !!this.prisma && (await isOrgFeatureEnabled(this.prisma, organizationId, 'enableCalendarStyle'));
+  }
 
   /**
    * Calendar people list (calendar style orgs, 2026-11-19): the office user who made a job is stored as its creator.
@@ -288,11 +298,28 @@ export class DeliveriesController {
     return this.service.quickJobQuotation(org.id, quotationId);
   }
 
+  // Shop name suggestions (WCT group, calendar style, 2026-11-24): the names already used on this customer's jobs. Before :id.
+  @Get('shop-names')
+  @Permissions('documents:create-basic')
+  shopNames(@UserOrganization() org: { id: string }, @Query('customerId') customerId?: string) {
+    return this.service.shopNames(org.id, customerId ?? '');
+  }
+
+  // One job form (WCT group, 2026-11-24): "Location on site" of the job's DO (printed under Deliver To). Before :id.
+  @Patch('job-location/:id')
+  @Permissions('documents:create-basic')
+  setJobLocation(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }) {
+    return this.service.setJobLocation(id, org.id, body ?? {});
+  }
+
   // Job category (WCT group, deliveries/job-category.ts): the org's list for the New job form, or null. Before :id.
+  // Calendar style orgs (2026-11-24): "Site visit" is left out for new jobs; ?keep=<the edited job's category> keeps
+  // it in the list when that job already has it.
   @Get('job-category')
   @Permissions('documents:create-basic')
-  jobCategory(@UserOrganization() org: { id: string }) {
-    return this.service.jobCategoryOf(org.id);
+  async jobCategory(@UserOrganization() org: { id: string }, @Query('keep') keep?: string) {
+    const def = await this.service.jobCategoryOf(org.id);
+    return def && (await this.retireSiteVisit(org.id)) ? forNewJobs(def, keep) : def;
   }
 
   @Patch('quick-job/:id')
@@ -365,7 +392,8 @@ export class DeliveriesController {
     if (jobFields) run.jobFields = jobFields;
     // Job category (WCT group): the job's pick (blank = the default) + the org's list; absent elsewhere.
     const jobCategory = run?.id ? await this.service.jobCategoryOfRun(id, org.id) : null;
-    if (jobCategory) run.jobCategory = jobCategory;
+    // Calendar style orgs: "Site visit" only for a job that already has it (job-category.ts forNewJobs).
+    if (jobCategory) run.jobCategory = (await this.retireSiteVisit(org.id)) ? { ...jobCategory, options: forNewJobs({ id: '', ...jobCategory }, jobCategory.value).options } : jobCategory;
     // SiteClock "Can't finish today" (2026-11-10): the worker's latest reason while the job is open.
     if (run?.id && run.status !== 'completed' && run.status !== 'cancelled') run.notFinished = await this.service.lastNotFinished(run.id, org.id);
     const views = await this.siteclock.viewsFor(org.id, run?.id ? [run.id] : []);

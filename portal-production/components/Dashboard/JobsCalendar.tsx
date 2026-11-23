@@ -31,6 +31,7 @@ import QuickJobDialog from "./jobs-calendar/QuickJobDialog";
 import { linkedToast } from "@/helpers/quickJobQuotation";
 import NoteDialog from "./jobs-calendar/NoteDialog";
 import CalendarSearch, { type CalendarSearchHit } from "./jobs-calendar/CalendarSearch";
+import JobEditHost, { type JobEditTarget } from "./jobs-calendar/JobEditHost";
 
 const CalendarView = dynamic(() => import("./jobs-calendar/CalendarView"), {
   ssr: false,
@@ -55,6 +56,21 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
   const canAdd = !!isWctOrdersEnabled && Array.isArray(data?.notes);
   const [adding, setAdding] = useState<{ kind: "job" | "note"; slot: { date: string; time: string } } | null>(null);
   const [editNote, setEditNote] = useState<CalendarNote | null>(null);
+  // One job form (2026-11-24): the side panel's Edit / Complete job open the job pop-up here.
+  const [jobEdit, setJobEdit] = useState<JobEditTarget | null>(null);
+  // Old job page links (2026-11-24): ?job=<id>&date=<day> opens the calendar on that day with the job's panel;
+  // ?open=edit / complete opens the job pop-up / Complete job (a draft with no date opens the pop-up).
+  const [linkFocus, setLinkFocus] = useState<{ id: string; kind: "job"; date: string; n: number } | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const q = new URLSearchParams(window.location.search);
+    const job = q.get("job");
+    if (!job) return;
+    const date = q.get("date");
+    const open = q.get("open");
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) setLinkFocus({ id: `aims:${job}`, kind: "job", date, n: 1 });
+    if (open === "edit" || open === "complete" || !date) setJobEdit({ id: job, mode: open === "complete" ? "complete" : "edit" });
+  }, []);
 
   const onRange = useCallback((startStr: string, endStr: string) => {
     const r = rangeOf(startStr, endStr);
@@ -188,6 +204,9 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
         canAdd={canAdd}
         newButton={!!isGroupCalendarEnabled}
         searchJobs={isGroupCalendarEnabled ? searchJobs : undefined}
+        linkFocus={linkFocus}
+        onEditJob={canAdd ? (e) => setJobEdit({ id: e.id.slice(5), mode: "edit", orgId: e.foreign ? e.orgId ?? null : null, createdBy: e.createdBy?.name ?? null }) : undefined}
+        onCompleteJob={canAdd ? (e) => setJobEdit({ id: e.id.slice(5), mode: "complete", orgId: e.foreign ? e.orgId ?? null : null, createdBy: e.createdBy?.name ?? null }) : undefined}
         onAdd={(kind, slot) => setAdding({ kind, slot })}
         onNoteClick={setEditNote}
         onMove={onMove}
@@ -196,6 +215,7 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
         loadRange={loadRange}
         loadHeader={loadHeader}
       />
+      {canAdd && <JobEditHost target={jobEdit} onClose={() => setJobEdit(null)} onSaved={reload} />}
       {canAdd && (
         <>
           <QuickJobDialog
@@ -247,6 +267,9 @@ export function JobsCalendarPanel({
   canAdd = false,
   newButton = false,
   searchJobs,
+  linkFocus = null,
+  onEditJob,
+  onCompleteJob,
   onAdd,
   onNoteClick,
   onMove,
@@ -270,6 +293,11 @@ export function JobsCalendarPanel({
   newButton?: boolean;
   /** WCT group calendar: the search box at the start of the filter row (server search, any date). */
   searchJobs?: (q: string, companies: string[]) => Promise<CalendarSearchHit[]>;
+  /** Old job page link (2026-11-24): go to that day and open the job's panel. */
+  linkFocus?: { id: string; kind: "job"; date: string; n: number } | null;
+  /** One job form (2026-11-24): the side panel's Edit / Complete job. */
+  onEditJob?: (e: CalendarEvent) => void;
+  onCompleteJob?: (e: CalendarEvent) => void;
   onAdd?: (kind: "job" | "note", slot: { date: string; time: string }) => void;
   onNoteClick?: (note: CalendarNote) => void;
   /** All-day jobs (2026-11-10): drag to another day. */
@@ -349,6 +377,9 @@ export function JobsCalendarPanel({
   const [exportOpen, setExportOpen] = useState(false);
   // Calendar search pick: the calendar goes to its day and opens it (the Companies filter narrows the search too).
   const [focus, setFocus] = useState<{ id: string; kind: "job" | "note"; date: string; n: number } | null>(null);
+  useEffect(() => {
+    if (linkFocus) setFocus({ ...linkFocus });
+  }, [linkFocus]);
   const runSearch = useCallback((q: string) => (searchJobs ? searchJobs(q, filters.companies) : Promise.resolve([])), [searchJobs, filters.companies]);
   const exportEvents = useCallback(
     async (from: string, to: string) => {
@@ -359,7 +390,7 @@ export function JobsCalendarPanel({
       const noteList = p?.notes ?? [];
       const notesByPeople = withPeople ? filterByPeople(noteList, hidden) : noteList;
       const notes = filters.companies.length ? notesByPeople.filter((n: any) => filters.companies.includes(n.orgId || ownOrgId || "")) : notesByPeople;
-      return { events: filterEvents(byPeople, filters, ownOrgId), notes };
+      return { events: filterEvents(byPeople, filters, ownOrgId), notes, holidays: p?.holidays ?? [] };
     },
     [loadRange, data, withPeople, hidden, filters, ownOrgId],
   );
@@ -472,6 +503,9 @@ export function JobsCalendarPanel({
         canAdd={canAdd}
         newButton={newButton}
         focus={focus}
+        holidays={data?.holidays}
+        onEditJob={onEditJob}
+        onCompleteJob={onCompleteJob}
         onAdd={onAdd}
         onNoteClick={onNoteClick}
         onMove={onMove}

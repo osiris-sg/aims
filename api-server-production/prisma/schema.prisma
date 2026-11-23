@@ -4749,7 +4749,7 @@ model CalendarNote {
   id             String   @id @default(uuid())
   organizationId String
   title          String
-  type           String // LEAVE | PTW | BLOCKAGE | OTHER
+  type           String // LEAVE | PTW | BLOCKAGE | OTHER; calendar style orgs also SITE_VISIT | TECH_SITE_VISIT (2026-11-24)
   staffId        String? // SiteClock worker id (the same list the job form picks from)
   staffName      String?
   startDate      String // yyyy-MM-dd
@@ -4758,6 +4758,9 @@ model CalendarNote {
   startTime      String? // HH:mm
   endTime        String? // HH:mm
   remark         String?
+  // Technician Site Visit (TECH_SITE_VISIT, 2026-11-24): customer, shop name, address, duration, workers, team,
+  // salesperson (dashboard/calendar-note-types.ts). Null for every other note.
+  details        Json?
   createdById    String?
   createdByName  String?
   createdAt      DateTime @default(now())

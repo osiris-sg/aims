@@ -22,3 +22,26 @@ test("options: teams then workers; duplicates and blanks dropped", () => {
   assert.equal(sameCrew("a", "a"), true);
   assert.equal(sameCrew(opts[0], "Team A"), false);
 });
+
+// 2026-11-24 (WCT group): chips duplicated ("Team A" twice) or came back after a delete. Reproduction in state
+// terms: the API sends teamText null for a job with picks and no free text; the panel then passes e.team (the
+// WHOLE text, "Team A") as the free text, so the picker showed [pick Team A, text "Team A"]. Deleting the pick
+// kept the text chip (it "came back"); deleting the text sent team "", the panel fell back to e.team again and the
+// text chip reappeared; any other edit saved "Team A" as free text (a stored duplicate).
+test("a pick's name passed as free text is not a second chip", async () => {
+  const { dedupeChips, sameValue } = await import("./crewPicker.ts");
+  const A = { kind: "team", id: "t1", name: "Team A" };
+  // The panel's fallback: crew [Team A], team = the whole text "Team A".
+  assert.deepEqual(crewChips([A], "Team A"), [A]);
+  assert.deepEqual(crewChips([A, { kind: "worker", id: "w1", name: "Guru" }], "Team A + Guru + Ali"), [A, { kind: "worker", id: "w1", name: "Guru" }, "Ali"]);
+  // Delete the pick: nothing comes back.
+  assert.deepEqual(chipsToValue(crewChips([A], "Team A").filter((c) => typeof c === "string")), { crew: [], team: "" });
+  // Typed duplicates (any case) are dropped; text is kept as typed.
+  assert.deepEqual(chipsToValue([A, "team a", "Ali (lorry)", "ALI (LORRY)"]), { crew: [A], team: "Ali (lorry)" });
+  assert.deepEqual(chipsToValue(["Team B", "team  b"]), { crew: [], team: "Team B" });
+  assert.deepEqual(dedupeChips([A, { kind: "team", id: "t2", name: "team a" }]), [A]);
+  assert.equal(crewDisplay([A], "Team A"), "Team A");
+  // No change, no save.
+  assert.equal(sameValue(chipsToValue(crewChips([A], "Team A")), { crew: [A], team: "" }), true);
+  assert.equal(sameValue({ crew: [A], team: "" }, { crew: [], team: "" }), false);
+});

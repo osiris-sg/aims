@@ -21,7 +21,8 @@ test("wired: only behind the group calendar flag, Companies filter sent, the cal
   const bar = read("components/Dashboard/jobs-calendar/CalendarFilterBar.tsx");
   assert.match(bar, /data-tour="jobs-calendar-filters">\s*\{search\}/);
   const view = read("components/Dashboard/jobs-calendar/CalendarView.tsx");
-  assert.match(view, /calRef\.current\?\.getApi\(\)\.gotoDate\(focus\.date\)/);
+  assert.match(view, /calRef\.current\?\.getApi\(\)\.gotoDate\(f\.date\)/);
+  assert.match(view, /jumpTo\(focus\)/);
   assert.match(view, /if \(openOnClick\) setPanel\(\{ event: e, day: null \}\)/);
   const box = read("components/Dashboard/jobs-calendar/CalendarSearch.tsx");
   assert.match(box, /if \(e\.key === "Escape"\) clear\(\)/);

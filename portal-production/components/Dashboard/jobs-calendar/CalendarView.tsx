@@ -44,6 +44,7 @@ import WorkOutlineIcon from "@mui/icons-material/WorkOutline";
 import StickyNote2OutlinedIcon from "@mui/icons-material/StickyNote2Outlined";
 import { ADD_MENU_TEXT, newButtonSlot, noteTitle, noteToCalendarInput, noteType, noteWhen, ptwColor, slotOf, type CalendarNote } from "@/helpers/calendarAdd";
 import { todayIso } from "@/helpers/orgToday";
+import { HOLIDAY_BG, HOLIDAY_TEXT, holidayCalendarInputs, holidayExportLine, holidaysOn, type PublicHoliday } from "@/helpers/publicHolidays";
 import { categoryChipTitle } from "@/helpers/jobCategory";
 import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { alpha, useTheme } from "@mui/material/styles";
@@ -52,7 +53,7 @@ import Link from "next/link";
 import { CALENDAR_TZ, CHIP_TEXT, CHIP_TIME, GREYED_OPACITY, chipBorder, chipFill, applicantLabel, badgeTitle, chipTimeRange, crewLine, crossOrgTarget, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
 import DoStatusTag from "@/components/DoStatusTag";
 import StyledJobPanel, { type CalendarActions } from "./StyledJobPanel";
-import { RETURN_ORG_KEY, chipLines, chipTone, customerOf, rescheduleClashes, returnOrgMarker, type RescheduleTarget } from "./calendarPanel";
+import { RETURN_ORG_KEY, chipLines, chipTone, customerOf, hoverLines, postponedLabel, rescheduleClashes, returnOrgMarker, scheduleLines, type RescheduleTarget } from "./calendarPanel";
 
 interface Props {
   events: CalendarEvent[];
@@ -82,6 +83,11 @@ interface Props {
   newButton?: boolean;
   /** Calendar search pick (2026-11-23): go to this day and open the job (or the note); n changes on every pick. */
   focus?: { id: string; kind: "job" | "note"; date: string; n: number } | null;
+  /** Singapore public holidays (2026-11-24, calendar style orgs): an all-day banner in every view. */
+  holidays?: PublicHoliday[];
+  /** One job form (2026-11-24): the side panel's Edit and Complete job. */
+  onEditJob?: (e: CalendarEvent) => void;
+  onCompleteJob?: (e: CalendarEvent) => void;
   /** Round 36 (calendar style): what the side panel may do (toggles, Cancel / Undo, Reschedule); absent = read only. */
   actions?: CalendarActions;
   /**
@@ -96,7 +102,8 @@ export const SCHEDULE_VIEW = "schedule";
 // Calendar style chips (WCT group; only jobs with `style` use these). 2026-11-22: two sizes up from 0.72 / 0.64 / 0.70rem
 // (Month, Week, Day) and 0.875 / 0.75rem (Schedule). Month cells grow to keep about 4 two-row chips before "+n more".
 export const CHIP_FONT = { text: "0.85rem", time: "0.76rem", row2: "0.82rem" } as const;
-export const SCHEDULE_FONT = { text: "1rem", time: "0.875rem", row2: "0.875rem" } as const;
+// 2026-11-24: back to the old, smaller size (Schedule view only).
+export const SCHEDULE_FONT = { text: "0.875rem", time: "0.75rem", row2: "0.75rem" } as const;
 export const MONTH_CELL_MIN = 206;
 
 export default function CalendarView({
@@ -117,6 +124,9 @@ export default function CalendarView({
   schedule = false,
   newButton = false,
   focus = null,
+  holidays,
+  onEditJob,
+  onCompleteJob,
   actions,
   mini,
 }: Props) {
@@ -189,6 +199,10 @@ export default function CalendarView({
       return onNoteClick?.(row.note);
     }
     if (!row.event) return;
+    if (row.event.note) {
+      const n = { ...row.event.note, ...(row.event.foreign ? { foreign: true as const, orgId: row.event.orgId, orgName: row.event.orgName } : {}) } as CalendarNote & GroupTag;
+      return n.foreign ? setNoteView({ pos, note: n }) : onNoteClick?.(n);
+    }
     if (openOnClick) return setPanel({ event: row.event, day: null });
     setOpen({ pos, event: row.event });
   };
@@ -220,12 +234,13 @@ export default function CalendarView({
   const monthRows = styledCal && viewType === "dayGridMonth";
   const inputs = useMemo(
     () => [
+      ...holidayCalendarInputs(holidays ?? []),
       ...(notes ?? []).map((n) => noteToCalendarInput(n, styled)),
       ...toCalendarInputs(liveEvents, showCancelled, !!onMove && !mini, openOnClick).map((i) => ({ ...i, displayOrder: 1, ...(clashIds.has(i.id) ? { classNames: [...i.classNames, "aims-jc-clash"] } : {}) })),
       // Round 39 #8: the time chosen in the job form, shaded behind the jobs.
       ...(mini?.highlight ? [{ id: "aims-jc-pick", start: mini.highlight.start, end: mini.highlight.end, allDay: mini.highlight.allDay, display: "background", backgroundColor: theme.palette.primary.main, classNames: ["aims-jc-pick"] }] : []),
     ],
-    [liveEvents, showCancelled, notes, onMove, openOnClick, styled, clashIds, mini?.highlight, theme.palette.primary.main],
+    [liveEvents, showCancelled, notes, onMove, openOnClick, styled, clashIds, mini?.highlight, theme.palette.primary.main, holidays],
   );
 
   const onDateClick = (arg: DateClickArg) => {
@@ -268,17 +283,23 @@ export default function CalendarView({
       else setOpen({ pos: { left: window.innerWidth / 2, top: 160 }, event: e });
       return;
     }
-    const n = (notes ?? []).find((x) => x.id === f.id) as (CalendarNote & GroupTag) | undefined;
+    const n = ((notes ?? []).find((x) => x.id === f.id) ?? liveEvents.find((x) => x.noteId === f.id)?.note) as (CalendarNote & GroupTag) | undefined;
     if (!n) return;
     pendingFocus.current = null;
     if (n.foreign) setNoteView({ pos: { left: window.innerWidth / 2, top: 160 }, note: n });
     else onNoteClick?.(n);
   }, [liveEvents, notes, openOnClick, onNoteClick]);
+  const jumpTo = useCallback(
+    (f: { id: string; kind: "job" | "note"; date: string }) => {
+      pendingFocus.current = { ...f, n: 0 };
+      calRef.current?.getApi().gotoDate(f.date);
+      tryFocus();
+    },
+    [tryFocus],
+  );
   useEffect(() => {
     if (!focus) return;
-    pendingFocus.current = focus;
-    calRef.current?.getApi().gotoDate(focus.date);
-    tryFocus();
+    jumpTo(focus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus?.n]);
   useEffect(() => {
@@ -287,10 +308,15 @@ export default function CalendarView({
 
   const onClick = (arg: EventClickArg) => {
     arg.jsEvent.preventDefault();
+    if (arg.event.extendedProps.holiday) return;
     const note = arg.event.extendedProps.note as (CalendarNote & GroupTag) | undefined;
     if (note?.foreign) return setNoteView({ pos: { left: arg.jsEvent.clientX, top: arg.jsEvent.clientY }, note });
     if (note) return onNoteClick?.(note);
     const e = arg.event.extendedProps.event as CalendarEvent;
+    if (e?.note) {
+      const n = { ...e.note, ...(e.foreign ? { foreign: true as const, orgId: e.orgId, orgName: e.orgName } : {}) } as CalendarNote & GroupTag;
+      return n.foreign ? setNoteView({ pos: { left: arg.jsEvent.clientX, top: arg.jsEvent.clientY }, note: n }) : onNoteClick?.(n);
+    }
     // WCT: the clicked job, in the panel (desktop and touch alike).
     if (openOnClick) return setPanel({ event: e, day: null });
     setOpen({ pos: { left: arg.jsEvent.clientX, top: arg.jsEvent.clientY }, event: e });
@@ -389,6 +415,7 @@ export default function CalendarView({
         moreLinkClick={openOnClick && !mini ? (panelMoreLink((day) => setPanel({ event: null, day })) as any) : undefined}
         // Job category (WCT group): the chip's tooltip names it (no tooltip for orgs without categories).
         eventDidMount={(arg) => {
+          if (arg.event.extendedProps.holiday) return;
           const t = categoryChipTitle(arg.event.extendedProps.event as CalendarEvent | undefined, arg.event.title);
           if (t) arg.el.title = t;
         }}
@@ -396,6 +423,7 @@ export default function CalendarView({
         eventAllow={(drop) => drop.allDay}
         // Custom job fields: the job's icons after its time + title (default rendering otherwise).
         eventContent={(arg: EventContentArg) => {
+          if (arg.event.extendedProps.holiday) return true;
           const e = arg.event.extendedProps.event as CalendarEvent;
           if (e?.style) return <StyledBox event={e} block={arg.view.type !== "dayGridMonth"} />;
           if (!e?.badges?.length && !e?.ptw) return true;
@@ -428,7 +456,7 @@ export default function CalendarView({
       {scheduleHost &&
         viewType === SCHEDULE_VIEW &&
         createPortal(
-          <ScheduleList events={liveEvents} notes={notes} range={visible} showCancelled={showCancelled} byPtw={openOnClick} onRow={onScheduleRow} />,
+          <ScheduleList events={liveEvents} notes={notes} holidays={holidays} range={visible} showCancelled={showCancelled} byPtw={openOnClick} onRow={onScheduleRow} />,
           scheduleHost,
         )}
 
@@ -444,6 +472,9 @@ export default function CalendarView({
           onReschedulePreview={onReschedulePreview}
           clashes={clashes}
           onCrossOpen={crossOpen}
+          onEdit={onEditJob}
+          onComplete={onCompleteJob}
+          onJump={(l) => jumpTo({ id: `aims:${l.id}`, kind: "job", date: l.date })}
           onPick={(event) => setPanel((p) => ({ event, day: p?.day ?? null }))}
           onBack={() => setPanel((p) => (p?.day ? { event: null, day: p.day } : null))}
           onClose={() => setPanel(null)}
@@ -788,6 +819,9 @@ function JobPanel({
   onReschedulePreview,
   clashes,
   onCrossOpen,
+  onEdit,
+  onComplete,
+  onJump,
   onPick,
   onBack,
   onClose,
@@ -801,6 +835,9 @@ function JobPanel({
   onReschedulePreview: (t: RescheduleTarget | null) => void;
   clashes: import("./calendarPanel").Clash[];
   onCrossOpen: (orgId: string, href: string) => void;
+  onEdit?: (e: CalendarEvent) => void;
+  onComplete?: (e: CalendarEvent) => void;
+  onJump?: (l: { id: string; date: string }) => void;
   onPick: (e: CalendarEvent) => void;
   onBack: () => void;
   onClose: () => void;
@@ -865,7 +902,7 @@ function JobPanel({
       <Box sx={{ p: 2, overflowY: "auto", overflowX: "hidden", flex: 1, minWidth: 0 }}>
         {event ? (
           event.style && event.source === "aims" ? (
-            <StyledJobPanel event={event} actions={actions} onPatched={onPatched} onReschedulePreview={onReschedulePreview} clashes={clashes} onCrossOpen={onCrossOpen} />
+            <StyledJobPanel event={event} actions={actions} onPatched={onPatched} onReschedulePreview={onReschedulePreview} clashes={clashes} onCrossOpen={onCrossOpen} onEdit={onEdit} onComplete={onComplete} onJump={onJump} />
           ) : (
             <EventCard event={event} jobWords={jobWords} byPtw linkRefs={linkRefs} onCrossOrg={onCrossOrg} />
           )
@@ -893,10 +930,10 @@ function JobPanel({
  * PTW applicant's colour is a bar on the RIGHT edge (5px, none without a PTW) behind a thin white gap, so it reads
  * on any fill; line 1 the icons and title, line 2 the time range.
  */
-/** A styled job's hover text: the full title, time, DO / quotation, icons, salesperson and PTW applicant. */
+/** A styled job's hover text (2026-11-24): name, time, Salesperson, Created by, PTW applicant, Team / crew, Assigned workers. */
 const styledTooltip = (e: CalendarEvent): string => {
   const st = e.style!;
-  return [styledTitle(e), chipTimeRange(e), e.doNumber ? `DO ${e.doNumber}` : "", e.quotationNumber ? `Quotation ${e.quotationNumber}` : "", ...st.icons.map((i) => i.label), e.salesperson?.name ? `Salesperson: ${e.salesperson.name}` : "", e.ptwApplicant && st.bar ? `PTW applicant: ${applicantLabel(e.ptwApplicant)}` : ""].filter(Boolean).join("\n");
+  return hoverLines(e, chipTimeRange(e), e.ptwApplicant && st.bar ? applicantLabel(e.ptwApplicant) : null).join("\n");
 };
 
 /** The PTW applicant's circle (only on a job that needs a PTW), with a hairline edge so yellow still reads. */
@@ -944,6 +981,7 @@ function StyledBox({ event: e, block }: { event: CalendarEvent; block: boolean }
 function ScheduleList({
   events,
   notes,
+  holidays,
   range,
   showCancelled,
   byPtw,
@@ -951,12 +989,19 @@ function ScheduleList({
 }: {
   events: CalendarEvent[];
   notes?: Array<CalendarNote & GroupTag>;
+  holidays?: PublicHoliday[];
   range: { from: string; to: string } | null;
   showCancelled: boolean;
   byPtw: boolean;
   onRow: (row: ScheduleRow, pos: { left: number; top: number }) => void;
 }) {
-  const days: ScheduleDay[] = useMemo(() => scheduleDays(events, notes, range, { showCancelled, byPtw }), [events, notes, range, showCancelled, byPtw]);
+  const days: ScheduleDay[] = useMemo(() => {
+    const list = scheduleDays(events, notes, range, { showCancelled, byPtw });
+    // Public holidays (2026-11-24): a holiday with nothing else on it still gets its day.
+    const have = new Set(list.map((d) => d.date));
+    const extra = (holidays ?? []).filter((h) => range && h.date >= range.from && h.date <= range.to && !have.has(h.date)).map((h) => ({ date: h.date, rows: [] }) as unknown as ScheduleDay);
+    return extra.length ? [...list, ...extra].sort((a, b) => a.date.localeCompare(b.date)) : list;
+  }, [events, notes, range, showCancelled, byPtw, holidays]);
   const today = dayOfInstant(new Date());
   const boxRef = useRef<HTMLDivElement | null>(null);
   const scrolledFor = useRef("");
@@ -1025,6 +1070,11 @@ function ScheduleList({
                 </Typography>
               </Box>
               <Box sx={{ flex: 1, minWidth: 0 }}>
+                {holidaysOn(holidays ?? [], d.date).map((h) => (
+                  <Typography key={h.date + h.name} variant="body2" data-testid="schedule-holiday" sx={{ px: 1, py: 0.5, mb: 0.5, borderRadius: 1, bgcolor: HOLIDAY_BG, color: HOLIDAY_TEXT, fontSize: SCHEDULE_FONT.text, fontWeight: 600 }}>
+                    {holidayExportLine(h.name)}
+                  </Typography>
+                ))}
                 {d.rows.map((r) =>
                   r.event?.style ? (
                     <ScheduleStyledRow key={r.key} row={r} event={r.event} onRow={onRow} />
@@ -1077,6 +1127,7 @@ function ScheduleList({
 /** Schedule view, calendar style (round 36): the same pastel box and two rows as the calendar, the site after it. */
 function ScheduleStyledRow({ row: r, event: e, onRow }: { row: ScheduleRow; event: CalendarEvent; onRow: (row: ScheduleRow, pos: { left: number; top: number }) => void }) {
   const l = chipLines(e);
+  const sl = scheduleLines(e);
   const tone = chipTone(e);
   const fill = e.style!.fill;
   return (
@@ -1103,21 +1154,27 @@ function ScheduleStyledRow({ row: r, event: e, onRow }: { row: ScheduleRow; even
       <Typography variant="body2" sx={{ width: { xs: "auto", sm: 130 }, flexShrink: 0, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", fontSize: SCHEDULE_FONT.time, color: CHIP_TIME }}>
         {r.time}
       </Typography>
+      {/* 2026-11-24, the phone format. Line 1: icons + name @ address (subject) - team | remarks, the company muted at
+          the end. Line 2: assigned workers · QO no. · salesperson · created by (and the PTW marks). */}
       <Box sx={{ minWidth: 0, flex: 1 }}>
-        <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 1 }}>
-          <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: "break-word", fontSize: SCHEDULE_FONT.text, color: CHIP_TEXT, textDecoration: e.cancelled ? "line-through" : "none" }}>
+        <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 0.75 }}>
+          <Typography variant="body2" component="span" sx={{ wordBreak: "break-word", fontSize: SCHEDULE_FONT.text, color: CHIP_TEXT }}>
             {l.icons && <span style={{ marginRight: 6 }}>{l.icons}</span>}
-            {l.customer}
+            <span style={{ fontWeight: 600, textDecoration: e.cancelled ? "line-through" : "none" }}>{sl.name}</span>
+            {sl.where && <span>{` @ ${sl.where}`}</span>}
+            {sl.subject && <span>{` (${sl.subject})`}</span>}
+            {sl.team && <span>{` - ${sl.team}`}</span>}
+            {sl.remarks && <span style={{ fontStyle: "italic" }}>{` | ${sl.remarks}`}</span>}
           </Typography>
-          {r.site && (
-            <Typography variant="body2" sx={{ wordBreak: "break-word", fontSize: SCHEDULE_FONT.text, color: CHIP_TEXT, opacity: 0.75 }}>
-              {r.site}
+          {e.orgName && (
+            <Typography variant="caption" component="span" data-testid="schedule-company" sx={{ ml: "auto", fontSize: SCHEDULE_FONT.row2, color: CHIP_TEXT, opacity: 0.55, whiteSpace: "nowrap" }}>
+              {e.orgName}
             </Typography>
           )}
         </Box>
-        {l.row2 && (
-          <Typography variant="caption" component="div" sx={{ color: CHIP_TEXT, fontSize: SCHEDULE_FONT.row2 }}>
-            {l.row2}
+        {(sl.line2 || l.row2) && (
+          <Typography variant="caption" component="div" sx={{ color: CHIP_TEXT, fontSize: SCHEDULE_FONT.row2, opacity: 0.85 }}>
+            {[l.row2, sl.line2].filter(Boolean).join(" · ")}
           </Typography>
         )}
       </Box>
