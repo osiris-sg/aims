@@ -270,12 +270,31 @@ export class PublicDocumentService {
    * (DeliveryItem.documentId), so one row is enough to tell. An office DO has
    * none — which is exactly what makes it an office DO.
    */
-  private async runBehindDocument(documentId: string): Promise<string | null> {
+  private async runBehindDocument(documentId: string, organizationId?: string): Promise<string | null> {
     const item = await this.prisma.deliveryItem.findFirst({
       where: { documentId },
       select: { deliveryId: true },
     });
-    return item?.deliveryId ?? null;
+    if (item?.deliveryId) return item.deliveryId;
+    // THE REVISION KEEPS THE DELIVERY (guru 2026-11-24). "Create Revision"
+    // copies the content but leaves DeliveryItem.documentId on the ORIGINAL, so
+    // a revised DO looked run-less here and signing fell through to the
+    // office-DO branch — which is off for every org, so the shared link offered
+    // no way to sign at all. The delivery happened once and belongs to the
+    // whole family, so look through it before concluding there is no run.
+    if (!organizationId) return null;
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, baseDocumentId: true },
+    });
+    if (!doc) return null;
+    const famIds = await this.documentsService.revisionFamilyIds(doc, organizationId);
+    if (!famIds.length) return null;
+    const kin = await this.prisma.deliveryItem.findFirst({
+      where: { documentId: { in: famIds } },
+      select: { deliveryId: true },
+    });
+    return kin?.deliveryId ?? null;
   }
 
   /**
@@ -327,7 +346,7 @@ export class PublicDocumentService {
 
   /** Office signing on for this org AND no run behind the DO (a field DO keeps the field path). */
   private async officeSignApplies(documentId: string, organizationId: string): Promise<boolean> {
-    if (await this.runBehindDocument(documentId)) return false;
+    if (await this.runBehindDocument(documentId, organizationId)) return false;
     return (await isOrgFeatureEnabled(this.prisma, organizationId, OFFICE_DO_SIGN_FLAG)) || !!(await this.doFirstOrderOf(documentId, organizationId));
   }
 
@@ -559,7 +578,7 @@ export class PublicDocumentService {
     //               too, for a link minted before the flag went on.
     // The office branch is reachable ONLY when there is genuinely no run, so a
     // field DO's signature path is untouched.
-    const runId = await this.runBehindDocument(link.documentId);
+    const runId = await this.runBehindDocument(link.documentId, link.organizationId);
     const officeSign = !runId && ((await isOrgFeatureEnabled(this.prisma, link.organizationId, OFFICE_DO_SIGN_FLAG)) || !!(await this.doFirstOrderOf(link.documentId, link.organizationId)));
     if (!runId && !officeSign) {
       throw new BadRequestException('This document has no delivery run to sign against.');
@@ -775,7 +794,7 @@ export class PublicDocumentService {
     );
     let canSign = false;
     if (!viewOnly && !alreadySigned) {
-      const runId = await this.runBehindDocument(link.documentId);
+      const runId = await this.runBehindDocument(link.documentId, link.organizationId);
       if (runId) {
         // FIELD DO — the signature lands on the run's UNSIGNED DO_ACK rows, and
         // a run only grows them as the rider acknowledges each unit. A run

@@ -131,6 +131,44 @@ export interface DocumentActor {
   email?: string;
 }
 
+/**
+ * The proof rows a Delivery Order prints: condition photos, the acknowledgement
+ * and the installation, with everything the preview needs to label each set.
+ * Shared by the document's own relation include and the revision-family lookup
+ * beside it, so the two can never return different shapes.
+ *
+ * Restricted to the DO_* kinds so unrelated service reports never leak into
+ * print output, even if some future flow sets documentId on a kind=SERVICE row.
+ */
+const PROOF_MSR_SELECT = {
+  id: true,
+  kind: true,
+  photos: true,
+  signature: true,
+  signedByName: true,
+  signedAt: true,
+  technicianName: true,
+  createdAt: true,
+  // assetId/inventoryId identify which unit each proof block is for, so the
+  // preview can label each photo set (a multi-unit run shows several sets).
+  assetId: true,
+  inventoryId: true,
+  // Exact line the proof belongs to — lets the template render photos inline
+  // under each item, including free-typed lines that assetId/inventoryId cannot
+  // disambiguate. Null for run-level proof.
+  deliveryItemId: true,
+  // The free-typed line's own text, used as the last-resort per-line match.
+  description: true,
+  // Whether this DO_START has a GPS route to link to.
+  _count: { select: { locationPings: true } },
+  // serviceData carries signedDateText — the date the SIGNER TYPED, which can
+  // legitimately differ from signedAt. Narrowed to that one key further down.
+  serviceData: true,
+} as const;
+
+/** Document types whose proof follows the whole revision family (see getById). */
+const DELIVERY_DOC_TYPES = new Set(['DO', 'DELIVERY_ORDER', 'RDO', 'RETURN_DELIVERY_ORDER']);
+
 @Injectable()
 export class DocumentsService {
   constructor(
@@ -1075,42 +1113,40 @@ export class DocumentsService {
           maintenanceReports: {
             where: { kind: { in: ['DO_START', 'DO_ACK', 'DO_INSTALL'] } },
             orderBy: { createdAt: 'asc' },
-            select: {
-              id: true,
-              kind: true,
-              photos: true,
-              signature: true,
-              signedByName: true,
-              signedAt: true,
-              technicianName: true,
-              createdAt: true,
-              // assetId/inventoryId identify which unit each proof block is for,
-              // so the preview can label each photo set (a multi-unit run shows
-              // several sets). Names are resolved just below into subjectAsset/Sku.
-              assetId: true,
-              inventoryId: true,
-              // Exact line the proof belongs to — lets the template render photos
-              // inline under each item, including free-typed lines that assetId/
-              // inventoryId cannot disambiguate. Null for run-level proof.
-              deliveryItemId: true,
-              // description: the free-typed line's own text ("Delivery started:
-              // <text>"), used as the last-resort per-line match for old rows.
-              description: true,
-              // pingCount: whether this DO_START has a GPS route to link to (the
-              // Timeline shows a Route link only when there are pings).
-              _count: { select: { locationPings: true } },
-              // serviceData carries signedDateText — the date the SIGNER TYPED,
-              // which can legitimately differ from signedAt (the moment of
-              // capture). Narrowed to that one key below; the rest of the blob
-              // (photo angles, and for a guest signature the IP + user agent)
-              // never leaves this method.
-              serviceData: true,
-            },
+            select: PROOF_MSR_SELECT,
           },
         },
       });
 
       if (!document) return document;
+
+      // PROOF FOLLOWS THE REVISION FAMILY, not the single row (guru 2026-11-24).
+      //
+      // "Create Revision" mints a NEW Document and copies the config and items,
+      // but the delivery stays where it was: DeliveryItem.documentId and the
+      // proof MSRs still point at the ORIGINAL. So DO202611110 showed its 8
+      // condition photos and DO202611110 (Rev-1) showed none, and the shared DO
+      // link could not be signed on the revision either, because with no run
+      // behind it the signing check fell through to the office-DO branch.
+      //
+      // A delivery happened ONCE; the original and its revisions are the same
+      // delivery on different paper. Resolving the proof across the family at
+      // READ time fixes both symptoms and — unlike re-pointing the rows — leaves
+      // the superseded document still showing the evidence it was issued with,
+      // which is the whole reason revisions keep their number.
+      //
+      // Only when this document has no proof of its own, so a DO that carries
+      // its own rows is byte-identical to before.
+      if (DELIVERY_DOC_TYPES.has(String((document as any).type || '')) && !((document as any).maintenanceReports ?? []).length) {
+        const famIds = await this.revisionFamilyIds(document as any, organizationId);
+        if (famIds.length) {
+          (document as any).maintenanceReports = await this.prisma.maintenanceServiceReport.findMany({
+            where: { documentId: { in: famIds }, kind: { in: ['DO_START', 'DO_ACK', 'DO_INSTALL'] } },
+            orderBy: { createdAt: 'asc' },
+            select: PROOF_MSR_SELECT,
+          });
+        }
+      }
 
       // Resolve each proof MSR's subject (the asset name + unit sku) so the DO
       // preview can print a bold label above each photo set. MSR carries plain
@@ -4910,6 +4946,36 @@ export class DocumentsService {
       if (error instanceof HttpException) throw error;
       throw new HttpException(`Create revision failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
+  }
+
+  /**
+   * Every document in this one's revision family, EXCLUDING itself: the base it
+   * was revised from, and that base's other revisions.
+   *
+   * A revision is a new Document row that copies the original's content but not
+   * its delivery, so anything keyed on documentId — proof photos, the run
+   * behind a DO — has to be looked up across the family to be found at all.
+   * `baseDocumentId` is the link: a revision carries the id of the document it
+   * came from, and the base itself carries none.
+   *
+   * Ordered newest-generation-first so the nearest relative wins when a caller
+   * takes the first hit.
+   */
+  async revisionFamilyIds(
+    doc: { id: string; baseDocumentId?: string | null },
+    organizationId: string,
+  ): Promise<string[]> {
+    const baseId = doc.baseDocumentId ?? doc.id;
+    const family = await this.prisma.document.findMany({
+      where: {
+        organizationId,
+        OR: [{ id: baseId }, { baseDocumentId: baseId }],
+        NOT: { id: doc.id },
+      },
+      orderBy: { revisionNumber: 'desc' },
+      select: { id: true },
+    });
+    return family.map((d) => d.id);
   }
 
   async listRevisions(documentId: string, organizationId: string) {
