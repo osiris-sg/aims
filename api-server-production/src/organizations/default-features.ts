@@ -281,6 +281,17 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   enableFieldPayroll: false,
   enableFieldReports: false,
   fieldEngineLive: false,
+  // Stepped "Schedule a delivery" dialog (Biofuel 2026-11-24): the long single
+  // form becomes a wizard — Customer -> Paperwork -> Site & contacts -> Products
+  // -> Schedule. Its point is the PAPERWORK step: a real schedule must be based
+  // on a quotation (an existing confirmed one), a Sales Order (existing or
+  // uploaded) or a master contract (an uploaded file), and the chosen document
+  // auto-fills address, project and line items. What was used is recorded on the
+  // run (Delivery.scheduleSource) and the backend enforces the same rule, so an
+  // older client cannot schedule around it. A DRAFT is still exempt — a job can
+  // arrive before its paperwork. CREATE only: editing a scheduled run keeps the
+  // flat form. Default OFF.
+  enableScheduleWizard: false,
   // Real DO numbers on schedule (WCT 2026-10-30): a scheduled delivery's DO gets
   // its real number (e.g. DO202610007) the moment it is scheduled — no
   // DO-PENDING-NN placeholder — issued with the counter locked so concurrent

@@ -21,6 +21,9 @@ import {
   Stack,
   TextField,
   Typography,
+  Step,
+  StepLabel,
+  Stepper,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
@@ -36,6 +39,9 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import SearchIcon from "@mui/icons-material/Search";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import RequestQuoteIcon from "@mui/icons-material/RequestQuote";
+import HandshakeIcon from "@mui/icons-material/Handshake";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { request } from "@/helpers/request";
 import SaleOrderSelectDialog, { SaleOrderRow, toSaleOrderRow } from "./SaleOrderSelectDialog";
 import DocumentUploadDialog from "@/app/portal/components/DocumentUploadDialog";
@@ -43,6 +49,7 @@ import ProjectContactPicker, { ContactLite, ContactAssignment } from "@/app/port
 import { useOrganization } from "@hooks/useOrganization";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { runWords } from "@/helpers/jobWording";
+import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import ExtractQuotationDialog from "@/containers/DocumentTemplates/components/ExtractQuotationDialog";
 import SiteClockSchedulePicker, { SiteClockPick } from "./SiteClockSchedulePicker";
 import type { AddJobPrefill } from "@/helpers/wctOrders";
@@ -73,6 +80,46 @@ interface ProjectOption { id: string; name: string }
 // assetClass applies to free-typed rows only — a catalog row reads its class
 // off the picked asset.
 interface Row { asset: AssetOption | null; description: string; freeTyped: boolean; quantity: string; assetClass: AssetClass }
+
+// What a schedule may be based on (enableScheduleWizard). Mirrors the backend's
+// src/deliveries/schedule-source.ts — keep the two in step.
+//   QUOTATION   — an existing confirmed quotation. Chosen, never uploaded:
+//                 quotations are raised in AIMS (guru 2026-11-24).
+//   SALES_ORDER — the customer PO. Chosen from the list, or uploaded and read
+//                 by the extractor (which mints the SALES_ORDER document).
+//   CONTRACT    — a master contract. An uploaded FILE only: no document, no
+//                 list, nothing to point at, which is why this is one shape
+//                 with optional fields rather than three typed pointers.
+type ScheduleSourceKind = "QUOTATION" | "SALES_ORDER" | "CONTRACT";
+interface ScheduleSource {
+  kind: ScheduleSourceKind;
+  documentId?: string;
+  number?: string;
+  fileName?: string;
+  fileUrl?: string;
+}
+
+/** The paperwork step's three cards, in the order guru asked for them. */
+const SOURCE_CHOICES: Array<{ kind: ScheduleSourceKind; title: string; blurb: string; icon: React.ReactNode }> = [
+  {
+    kind: "QUOTATION",
+    title: "Quotation",
+    blurb: "A confirmed quotation of this customer's. Fills the project, address and line items.",
+    icon: <RequestQuoteIcon />,
+  },
+  {
+    kind: "SALES_ORDER",
+    title: "Sales Order (customer PO)",
+    blurb: "Pick one, or upload the customer's PO and let AIMS read it. Fills the same fields.",
+    icon: <ReceiptLongIcon />,
+  },
+  {
+    kind: "CONTRACT",
+    title: "Master contract",
+    blurb: "A standing agreement. The file is kept with this delivery; the rest is filled in by hand.",
+    icon: <HandshakeIcon />,
+  },
+];
 
 // Quotation descriptions are rich text (the editor stores HTML like
 // "<b>100-Ton Excavator</b><div><i>Note: …</i></div>"). Convert to plain text
@@ -148,7 +195,7 @@ export default function ScheduleDeliveryDialog({
 }) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
-  const { isQuotationToDeliveryEnabled, isSiteClockLinkEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled, isOptionalSaleOrderEnabled, isJobsCalendarEnabled, isOfficeDoEditsEnabled } = useOrganizationFeatures();
+  const { isQuotationToDeliveryEnabled, isSiteClockLinkEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled, isOptionalSaleOrderEnabled, isJobsCalendarEnabled, isOfficeDoEditsEnabled, isScheduleWizardEnabled } = useOrganizationFeatures();
   // Round 39 #8 (WCT group: WCT orders + the jobs calendar): a large dialog, the form on the left and the day's jobs on
   // the right. Every other org keeps the old dialog.
   const split = !!isWctOrdersEnabled && !!isJobsCalendarEnabled;
@@ -190,6 +237,8 @@ export default function ScheduleDeliveryDialog({
   const [soOpen, setSoOpen] = useState(false);
   const [soLoading, setSoLoading] = useState(false);
   const [soUploadOpen, setSoUploadOpen] = useState(false);
+  // Raw /documents/paginated rows for the Sales Orders above, keyed by id.
+  const soDocsRef = useRef<Map<string, any>>(new Map());
   const [poTouched, setPoTouched] = useState(false);
   const [address, setAddress] = useState("");
   // Once the user edits the address, stop auto-overwriting it on project change.
@@ -242,6 +291,30 @@ export default function ScheduleDeliveryDialog({
   const [quotations, setQuotations] = useState<any[]>([]);
   const [quoteLoading, setQuoteLoading] = useState(false);
 
+  // ── STEPPED SCHEDULE (enableScheduleWizard, Biofuel 2026-11-24) ────────────
+  // The one long form becomes five steps: Customer -> Paperwork -> Site &
+  // contacts -> Products -> Schedule.
+  //
+  // CREATE ONLY. An edit already has its paperwork behind it, and walking five
+  // steps to move a time would be worse than the form this replaces. "Add job"
+  // (WCT orders) is create-mode too, but it arrives pre-filled from its order
+  // and belongs to a different org's flow, so it keeps the flat form as well.
+  const wizard = !!isScheduleWizardEnabled && !editRun && !prefill;
+  const [activeStep, setActiveStep] = useState(0);
+  // WHAT this schedule is based on. The point of the whole wizard: a run never
+  // goes out with nothing behind it. Sent as dto.scheduleSource, and the
+  // backend enforces the same rule, so a stale tab cannot schedule around it.
+  const [source, setSource] = useState<ScheduleSource | null>(null);
+  // Which of the three she is filling in. Null until she chooses, so the step
+  // opens as a question rather than three half-forms at once.
+  const [sourceKind, setSourceKind] = useState<ScheduleSourceKind | null>(null);
+  const [contractBusy, setContractBusy] = useState(false);
+  const contractInputRef = useRef<HTMLInputElement | null>(null);
+  // A project the applied document implies but the org does not have yet. Held
+  // as a SUGGESTION and never created behind her back: step 3 shows the name,
+  // editable, with a Create button (guru 2026-11-24 — "ask her to confirm").
+  const [projectSuggestion, setProjectSuggestion] = useState<string | null>(null);
+
   // Reset on (re)open — or PREFILL from the run being edited.
   useEffect(() => {
     if (!open || !isJobFieldsEnabled) return;
@@ -269,6 +342,12 @@ export default function ScheduleDeliveryDialog({
     setCustomerInput("");
     setAssetInput("");
     setQuotations([]);
+    // Stepped schedule: back to step 1 with nothing chosen on every opening.
+    setActiveStep(0);
+    setSource(null);
+    setSourceKind(null);
+    setProjectSuggestion(null);
+    setContractBusy(false);
     // Re-arm the customer-change guard below: on a fresh open, the first run of
     // that effect must NOT be treated as a customer change.
     loadedForCustomerRef.current = undefined;
@@ -596,6 +675,11 @@ export default function ScheduleDeliveryDialog({
     );
     const body = res?.data ?? res;
     const docs: any[] = Array.isArray(body) ? body : Array.isArray(body?.docs) ? body.docs : [];
+    // Keep the RAW documents beside the display rows: SaleOrderRow carries only
+    // the four columns the picker shows, and the stepped dialog auto-fills from
+    // the document's config (address, project, line items) exactly as the
+    // quotation step does.
+    soDocsRef.current = new Map(docs.map((d: any) => [String(d?.id ?? ""), d]));
     return docs.map(toSaleOrderRow);
   };
 
@@ -615,13 +699,23 @@ export default function ScheduleDeliveryDialog({
     }
   };
 
-  const selectSaleOrder = (row: SaleOrderRow) => {
+  const selectSaleOrder = async (row: SaleOrderRow) => {
     setSaleOrder(row);
     // config.poNo keeps the DISPLAY string. The customer PO is what the DO has
     // always printed as "Your PO No."; fall back to the Sales Order number when a
     // freshly uploaded one has no reference extracted yet.
     setPoNumber(row.customerPo || row.name || "");
     setPoTouched(true);
+    // Stepped dialog: a Sales Order is one of the three things a schedule may be
+    // based on, and it auto-fills the rest through the SAME engine the quotation
+    // step uses — address, project and line items off its config. Gated on the
+    // wizard: on every other org picking a Sales Order still only sets the PO,
+    // exactly as it did before (it is chosen mid-form there, and refilling the
+    // lines underneath someone would throw away what they typed).
+    if (!wizard) return;
+    const raw = soDocsRef.current.get(row.id);
+    if (raw) await applySourceDocument(raw, "SALES_ORDER");
+    else setSource({ kind: "SALES_ORDER", documentId: row.id, ...(row.name ? { number: row.name } : {}) });
   };
 
   // Extraction and document creation are both fully awaited server-side (POST
@@ -634,10 +728,67 @@ export default function ScheduleDeliveryDialog({
       const rows = await loadSaleOrders();
       setSoRows(rows);
       const fresh = rows.find((r) => r.id === created[0].id);
-      if (fresh) selectSaleOrder(fresh);
+      if (fresh) await selectSaleOrder(fresh);
       else setSoOpen(true); // extracted but not matched — let them pick it manually
     } catch {
       /* non-blocking: the document exists; reopening the picker will show it */
+    }
+  };
+
+  /**
+   * MASTER CONTRACT (stepped dialog): upload the file and keep it with the run.
+   *
+   * It mints NO document and appears in no list — guru 2026-11-24: "just an
+   * uploaded file". So there is nothing to pick later and nothing to price
+   * from; it is evidence that the delivery is covered by a standing agreement,
+   * and the office fills the rest of the steps by hand.
+   *
+   * Posted to /document-extraction/extract rather than /uploads/image, for two
+   * reasons: it is the ONLY file endpoint this dialog's users are already
+   * proven to reach (the Sales Order upload beside it uses the same
+   * permission), and it stashes the file to S3 and hands back its URL, which is
+   * what has to be recorded. Its extracted FIELDS are deliberately ignored — a
+   * master contract is rates and terms, not a delivery.
+   */
+  const uploadContract = async (file: File) => {
+    setContractBusy(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const fd = new FormData();
+      fd.append("document", file);
+      fd.append("documentType", "invoice"); // the extractor needs a shape; nothing is read back
+      const apiBase = process.env.NEXT_PUBLIC_BACKEND_API_URL || "http://localhost:4040";
+      // X-Active-Org-Id by hand: this is a multipart POST, so it cannot go
+      // through the `request` helper that injects the header for every other
+      // call. Without it an admin "viewing as" another org uploads into their
+      // OWN org — the file is stashed under the wrong organisation's S3 prefix
+      // (seen on dev: a Biofuel contract landed under osiris-platform).
+      const activeOrgId =
+        typeof window !== "undefined" ? window.sessionStorage.getItem(ACTIVE_ORG_KEY) : null;
+      const res = await fetch(`${apiBase}/document-extraction/extract`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(activeOrgId ? { "X-Active-Org-Id": activeOrgId } : {}),
+        },
+        body: fd,
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) throw new Error(json?.message || "Could not read that file");
+      const fileUrl = json?.data?.metadata?.sourceFileUrl ?? json?.metadata?.sourceFileUrl ?? null;
+      // No URL means the S3 stash failed (the endpoint treats that as
+      // non-fatal). There would be nothing to keep, and the backend rejects a
+      // CONTRACT source with no file — so say so rather than appear to succeed.
+      if (!fileUrl) throw new Error("The file was read but could not be stored. Please try again.");
+      setSource({ kind: "CONTRACT", fileName: file.name, fileUrl: String(fileUrl), number: file.name });
+      setNote(`Master contract attached: ${file.name}. Fill in the site, products and date on the next steps.`);
+    } catch (e: any) {
+      setError(e?.message ?? "Could not upload the contract");
+    } finally {
+      setContractBusy(false);
+      if (contractInputRef.current) contractInputRef.current.value = "";
     }
   };
 
@@ -704,10 +855,31 @@ export default function ScheduleDeliveryDialog({
   const canSubmit =
     !!scheduleDate &&
     (allDay || !!scheduleTime) &&
+    // Stepped dialog: a real schedule is always based on a quotation, a Sales
+    // Order or a master contract. Save as draft stays open with nothing.
+    (!wizard || !!source) &&
     // enableOptionalSaleOrder (Biofuel): the Project is still needed, the Sales Order is not.
     (isQuotationToDeliveryEnabled || (!!project && (!!saleOrder || isOptionalSaleOrderEnabled))) &&
     validRows.length > 0 &&
     !submitting;
+
+  // ── the five steps ────────────────────────────────────────────────────────
+  // Each one states what it still needs; Next stays disabled and says so, which
+  // beats a dead button. The LAST step has no Next — it has Schedule, gated by
+  // canSubmit above. Save as draft is offered from EVERY step, because the
+  // backend lets a draft be parked with nothing and a job regularly arrives
+  // before its paperwork does.
+  const STEPS = ["Customer", "Paperwork", "Site & contacts", "Products", "Schedule"];
+  const stepBlocked = (n: number): string | null => {
+    if (n === 0) return customer ? null : "Pick a customer to continue.";
+    if (n === 1) return source ? null : "Choose a quotation, a Sales Order or a master contract to continue.";
+    if (n === 2) return serviceJobs || project ? null : "Pick or create a project to continue.";
+    if (n === 3) return validRows.length > 0 ? null : "Add at least one product or free-typed item to continue.";
+    return null;
+  };
+  const blocked = stepBlocked(activeStep);
+  /** A section renders when its step is open — or always, on the flat form. */
+  const onStep = (n: number) => !wizard || activeStep === n;
 
   // Fetch the customer's CONFIRMED quotations and open the extract dialog.
   // /documents is server-paginated (default 20 newest of ANY type), so we MUST
@@ -753,9 +925,16 @@ export default function ScheduleDeliveryDialog({
   // NOT fuzzy text (the catalog name "100 TON EXCAVATOR" isn't a substring of the
   // quoted "100-Ton Excavator with Operator"). Descriptions are rich text → HTML
   // is stripped before display/search. Unmatched lines land free-typed. All editable.
-  const applyQuotation = async (q: any) => {
+  const applySourceDocument = async (q: any, kind: ScheduleSourceKind) => {
     setQuoteOpen(false);
     setError(null);
+    // Human label for the summary line below — the same engine now serves the
+    // quotation step and the Sales Order step, and a note that says "Quotation
+    // applied" after picking a Sales Order reads as a bug.
+    const docLabel = kind === "SALES_ORDER" ? "Sales Order" : "Quotation";
+    // WHAT this schedule is based on. Set before anything can fail below: the
+    // office picked it, so it is chosen whether or not every field maps across.
+    setSource({ kind, documentId: String(q?.id ?? ""), ...(q?.name ? { number: String(q.name) } : {}) });
     const cfg = q?.config || {};
     // Quotations in this org use `referenceNo`/`poNo` — read either (both empty in
     // current data, so this is defensive and simply won't fire).
@@ -778,7 +957,21 @@ export default function ScheduleDeliveryDialog({
     const pname = q?.projectName ?? cfg.projectName;
     if (pid && !serviceJobs) {
       const match = projectOptions.find((p) => p.id === pid);
-      setProject(match ?? { id: String(pid), name: pname || "Project from quotation" });
+      setProject(match ?? { id: String(pid), name: pname || `Project from ${docLabel.toLowerCase()}` });
+      setProjectSuggestion(null);
+    } else if (!serviceJobs) {
+      // The document carries no project, which is the common case — real
+      // quotations rarely do. Rather than leave her to hunt for one, SUGGEST a
+      // name and let her confirm it on the site step (guru 2026-11-24). The
+      // suggestion is the delivery address, because for this fleet a project's
+      // NAME is its site address ("Tuas Avenue 8") — the convention the address
+      // auto-fill below already depends on. First line only: an address block
+      // makes a project name nobody can pick out of a list.
+      const candidate = String(jobLocation || cfg.customerAddress || pname || "")
+        .split("\n")[0]
+        .trim()
+        .slice(0, 80);
+      setProjectSuggestion(candidate || null);
     }
     const filledPo = !!poValue;
     const filledProject = !!pid;
@@ -854,18 +1047,21 @@ export default function ScheduleDeliveryDialog({
       const matched = finalRows.filter((r) => !r.freeTyped).length;
       // Honest summary: matched count + SEPARATELY whether project/PO were filled.
       // Never imply the project came from the quotation (they don't carry one).
-      const parts = [`Quotation applied: ${matched}/${finalRows.length} line(s) matched a catalog product; the rest are free-typed.`];
-      parts.push(filledPo ? "PO number filled." : "No PO on the quotation.");
-      if (!serviceJobs) parts.push(filledProject ? "Project taken from the quotation." : "This quotation has no project. Pick one below (required).");
+      const parts = [`${docLabel} applied: ${matched}/${finalRows.length} line(s) matched a catalog product; the rest are free-typed.`];
+      parts.push(filledPo ? "PO number filled." : `No PO on the ${docLabel.toLowerCase()}.`);
+      if (!serviceJobs) parts.push(filledProject ? `Project taken from the ${docLabel.toLowerCase()}.` : `This ${docLabel.toLowerCase()} has no project. Pick or create one on the next step (required).`);
       parts.push("Review products, quantities & address.");
       setNote(parts.join(" "));
     } else {
-      const parts = ["Quotation applied. It had no line items."];
-      parts.push(filledPo ? "PO number filled." : "No PO on the quotation.");
-      if (!serviceJobs) parts.push(filledProject ? "Project taken from the quotation." : "This quotation has no project. Pick one below (required).");
+      const parts = [`${docLabel} applied. It had no line items.`];
+      parts.push(filledPo ? "PO number filled." : `No PO on the ${docLabel.toLowerCase()}.`);
+      if (!serviceJobs) parts.push(filledProject ? `Project taken from the ${docLabel.toLowerCase()}.` : `This ${docLabel.toLowerCase()} has no project. Pick or create one on the next step (required).`);
       setNote(parts.join(" "));
     }
   };
+
+  /** The quotation picker's callback — unchanged for every org. */
+  const applyQuotation = (q: any) => applySourceDocument(q, "QUOTATION");
 
   // Inline create-customer: seed the dialog with whatever was typed in the picker.
   const openCreateCustomer = () => {
@@ -896,8 +1092,12 @@ export default function ScheduleDeliveryDialog({
       setCreatingCustomer(false);
     }
   };
-  const handleCreateProject = async () => {
-    const trimmed = createProjectName.trim();
+  // nameOverride: the stepped dialog's "create the suggested project" button
+  // passes the name straight in. Reading createProjectName there would get the
+  // PREVIOUS render's value (setState is not synchronous), so the project would
+  // be created under the wrong name — or none at all on the first click.
+  const handleCreateProject = async (nameOverride?: string) => {
+    const trimmed = (nameOverride ?? createProjectName).trim();
     if (!trimmed || !customer) return;
     setCreatingProject(true);
     try {
@@ -966,6 +1166,9 @@ export default function ScheduleDeliveryDialog({
           ),
           ...(poNumber.trim() ? { poNumber: poNumber.trim() } : {}),
           ...(saleOrder ? { saleOrderId: saleOrder.id } : {}),
+          // Stepped dialog: WHAT this schedule is based on. The backend applies
+          // the same rule, so this is not merely a record of the choice.
+          ...(source ? { scheduleSource: source } : {}),
           ...(address.trim() ? { address: address.trim() } : {}),
           ...(machineLocation.trim() ? { machineLocation: machineLocation.trim() } : {}),
           ...(customer ? { customerId: customer.id } : {}),
@@ -1043,6 +1246,19 @@ export default function ScheduleDeliveryDialog({
             />
           }
         >
+        {/* STEPPER — the stepped dialog's own header. Hidden on every org that
+            keeps the flat form, and on an edit (which keeps it too). */}
+        {wizard && (
+          <Stepper activeStep={activeStep} alternativeLabel sx={{ mb: 2.5 }}>
+            {STEPS.map((label) => (
+              <Step key={label}>
+                <StepLabel>{label}</StepLabel>
+              </Step>
+            ))}
+          </Stepper>
+        )}
+
+        {onStep(0) && (<>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           {serviceJobs && isManualOrderFlowEnabled
             ? "The job is done by the office: when the work is finished, open the job and use Complete job for the customer's sign-off."
@@ -1053,7 +1269,10 @@ export default function ScheduleDeliveryDialog({
 
         {/* 1) CUSTOMER */}
         <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
-          {serviceJobs ? "Customer" : "Customer & project"}
+          {/* The flat form really does hold both under this heading. In the
+              stepped dialog the project has a step of its own, so saying
+              "& project" here promises something this step does not have. */}
+          {serviceJobs || wizard ? "Customer" : "Customer & project"}
         </Typography>
         <Autocomplete<CustomerOption, false, false, false>
           size="small"
@@ -1080,21 +1299,127 @@ export default function ScheduleDeliveryDialog({
             New customer
           </Button>
         )}
+        </>)}
 
-        {/* Quotation extraction — available once a customer is chosen. */}
+        {/* ── STEP 2 of the stepped dialog: WHAT IS THIS BASED ON? ───────────
+            The reason the wizard exists. Three ways, and no fourth: a confirmed
+            quotation, the customer's Sales Order, or a master contract. She
+            picks the KIND first, so the step reads as a question instead of
+            three half-filled forms competing for attention. */}
+        {wizard && onStep(1) && (
+          <>
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
+              What is this delivery based on?
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              Every scheduled delivery is backed by paperwork. Choose one to continue.
+            </Typography>
+            <Stack spacing={1} sx={{ mb: 2 }}>
+              {/* A service-job org has no Sales Order section at all, so offering
+                  the card would open onto nothing. Nobody runs both flags today;
+                  this just keeps the step honest if anyone ever does. */}
+              {SOURCE_CHOICES.filter((c) => !(serviceJobs && c.kind === "SALES_ORDER")).map((c) => {
+                const picked = sourceKind === c.kind;
+                const chosen = source?.kind === c.kind;
+                return (
+                  <Box
+                    key={c.kind}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSourceKind(c.kind)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSourceKind(c.kind);
+                      }
+                    }}
+                    sx={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 1.25,
+                      p: 1.5,
+                      borderRadius: 1,
+                      cursor: "pointer",
+                      border: 1,
+                      // Theme tokens only: this has to read in dark mode too.
+                      borderColor: picked ? "primary.main" : "divider",
+                      bgcolor: picked ? "action.selected" : "transparent",
+                      "&:hover": { bgcolor: "action.hover" },
+                    }}
+                  >
+                    <Box sx={{ color: picked ? "primary.main" : "text.secondary", mt: "2px" }}>{c.icon}</Box>
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
+                      <Typography variant="body2" fontWeight={600}>
+                        {c.title}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        {c.blurb}
+                      </Typography>
+                    </Box>
+                    {chosen && <CheckCircleIcon fontSize="small" color="success" />}
+                  </Box>
+                );
+              })}
+            </Stack>
+            {/* What was chosen, in words, so she can see it survived the step. */}
+            {source && (
+              <Alert severity="success" icon={<CheckCircleIcon fontSize="inherit" />} sx={{ mb: 2 }}>
+                {source.kind === "QUOTATION" ? "Quotation" : source.kind === "SALES_ORDER" ? "Sales Order" : "Master contract"}
+                {source.number ? `: ${source.number}` : ""}
+              </Alert>
+            )}
+          </>
+        )}
+
+        {/* Quotation extraction — available once a customer is chosen. In the
+            stepped dialog it belongs to the paperwork step and only shows when
+            she has chosen "Quotation"; every other org keeps it where it was,
+            directly under the customer. */}
+        {onStep(1) && (!wizard || sourceKind === "QUOTATION") && (
         <Button
           size="small"
+          variant={wizard ? "outlined" : "text"}
           startIcon={quoteLoading ? <CircularProgress size={16} /> : <RequestQuoteIcon />}
           onClick={openQuotations}
           disabled={!customer || quoteLoading}
           sx={{ mb: 1.5 }}
         >
-          Extract from quotation
+          {wizard ? "Choose a quotation" : "Extract from quotation"}
         </Button>
+        )}
+
+        {/* MASTER CONTRACT — an uploaded file and nothing more (no document, no
+            list). Stepped dialog only; no other org has the concept. */}
+        {wizard && onStep(1) && sourceKind === "CONTRACT" && (
+          <Box sx={{ mb: 2 }}>
+            <input
+              ref={contractInputRef}
+              type="file"
+              accept="application/pdf,image/*"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void uploadContract(f);
+              }}
+            />
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={contractBusy ? <CircularProgress size={16} /> : <CloudUploadIcon />}
+              disabled={contractBusy}
+              onClick={() => contractInputRef.current?.click()}
+            >
+              {source?.kind === "CONTRACT" ? "Replace the contract file" : "Upload master contract"}
+            </Button>
+            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
+              PDF or image, up to 10MB. The file is kept with this delivery; fill in the site, products and date yourself.
+            </Typography>
+          </Box>
+        )}
 
         {/* Service-job org: no Project, no Sales Order — the run is a job from
             an accepted quotation (see serviceJobs above). */}
-        {!serviceJobs && (
+        {!serviceJobs && onStep(2) && (
           <>
             {/* 2) PROJECT */}
             <Autocomplete<ProjectOption, false, false, false>
@@ -1126,6 +1451,46 @@ export default function ScheduleDeliveryDialog({
               <Button size="small" startIcon={<AddIcon />} onClick={() => setCreateProjectOpen(true)} sx={{ textTransform: "none", mb: 2 }}>
                 New project for {customer.name}
               </Button>
+            )}
+
+            {/* The applied document implies a site this org has no project for.
+                Suggest the name — never create it silently (guru 2026-11-24:
+                "ask her to confirm"). The suggestion is the delivery address,
+                because for this fleet a project's NAME is its site address, the
+                convention the address auto-fill above already relies on. */}
+            {wizard && !project && projectSuggestion && customer && (
+              <Alert severity="info" sx={{ mb: 2 }} onClose={() => setProjectSuggestion(null)}>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  No project matches this {source?.kind === "SALES_ORDER" ? "Sales Order" : "quotation"}. Create one?
+                </Typography>
+                <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ flexWrap: "wrap", rowGap: 1 }}>
+                  <TextField
+                    size="small"
+                    label="Project name"
+                    value={projectSuggestion}
+                    onChange={(e) => setProjectSuggestion(e.target.value)}
+                    sx={{ flex: 1, minWidth: 200 }}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                  <Button
+                    variant="contained"
+                    size="small"
+                    disabled={creatingProject || !projectSuggestion.trim()}
+                    startIcon={creatingProject ? <CircularProgress size={16} color="inherit" /> : <AddIcon />}
+                    onClick={async () => {
+                      // Reuse the one create path (projects/create-by-name) that
+                      // the New project dialog already uses — a second one would
+                      // drift from it.
+                      setCreateProjectName(projectSuggestion);
+                      await handleCreateProject(projectSuggestion);
+                      setProjectSuggestion(null);
+                    }}
+                    sx={{ mt: 0.25 }}
+                  >
+                    Create
+                  </Button>
+                </Stack>
+              </Alert>
             )}
 
             {/* OSI-84 — contact people for this project (saved to the project). The
@@ -1185,11 +1550,20 @@ export default function ScheduleDeliveryDialog({
               </Box>
             )}
 
-            {/* 2b) SALE ORDER — directly below the contacts, and REQUIRED to schedule.
-                Replaces the old free-typed PO number: the office picks a real
-                SALES_ORDER document, so the run carries a pointer (config.saleOrderId)
-                a later invoice can walk back to for prices, not just a PO string. */}
-            <Divider sx={{ my: 2 }} />
+          </>
+        )}
+
+        {/* 2b) SALE ORDER — in the flat form it sits directly below the contacts
+            and is REQUIRED to schedule. In the stepped dialog it is one of the
+            three answers to "what is this based on?", so it lives on the
+            paperwork step and only shows once she has chosen it.
+            Replaces the old free-typed PO number either way: the office picks a
+            real SALES_ORDER document, so the run carries a pointer
+            (config.saleOrderId) a later invoice can walk back to for prices,
+            not just a PO string. */}
+        {!serviceJobs && onStep(1) && (!wizard || sourceKind === "SALES_ORDER") && (
+          <>
+            {!wizard && <Divider sx={{ my: 2 }} />}
             <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
               Sales Order
             </Typography>
@@ -1256,6 +1630,7 @@ export default function ScheduleDeliveryDialog({
           </>
         )}
 
+        {onStep(2) && (<>
         {/* 3) ADDRESS (auto-filled from the project; freely editable → DO "Deliver To").
             When auto-filled, render the text as clearly-present, editable content
             (solid text + shrunk label + subtle highlight) so it never reads as a
@@ -1305,6 +1680,9 @@ export default function ScheduleDeliveryDialog({
           sx={{ mb: 2 }}
         />
 
+        </>)}
+
+        {onStep(3) && (<>
         {/* 4) PRODUCTS */}
         <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
           {serviceJobs ? "Items" : "Products"}
@@ -1392,7 +1770,10 @@ export default function ScheduleDeliveryDialog({
           </Button>
         </Stack>
 
-        <Divider sx={{ my: 2 }} />
+        </>)}
+
+        {onStep(4) && (<>
+        {!wizard && <Divider sx={{ my: 2 }} />}
 
         {/* 5) SCHEDULING (last) — date + time. The PO moved up to sit with the
             Sales Order picker, directly below the contacts. */}
@@ -1446,16 +1827,46 @@ export default function ScheduleDeliveryDialog({
           </Box>
         )}
 
+        </>)}
+
         {note && <Alert severity="info" sx={{ mt: 2 }} onClose={() => setNote(null)}>{note}</Alert>}
         {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
         </SplitIf>
       </DialogContent>
       {split && <SlotHintsAlert lines={slotHintLines} />}
+      {/* Why the blocker reads as text rather than a tooltip: a disabled Next
+          with no explanation is the single most common complaint about stepped
+          forms. It sits where the eye already is, next to the button. */}
+      {wizard && blocked && (
+        <Typography variant="caption" color="text.secondary" sx={{ px: 3, pb: 0.5, textAlign: "right" }}>
+          {blocked}
+        </Typography>
+      )}
       <DialogActions>
         <Button onClick={onClose} disabled={submitting}>Cancel</Button>
-        <Button variant="contained" onClick={() => void submit(false)} disabled={!canSubmit}>
-          {submitting ? <CircularProgress size={18} /> : editRun ? "Save changes" : "Schedule"}
-        </Button>
+        <Box sx={{ flexGrow: 1 }} />
+        {/* Save as draft, from any step. The backend has always allowed a draft
+            with almost nothing on it, and the office needs that when the job is
+            booked before its paperwork lands. */}
+        {wizard && (
+          <Button onClick={() => void submit(true)} disabled={submitting}>
+            Save as draft
+          </Button>
+        )}
+        {wizard && activeStep > 0 && (
+          <Button onClick={() => setActiveStep((n) => Math.max(0, n - 1))} disabled={submitting}>
+            Back
+          </Button>
+        )}
+        {wizard && activeStep < STEPS.length - 1 ? (
+          <Button variant="contained" onClick={() => setActiveStep((n) => n + 1)} disabled={!!blocked || submitting}>
+            Next
+          </Button>
+        ) : (
+          <Button variant="contained" onClick={() => void submit(false)} disabled={!canSubmit}>
+            {submitting ? <CircularProgress size={18} /> : editRun ? "Save changes" : "Schedule"}
+          </Button>
+        )}
       </DialogActions>
 
       <ExtractQuotationDialog
@@ -1506,7 +1917,7 @@ export default function ScheduleDeliveryDialog({
 
         <DialogActions>
           <Button onClick={() => setCreateProjectOpen(false)} disabled={creatingProject}>Cancel</Button>
-          <Button variant="contained" onClick={handleCreateProject} disabled={creatingProject || !createProjectName.trim()}>
+          <Button variant="contained" onClick={() => void handleCreateProject()} disabled={creatingProject || !createProjectName.trim()}>
             {creatingProject ? <CircularProgress size={18} /> : "Create"}
           </Button>
         </DialogActions>

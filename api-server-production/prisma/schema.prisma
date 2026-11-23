@@ -3324,6 +3324,15 @@ model Delivery {
   // quotationNo + sourceDocument* (and the quote's prices) onto its config.
   // Plain pointer, no FK — same reasoning as the frozen documentId below.
   sourceQuotationId String?           @db.Uuid
+  // Stepped schedule dialog (enableScheduleWizard, Biofuel 2026-11-24): WHAT the
+  // schedule was based on — { kind: 'QUOTATION' | 'SALES_ORDER' | 'CONTRACT',
+  // documentId?, number?, fileName?, fileUrl? }. Deliberately ONE additive Json
+  // column rather than three typed ones: a master contract is only an uploaded
+  // file (no Document row), and overloading sourceQuotationId would hand the run
+  // to the quotation->delivery hook, whose DO stamps the quote's prices. The
+  // existing saleOrderId pointer on the DO config is unchanged; this records the
+  // office's choice uniformly for all three. Null on every run before the flag.
+  scheduleSource    Json?
   // WCT orders (enableWctOrders, 2026-11-01): the Order this job belongs to. An
   // accepted quotation makes ONE order and its first job; "Add job" on the
   // order adds more. Null for every run outside that flow.

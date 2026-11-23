@@ -204,6 +204,15 @@ export class ScheduleDeliveryDto {
   @IsOptional()
   @IsObject()
   jobFields?: Record<string, any>;
+
+  @ApiProperty({
+    required: false,
+    description:
+      "Stepped schedule dialog (enableScheduleWizard): WHAT this schedule is based on — { kind: 'QUOTATION' | 'SALES_ORDER' | 'CONTRACT', documentId?, number?, fileName?, fileUrl? }. A real schedule on a wizard org REQUIRES one — enforced in the SERVICE, like the Sale Order rule, so the requirement stays per-org; a DRAFT is exempt, since a job can arrive before its paperwork. A master contract is only an uploaded FILE (no Document row), which is why this is one Json field and not three typed pointers. Stored on Delivery.scheduleSource.",
+  })
+  @IsOptional()
+  @IsObject()
+  scheduleSource?: Record<string, any>;
 }
 
 /**

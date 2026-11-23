@@ -63,6 +63,7 @@ import { isCalendarAddEnabled, parseLinkKind, parsePtwRemark, parsePtwStatus, pa
 import { isOpenQuotation, matchIds, quotationIndex } from './quotation-search-index';
 import { QUOTATION_DOC_TYPES, isOpenDo, isUuid, jobRowsFromDo, likePattern, pickDoForJob, quotationCustomerIdOf, quotationCustomerNameOf, quotationSiteOf, quotationStatusLabel, quotationSubjectOf, searchLimit } from './quick-job-quotation';
 import { REAL_DO_ON_SCHEDULE_FLAG, cancelledDoConfig, isIssuedOnSchedule } from './do-number';
+import { SCHEDULE_WIZARD_FLAG, SCHEDULE_SOURCE_REQUIRED, normalizeScheduleSource, scheduleSourceMissing } from './schedule-source';
 import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/siteclock-link.service';
 import { applyOrderToDoConfig, isWctOrdersEnabled, refreshOrderStatus, refreshOrderStatusForRun } from '../orders/wct-orders';
 import { assertDocNotErpImportedDo, assertNotErpImportedDo } from '../common/erp-import';
@@ -641,6 +642,15 @@ export class DeliveriesService {
     if (saleOrderMissing({ isDraft, saleOrderId: dto.saleOrderId, serviceJobOrg: relaxedSchedule, optionalSaleOrder })) {
       throw new BadRequestException('A Sale Order is required for a scheduled delivery');
     }
+    // Stepped schedule dialog (enableScheduleWizard): a real schedule must be
+    // based on a quotation, a Sales Order or a master contract. Checked here as
+    // well as in the dialog so a stale browser tab cannot schedule around it.
+    // A draft is exempt — paperwork regularly lags the job.
+    const wizardOrg = await isOrgFeatureEnabled(this.prisma, organizationId, SCHEDULE_WIZARD_FLAG);
+    const scheduleSource = normalizeScheduleSource(dto.scheduleSource);
+    if (scheduleSourceMissing({ isDraft, wizardOrg, source: scheduleSource })) {
+      throw new BadRequestException(SCHEDULE_SOURCE_REQUIRED);
+    }
     // WCT orders: "Add job" on an order schedules another job of that order.
     const order = dto.orderId ? await this.orderForNewJob(dto.orderId, organizationId) : null;
     // Custom job fields: a bad value is refused BEFORE anything is created.
@@ -718,6 +728,10 @@ export class DeliveriesService {
             isDraft,
             scheduledFor: sched.scheduledFor,
             scheduledAllDay: sched.scheduledAllDay,
+            // What the schedule was based on (enableScheduleWizard). Written for
+            // every org that sends one, so turning the flag on later doesn't
+            // leave a gap in the runs scheduled meanwhile.
+            ...(scheduleSource ? { scheduleSource: scheduleSource as any } : {}),
             projectId: dto.projectId ?? null,
             customerId,
             ...(deliveryAddress ? { siteAddress: deliveryAddress } : {}),
@@ -2440,6 +2454,15 @@ export class DeliveriesService {
     if (saleOrderMissing({ isDraft: willBeDraft, saleOrderId: dto.saleOrderId, serviceJobOrg: relaxedSchedule, optionalSaleOrder })) {
       throw new BadRequestException('A Sale Order is required for a scheduled delivery');
     }
+    // Stepped schedule dialog (enableScheduleWizard): promoting a draft to a
+    // real schedule needs the same paperwork a fresh schedule does. The run's
+    // EXISTING source counts, so an edit that only moves the date does not have
+    // to re-send it; `undefined` leaves what is stored alone.
+    const wizardOrg = await isOrgFeatureEnabled(this.prisma, organizationId, SCHEDULE_WIZARD_FLAG);
+    const scheduleSource = normalizeScheduleSource(dto.scheduleSource);
+    if (scheduleSourceMissing({ isDraft: willBeDraft, wizardOrg, source: scheduleSource, existing: run.scheduleSource })) {
+      throw new BadRequestException(SCHEDULE_SOURCE_REQUIRED);
+    }
     const project = dto.projectId
       ? await this.prisma.project.findFirst({
           where: { id: dto.projectId, organizationId },
@@ -2510,6 +2533,9 @@ export class DeliveriesService {
           isDraft: willBeDraft,
           scheduledFor: sched.scheduledFor,
           scheduledAllDay: sched.scheduledAllDay,
+          // Only when a new one was sent: an edit that doesn't touch the
+          // paperwork step must not clear what the run was scheduled on.
+          ...(scheduleSource ? { scheduleSource: scheduleSource as any } : {}),
           projectId: dto.projectId ?? null,
           customerId,
           siteAddress: deliveryAddress || null,

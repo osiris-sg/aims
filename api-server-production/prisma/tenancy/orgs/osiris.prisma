@@ -1587,6 +1587,13 @@ model Delivery {
   // WCT 2026-10-26). Mirrors schema.prisma — see the comment there.
   sourceQuotationId String?        @db.Uuid
   // WCT orders (enableWctOrders): mirrors schema.prisma — see the comment there.
+  // Stepped schedule dialog (enableScheduleWizard, Biofuel 2026-11-24): WHAT the
+  // schedule was based on — { kind: 'QUOTATION' | 'SALES_ORDER' | 'CONTRACT',
+  // documentId?, number?, fileName?, fileUrl? }. ONE additive Json column rather
+  // than three typed ones: a master contract is only an uploaded file (no
+  // Document row), and overloading sourceQuotationId would hand the run to the
+  // quotation->delivery hook, whose DO stamps the quote's prices.
+  scheduleSource    Json?
   orderId           String?        @db.Uuid
   // WCT worker logins (enableWctMyJobs): mirrors schema.prisma.
   plannedRiderUserId String?
