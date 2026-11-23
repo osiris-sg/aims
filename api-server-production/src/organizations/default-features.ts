@@ -281,6 +281,13 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   enableFieldPayroll: false,
   enableFieldReports: false,
   fieldEngineLive: false,
+  // Guest DELIVERY link on a Delivery Order (default ON — every org keeps the
+  // two "Share / Revoke delivery link" items it has always had). Turned OFF for
+  // Biofuel 2026-11-24: they sign through the DO link (view / sign) instead, and
+  // two near-identical pairs of link actions in one menu invited the wrong one.
+  // Off hides both items; the public delivery page and any link already issued
+  // are untouched.
+  enableDeliveryShareLink: true,
   // Stepped "Schedule a delivery" dialog (Biofuel 2026-11-24): the long single
   // form becomes a wizard — Customer -> Paperwork -> Site & contacts -> Products
   // -> Schedule. Its point is the PAPERWORK step: a real schedule must be based

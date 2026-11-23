@@ -448,7 +448,7 @@ export default function TabbedDocumentCreator({
 }: DocumentCreatorProps) {
   const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled, isDocRemarksEnabled, isQuotationCategoryEnabled, isRackingLayoutEnabled, isQuotationRevisionOnSaveEnabled, features: orgFeatureFlags } = useOrganizationFeatures();
   // RDO free-typed rows + signed-RDO lock (enableRdoFreeTypedRows, Biofuel 2026-11-19).
-  const { isRdoFreeTypedRowsEnabled, isOptionalSaleOrderEnabled, isLineGlAccountsEnabled, isOfficeDoEditsEnabled } = useOrganizationFeatures();
+  const { isRdoFreeTypedRowsEnabled, isOptionalSaleOrderEnabled, isLineGlAccountsEnabled, isOfficeDoEditsEnabled, isDeliveryShareLinkEnabled } = useOrganizationFeatures();
   // enableOfficeDoEdits: a delivered / signed DO is edited by Admins only (the server refuses the rest).
   const roleGate = useRoleGate();
   // In-app Back (enableWctDocNav): history back when opened inside the app, else the parent list; off = the parent list.
@@ -6164,13 +6164,17 @@ export default function TabbedDocumentCreator({
                 <ListItemText>{doStartReportId ? "Show Route" : "Show Route (no delivery yet)"}</ListItemText>
               </MenuItem>
             )}
-            {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (existingData?.id || documentId) && (
+            {/* Guest DELIVERY link — hidden on orgs that sign through the DO
+                link instead (enableDeliveryShareLink off; Biofuel 2026-11-24).
+                Two near-identical Share/Revoke pairs in one menu is an invitation
+                to copy the wrong one. Links already issued still work. */}
+            {isDeliveryShareLinkEnabled && (documentType === "DO" || documentType === "DELIVERY_ORDER") && (existingData?.id || documentId) && (
               <MenuItem onClick={() => { closeMoreMenu(); handleShareDeliveryLink(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Share delivery link</ListItemText>
               </MenuItem>
             )}
-            {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (existingData?.id || documentId) && (
+            {isDeliveryShareLinkEnabled && (documentType === "DO" || documentType === "DELIVERY_ORDER") && (existingData?.id || documentId) && (
               <MenuItem onClick={() => { closeMoreMenu(); handleRevokeDeliveryLink(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Revoke delivery link</ListItemText>

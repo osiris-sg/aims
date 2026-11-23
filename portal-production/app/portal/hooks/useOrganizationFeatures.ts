@@ -55,6 +55,8 @@ interface OrganizationFeatures {
   // Paperwork -> Site & contacts -> Products -> Schedule, with a quotation,
   // Sales Order or master contract REQUIRED before step 3.
   enableScheduleWizard?: boolean;
+  /** Guest DELIVERY link on a DO. Default ON; off hides Share / Revoke delivery link. */
+  enableDeliveryShareLink?: boolean;
   enableRealDoOnSchedule?: boolean;
   enableFieldDoViewAnyLine?: boolean;
   enableOfficeDoEdits?: boolean;
@@ -365,6 +367,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Real DO numbers on schedule (WCT 2026-10-30): a scheduled run's DO gets its
   // real number at once; a Pending / Completed / Cancelled tag shows next to it.
   enableScheduleWizard: false,
+  enableDeliveryShareLink: true,
   enableRealDoOnSchedule: false,
   // WCT orders (2026-11-01): an accepted quotation makes one Order (ORD…) with
   // its first draft job; the order page lists its jobs and adds more. Default OFF.
@@ -490,6 +493,7 @@ export function useOrganizationFeatures() {
     // Calendar HQ view (WCT group 2026-11-18): the jobs calendar's Salesperson filter.
     isCalendarHqView: features.calendarHqView ?? false,
     isScheduleWizardEnabled: features.enableScheduleWizard ?? false,
+    isDeliveryShareLinkEnabled: features.enableDeliveryShareLink !== false,
     isRealDoOnScheduleEnabled: features.enableRealDoOnSchedule ?? false,
     isFieldDoViewAnyLineEnabled: features.enableFieldDoViewAnyLine ?? false,
     isOfficeDoEditsEnabled: features.enableOfficeDoEdits ?? false,
