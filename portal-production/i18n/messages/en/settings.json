@@ -398,6 +398,9 @@
       "notesPh": "Internal / customer-visible notes.",
       "footer": "Footer / Closing Message",
       "footerPh": "Renders at the bottom of the printed document. e.g. 'Thank you for your business.'",
+      "quoteTerms": "Numbered Terms",
+      "quoteTermsPh": "All the above prices exclude GST\nPayment terms: '{paymentTerms}'\nDelivery: Ex-stock, subject to availability",
+      "quoteTermsHelp": "One term per line. Numbering is added automatically. Write '{paymentTerms}' to insert the document's payment terms. Leave empty to keep the terms the document already prints.",
       "clear": "Clear defaults for this type",
       "pick": "Pick a document type above to start editing its defaults.",
       "known": {

@@ -204,6 +204,47 @@ interface FieldDeliveryReport {
   signedDateText?: string | null;
 }
 
+// The four numbered terms Biofuel's quotation has always printed under the
+// totals. They are now only the FALLBACK — the live text comes from the org's
+// Doc Defaults "Numbered Terms" (Settings → Company Profile), or from the
+// quotation's own config.quotationTerms. Kept here so a Biofuel org that has
+// never opened that screen, and every quotation saved before this change,
+// print exactly what they printed before.
+//
+// {paymentTerms} is substituted at render with the quote's payment terms.
+export const BIOFUEL_DEFAULT_QUOTE_TERMS = [
+  "All the above prices exclude GST",
+  "Payment terms: {paymentTerms}",
+  "Delivery: Ex-stock, subject to availability",
+  "Transport charges waived for rental periods of 3 months and above",
+];
+
+/**
+ * The raw, editable text of a quotation's numbered terms — one term per line,
+ * {paymentTerms} NOT yet substituted. Shared by the preview (which numbers and
+ * substitutes) and the editor's Footer tab (which puts this text in a box so
+ * the terms can be edited on the quotation itself).
+ *
+ * Order: the quotation's own config.quotationTerms, then the org's Doc Defaults
+ * "Numbered Terms" for the quotation type, then the four Biofuel has always
+ * printed. Both readers call THIS so the box can never show something different
+ * from what prints.
+ */
+export function quoteTermsTextOf(
+  storedTerms: unknown,
+  organization: any,
+  documentType?: string,
+): string {
+  const fromOrg = [documentType, "QUOTATION", "QO1", "QO"]
+    .map((k) => organization?.docTypeDefaults?.[k as string]?.quoteTerms)
+    .find((v: any) => typeof v === "string" && v.trim());
+  const raw =
+    (typeof storedTerms === "string" && storedTerms.trim() ? storedTerms : "") ||
+    fromOrg ||
+    BIOFUEL_DEFAULT_QUOTE_TERMS.join("\n");
+  return String(raw);
+}
+
 // Org bank block for document footers: primary bank + any
 // bankDetails.additionalBanks, separated by "OR" (guru 2026-09-09).
 // Shared by both footer variants below so they can't drift.
@@ -4618,6 +4659,35 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         (organization?.id === BIOFUEL_ORG_ID ||
           organization?.name === "Biofuel Industries Pte Ltd"));
 
+    // The numbered terms under the totals. They used to be four hardcoded
+    // <Typography> lines, so adding or changing one meant a deploy (guru
+    // 2026-11-23: "add one more tnc to the footer of quotation for biofuel and
+    // make it editable now its hardcoded").
+    //
+    // Source order: this quotation's own config.quotationTerms, then the org's
+    // Doc Defaults "Numbered Terms" for the quotation type (Settings → Company
+    // Profile → Doc Defaults), then BIOFUEL_DEFAULT_QUOTE_TERMS. One term per
+    // line, blank lines dropped, numbering applied here — so the numbers can
+    // never run out of order the way four hand-typed "1."…"4." could.
+    //
+    // {paymentTerms} is substituted with the quote's own payment terms, which
+    // is how line 2 kept reading documentInfo.paymentTerms once the text became
+    // editable. NOTHING ELSE CHANGES FOR AN EXISTING QUOTE: with no value
+    // stored anywhere the fallback prints the same four terms, same wording,
+    // same order.
+    const quotePaymentTerms = String(
+      data.documentInfo?.paymentTerms || (data as any).paymentTerms || "CASH",
+    );
+    const numberedQuoteTerms = quoteTermsTextOf(
+      (data as any)?.quotationTerms,
+      organization,
+      documentType,
+    )
+      .split("\n")
+      .map((s) => String(s).trim())
+      .filter(Boolean)
+      .map((s) => s.replace(/\{paymentTerms\}/gi, quotePaymentTerms));
+
     // Show/hide the Sub-Total / GST / Total-Include block. DISPLAY ONLY: the
     // editor still computes and stores subTotal / gstAmount / nettTotal, which
     // the posting flow and every downstream conversion read.
@@ -5273,10 +5343,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   QO202609-0063). Wording, spacing and the payment-terms read are
                   unchanged — only the position moved. */}
               <Box sx={{ mb: 3, pageBreakInside: "avoid", breakInside: "avoid" }}>
-                <Typography sx={{ fontSize: "0.8125rem" }}>1. All the above prices exclude GST</Typography>
-                <Typography sx={{ fontSize: "0.8125rem" }}>2. Payment terms: {data.documentInfo?.paymentTerms || data.paymentTerms || "CASH"}</Typography>
-                <Typography sx={{ fontSize: "0.8125rem" }}>3. Delivery: Ex-stock, subject to availability</Typography>
-                <Typography sx={{ fontSize: "0.8125rem" }}>4. Transport charges waived for rental periods of 3 months and above</Typography>
+                {numberedQuoteTerms.map((term, i) => (
+                  <Typography key={i} sx={{ fontSize: "0.8125rem" }}>
+                    {i + 1}. {term}
+                  </Typography>
+                ))}
               </Box>
 
               {/* 3. Courtesy closing, now BELOW the numbered terms. Sourced from

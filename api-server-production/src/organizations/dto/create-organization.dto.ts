@@ -97,7 +97,7 @@ export class CreateOrganizationDto {
     example: { PO: { tnc: '60-day payment terms', notes: '', footerMessage: 'Thank you.' } },
   })
   @IsOptional()
-  docTypeDefaults?: Record<string, { tnc?: string; notes?: string; footerMessage?: string }>;
+  docTypeDefaults?: Record<string, { tnc?: string; notes?: string; footerMessage?: string; quoteTerms?: string }>;
 
   @ApiProperty({
     required: false,

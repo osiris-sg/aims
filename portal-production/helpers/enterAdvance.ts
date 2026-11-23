@@ -9,7 +9,7 @@
 //    document editor and the accounting dialogs. Enter ALWAYS moves on there,
 //    even in a multi-line box (Shift+Enter for a newline) and even when the
 //    field has its own Enter action (the customer-code box commits the code
-//    AND moves on).
+//    AND moves on) — unless the box opts out with data-enter-ignore.
 // 2. GLOBAL (`installGlobalEnterAdvance`, mounted once in the portal layout):
 //    every other single-line box in the portal — masterfile forms, settings,
 //    filters, dialogs. It steps aside when the field already handled Enter
@@ -122,6 +122,14 @@ export function enterAdvancesFocus(e: ReactKeyboardEvent<HTMLElement>): void {
   if (e.nativeEvent && (e.nativeEvent as KeyboardEvent).isComposing) return; // IME commit (Japanese UI)
   const el = e.target as HTMLElement | null;
   if (!el || !isTypingBox(el)) return;
+  // data-enter-ignore means "leave Enter alone HERE" — a box whose own Enter is
+  // the point of it, e.g. a list typed one item per line. isEnterable() already
+  // kept such boxes out of the walk as a DESTINATION; this honours the same
+  // attribute for the box the key was pressed IN, so the scoped layer agrees
+  // with the global one (which has always checked it). Shift+Enter is
+  // unaffected — it returns above either way (guru 2026-11-23, the quotation's
+  // numbered terms box).
+  if (el.closest("[data-enter-ignore]")) return;
   if (dropdownOpen(el)) return;
   if (dir) {
     if (e.isDefaultPrevented?.() || e.nativeEvent?.defaultPrevented) return;
