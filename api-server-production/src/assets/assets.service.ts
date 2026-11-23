@@ -335,6 +335,9 @@ export class AssetsService {
   }
 
   async createAssets(createAssetDto: CreateAssetDto, userOrganizationId: string) {
+    // Asset.categoryId is required; Prisma's "Argument `category` is missing"
+    // used to surface as a 500 "unexpected error" (Stock Card → New item, 2026-11-24).
+    if (!createAssetDto.categoryId) throw new HttpException('Pick a category for the item.', HttpStatus.BAD_REQUEST);
     try {
       // Split customPrices out so we can hand it to Prisma as a Json value
       // (CustomPriceDto[] doesn't structurally match `InputJsonValue` and

@@ -237,6 +237,12 @@ export default function StockCardDialog({
       toast.error("Code and description are both needed.");
       return;
     }
+    // Every product belongs to a category (Asset.categoryId is required); without
+    // one the server failed with a bare "unexpected error" (2026-11-24).
+    if (!form.categoryId) {
+      toast.error("Pick a category for the new item.");
+      return;
+    }
     setCreating(true);
     try {
       const token = await getToken();
@@ -525,13 +531,11 @@ export default function StockCardDialog({
                     size="small"
                     select
                     label="Category"
+                    required
                     value={form.categoryId}
                     onChange={(e) => setForm((f) => ({ ...f, categoryId: e.target.value }))}
                     sx={{ width: 170 }}
                   >
-                    <MenuItem value="">
-                      <em>None</em>
-                    </MenuItem>
                     {categories.map((c) => (
                       <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
                     ))}

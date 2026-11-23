@@ -194,6 +194,17 @@ export const useGetInventoriesForItemTable = () => {
     setInventoriesForDocument((prev) => mergeById(prev, items));
   }, []);
 
+  // Patch one item already in the working set (the editor mapped a GL account
+  // onto it from a line's chip, guru 2026-11-24): the Stock Card's Rental /
+  // Sales tabs and its self-coding read these fields, so the next pick of the
+  // same item in THIS editor carries the account without a reload.
+  const patchItem = useCallback((id: string, patch: Record<string, any>) => {
+    if (!id) return;
+    setInventoriesForDocument((prev) =>
+      prev.map((i) => (i?.id === id ? { ...i, ...patch, ...(i.asset ? { asset: { ...i.asset, ...patch } } : {}) } : i)),
+    );
+  }, []);
+
   const getInventories = useCallback(async () => {
     if (!organizationId || !type) return [];
 
@@ -259,5 +270,5 @@ export const useGetInventoriesForItemTable = () => {
     getInventories();
   }, [getInventories]);
 
-  return { inventoriesForDocument, catalogueComplete, catalogueTotal, searchCatalogue, rememberItems };
+  return { inventoriesForDocument, catalogueComplete, catalogueTotal, searchCatalogue, rememberItems, patchItem };
 };
