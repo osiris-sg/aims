@@ -32,30 +32,39 @@
 import { resolveTimeZone } from '../../org-today';
 import { DocumentDesign } from './design';
 import { amountPaidOf, outstandingOf } from '../../document-money';
-import { billToText, decodeHtmlEntities as decodeEntities, descriptionText, escapeHtml, makeDi, money, printableSalesman, richContent } from './shared';
+import { billToText, decodeHtmlEntities as decodeEntities, escapeHtml, makeDi, money, printableSalesman, richContent } from './shared';
 import { erpStoredTotalsOf, moneySignature, type ErpStoredTotals } from '../../erp-import';
 import { BCAIR_DOC } from './wct-brand';
 
 export type WctDocKind = 'quotation' | 'invoice' | 'do';
 
+/** Line-item description: the shared cell is 13px (other layouts); the WCT print is 2px smaller (2026-11-23). */
+const descriptionText = (text: any): string => richContent(text, 'font-size:11px;line-height:1.6;');
+
 const CSS = `
 <style>
-  .wct { font-size: 12.5px; color: #000; line-height: 1.45; }
+  .wct { font-size: 10.5px; color: #000; line-height: 1.45; }
   .wct p { margin: 0; }
   /* The outer sheet: letterhead in a thead so every printed page carries it. */
   table.wct-sheet { width: 100%; border-collapse: collapse; }
   table.wct-sheet > thead { display: table-header-group; }
   table.wct-sheet > thead > tr > td, table.wct-sheet > tbody > tr > td { padding: 0; border: none; font-size: inherit; vertical-align: top; }
+  /* Page-margin spacers (2026-11-23): a top row in the repeating thead and a bottom row in the repeating tfoot.
+     0 high on screen and in the server PDF (Puppeteer gives that its margins); the portal's browser print
+     (ServerDocumentPreview) prints with @page margin 0, so Chrome has no room for its own header/footer, and
+     sets these rows to ~12mm so every printed page keeps its top and bottom margin. */
+  table.wct-sheet > thead > tr.wct-pgtop > td, table.wct-sheet > tfoot > tr.wct-pgbot > td { height: 0; padding: 0; border: none; line-height: 0; font-size: 0; }
+  table.wct-sheet > tfoot { display: table-footer-group; }
   .wct .lh { display: flex; align-items: flex-start; gap: 18px; }
   .wct .lh img { max-height: 62px; max-width: 200px; object-fit: contain; display: block; }
-  .wct .lh .co { font-size: 11.5px; line-height: 1.4; flex: 1; }
-  .wct .lh .co .nm { font-size: 14px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
+  .wct .lh .co { font-size: 9.5px; line-height: 1.4; flex: 1; }
+  .wct .lh .co .nm { font-size: 12px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
   .wct .lh .co .sp { display: inline-block; margin-right: 14px; }
-  .wct .docno { text-align: right; font-weight: 700; font-size: 13px; margin-top: -4px; }
+  .wct .docno { text-align: right; font-weight: 700; font-size: 11px; margin-top: -4px; }
   .wct .rule { border-bottom: 1.5px solid #000; margin: 2px 0 10px; }
-  .wct .title { text-align: center; font-weight: 700; font-size: 16px; letter-spacing: .5px; margin: 2px 0 10px; }
+  .wct .title { text-align: center; font-weight: 700; font-size: 14px; letter-spacing: .5px; margin: 2px 0 10px; }
   .wct .title.do { margin-bottom: 0; }
-  .wct .stars { text-align: center; font-size: 10px; letter-spacing: 1px; line-height: 1; margin-bottom: 8px; overflow: hidden; white-space: nowrap; }
+  .wct .stars { text-align: center; font-size: 8px; letter-spacing: 1px; line-height: 1; margin-bottom: 8px; overflow: hidden; white-space: nowrap; }
   .wct .party { display: flex; justify-content: space-between; gap: 24px; margin-bottom: 8px; }
   .wct .party .bill { flex: 1; min-width: 0; white-space: pre-line; }
   .wct .party .bill b { font-weight: 700; }
@@ -67,9 +76,9 @@ const CSS = `
   .wct .boxes .row + .row { border-top: 1.2px solid #000; }
   .wct .boxes b { font-weight: 700; }
   table.wct-lines { width: 100%; border-collapse: separate; border-spacing: 0; }
-  table.wct-lines th { border: 1.2px solid #000; padding: 5px 6px; font-weight: 400; font-size: 12.5px; text-align: left; white-space: nowrap; background: #fff; }
+  table.wct-lines th { border: 1.2px solid #000; padding: 5px 6px; font-weight: 400; font-size: 10.5px; text-align: left; white-space: nowrap; background: #fff; }
   table.wct-lines th + th { border-left: none; }
-  table.wct-lines td { border: none; padding: 6px 6px 2px; font-size: 12.5px; vertical-align: top; }
+  table.wct-lines td { border: none; padding: 6px 6px 2px; font-size: 10.5px; vertical-align: top; }
   /* A line item never splits across pages (seen: item 12's second line alone on page 2). */
   table.wct-lines tbody tr { page-break-inside: avoid; break-inside: avoid; }
   table.wct-lines tbody tr:first-child td { padding-top: 10px; }
@@ -79,12 +88,12 @@ const CSS = `
   table.wct-lines td.desc p { white-space: pre-wrap; }
   .wct .totals { display: flex; justify-content: flex-end; margin: 14px 0 18px; page-break-inside: avoid; break-inside: avoid; }
   .wct .totals table { border-collapse: collapse; width: auto; }
-  .wct .totals td { border: none; padding: 2px 8px; font-size: 12.5px; white-space: nowrap; }
+  .wct .totals td { border: none; padding: 2px 8px; font-size: 10.5px; white-space: nowrap; }
   .wct .totals td.l { font-weight: 700; text-align: right; }
   .wct .totals td.v { text-align: right; font-weight: 700; min-width: 96px; font-variant-numeric: tabular-nums; }
   .wct .tnc { margin: 6px 0 18px; }
-  .wct .tnc h3 { font-size: 12.5px; font-weight: 700; margin: 0 0 6px; page-break-after: avoid; break-after: avoid; }
-  .wct .tnc p, .wct .tnc div { font-size: 12px; line-height: 1.6; }
+  .wct .tnc h3 { font-size: 10.5px; font-weight: 700; margin: 0 0 6px; page-break-after: avoid; break-after: avoid; }
+  .wct .tnc p, .wct .tnc div { font-size: 10px; line-height: 1.6; }
   .wct .remarks { margin: 6px 0 14px; }
   .wct .sign { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-top: 36px; page-break-inside: avoid; break-inside: avoid; }
   .wct .sign .l p { margin-bottom: 12px; }
@@ -96,13 +105,13 @@ const CSS = `
   .wct .rcv .box .lbl { font-weight: 700; margin-bottom: 4px; }
   .wct .rcv .box .sig { height: 56px; display: flex; align-items: flex-end; margin: 2px 0 4px; }
   .wct .rcv .box .sig img { display: block; max-height: 56px; max-width: 200px; }
-  .wct .rcv .box .ln { border-top: 1px solid #000; padding-top: 3px; font-size: 11.5px; }
+  .wct .rcv .box .ln { border-top: 1px solid #000; padding-top: 3px; font-size: 9.5px; }
   .wct .proof { page-break-before: always; break-before: page; }
-  .wct .proof h3 { text-align: center; font-size: 14px; font-weight: 700; letter-spacing: 1px; margin: 4px 0 12px; }
+  .wct .proof h3 { text-align: center; font-size: 12px; font-weight: 700; letter-spacing: 1px; margin: 4px 0 12px; }
   .wct .proof .rep { margin-bottom: 14px; page-break-inside: avoid; break-inside: avoid; }
   .wct .proof .rep + .rep { border-top: 1px solid #ccc; padding-top: 12px; }
-  .wct .proof .rep .hd { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; font-size: 11.5px; color: #333; }
-  .wct .proof .rep .hd b { font-size: 12.5px; color: #000; }
+  .wct .proof .rep .hd { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; font-size: 9.5px; color: #333; }
+  .wct .proof .rep .hd b { font-size: 10.5px; color: #000; }
   .wct .proof .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .wct .proof .grid .ph { width: 100%; aspect-ratio: 4 / 3; overflow: hidden; border: 1px solid #ccc; }
   .wct .proof .grid .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -116,7 +125,7 @@ const CSS = `
   /* The signature line above the label (2026-11-13), signed or not. */
   .wct .closing .stamp { position: relative; border-top: 1px solid #000; padding-top: 4px; min-width: 230px; text-align: center; }
   .wct .closing .stamp .sigimg { position: absolute; right: 0; bottom: 100%; display: block; max-width: 180px; max-height: 68px; }
-  .wct .closing .stamp .who { position: absolute; right: 0; top: 100%; white-space: nowrap; font-size: 10.5px; color: #333; }
+  .wct .closing .stamp .who { position: absolute; right: 0; top: 100%; white-space: nowrap; font-size: 8.5px; color: #333; }
   .wct .footnote { margin-top: 10px; font-weight: 700; }
   .wct .doboxes { display: flex; gap: 40px; margin: 14px 0 16px; }
   .wct .doboxes .bx { flex: 1; border: 1.2px solid #000; padding: 5px 8px 12px; min-height: 86px; white-space: pre-line; }
@@ -160,10 +169,10 @@ const first = (...vals: any[]): string => {
 /** BC Air (features.wctDocumentBrand = 'BCAIR', invoice + DO): its letterhead lines as printed on I003278. */
 const BC_CSS = `
 <style>
-  .wct.bc .lh .co .nm { text-transform: none; letter-spacing: 0; font-size: 18px; }
-  .wct.bc .lh .co { font-size: 12.5px; }
+  .wct.bc .lh .co .nm { text-transform: none; letter-spacing: 0; font-size: 16px; }
+  .wct.bc .lh .co { font-size: 10.5px; }
   .wct.bc .lh img { max-height: 80px; }
-  .wct.bc .tnc .ln { font-size: 12px; line-height: 1.5; font-weight: 700; margin-bottom: 4px; }
+  .wct.bc .tnc .ln { font-size: 10px; line-height: 1.5; font-weight: 700; margin-bottom: 4px; }
   /* I003278 prints its terms from the top of page 2. */
   .wct.bc .tnc { page-break-before: always; break-before: page; margin-top: 0; }
   .wct.bc .totals table { border-collapse: collapse; }
@@ -184,7 +193,7 @@ const BC_CSS = `
 const RK_CSS = `
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap');
-  .wct.rk .rkfoot { margin: 6px 0 18px; font-size: 12px; line-height: 1.6; }
+  .wct.rk .rkfoot { margin: 6px 0 18px; font-size: 10px; line-height: 1.6; }
   .wct.rk .rkfoot .hd { font-weight: 700; margin-top: 10px; page-break-after: avoid; break-after: avoid; }
   .wct.rk .rkfoot .hd:first-child { margin-top: 0; }
   /* The quotation's payment terms always start a new page (guru 2026-11-19). */
@@ -557,7 +566,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
       <div class="bx">Ship To:\n${escapeHtml(soldName)}${shipTo ? `\n${escapeHtml(shipTo)}` : ''}</div>
     </div>
     ${linesTable(data, items, 'do', 'SGD', false, skipTitles)}
-    ${first(data?.remarks, di('remarks')) ? `<div class="remarks" style="margin-top:16px;"><b>Remarks:</b>${richContent(first(data?.remarks, di('remarks')), 'font-size:12.5px;line-height:1.5;')}</div>` : ''}
+    ${first(data?.remarks, di('remarks')) ? `<div class="remarks" style="margin-top:16px;"><b>Remarks:</b>${richContent(first(data?.remarks, di('remarks')), 'font-size:10.5px;line-height:1.5;')}</div>` : ''}
     ${proof.received}
     ${footerMessage ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>` : ''}
     ${proof.appendix}`;
@@ -638,11 +647,11 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   </table></div>`;
 
   const remarks = first(data?.remarks, di('remarks'), data?.note);
-  const remarksBlock = remarks ? `<div class="remarks"><b>Remarks:</b>${richContent(remarks, 'font-size:12.5px;line-height:1.5;')}</div>` : '';
+  const remarksBlock = remarks ? `<div class="remarks"><b>Remarks:</b>${richContent(remarks, 'font-size:10.5px;line-height:1.5;')}</div>` : '';
   const tnc = first(data?.termsAndConditions, di('termsAndConditions'));
-  const tncBlock = tnc ? `<div class="tnc"><h3>Terms and Conditions:</h3>${richContent(tnc, 'font-size:12px;line-height:1.6;')}</div>` : '';
+  const tncBlock = tnc ? `<div class="tnc"><h3>Terms and Conditions:</h3>${richContent(tnc, 'font-size:10px;line-height:1.6;')}</div>` : '';
   const bcTnc = `<div class="tnc"><h3>${escapeHtml(BCAIR_DOC.tncTitle)}</h3>${
-    tnc ? richContent(tnc, 'font-size:12px;line-height:1.6;') : BCAIR_DOC.tnc.map((l) => `<div class="ln">${escapeHtml(l)}</div>`).join('')
+    tnc ? richContent(tnc, 'font-size:10px;line-height:1.6;') : BCAIR_DOC.tnc.map((l) => `<div class="ln">${escapeHtml(l)}</div>`).join('')
   }</div>`;
   const S = BCAIR_DOC.sign;
   const bcSign = `<div class="bcsign"><div class="l"><div>${escapeHtml(S.closing)}</div><div class="scr">${escapeHtml(S.name)}</div><div>${escapeHtml(S.title)}</div><div>${escapeHtml(S.company)}</div></div><div class="r"><div>${escapeHtml(S.confirm)}</div><div>${escapeHtml(S.stamp)}</div></div></div>`;
@@ -703,10 +712,14 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   return sheet(letterhead(org, data, isInvoice ? 'Invoice No' : 'Quotation No', docNumber, racking), body, false, racking);
 }
 
+/** The outer sheet: letterhead + page-top spacer in the repeating thead, page-bottom spacer in the repeating tfoot. */
+const sheetTable = (head: string, body: string): string =>
+  `<table class="wct-sheet"><thead><tr class="wct-pgtop"><td></td></tr><tr><td>${head}</td></tr></thead><tbody><tr><td>${body}</td></tr></tbody><tfoot><tr class="wct-pgbot"><td></td></tr></tfoot></table>`;
+
 function sheet(head: string, body: string, bc = false, rk = false, watermark = ''): string {
-  if (rk) return `${CSS}${RK_CSS}${watermark}<div class="wct rk"><table class="wct-sheet"><thead><tr><td>${head}</td></tr></thead><tbody><tr><td>${body}</td></tr></tbody></table></div>`;
-  if (bc) return `${CSS}${BC_CSS}<div class="wct bc"><table class="wct-sheet"><thead><tr><td>${head}</td></tr></thead><tbody><tr><td>${body}</td></tr></tbody></table></div>`;
-  return `${CSS}<div class="wct"><table class="wct-sheet"><thead><tr><td>${head}</td></tr></thead><tbody><tr><td>${body}</td></tr></tbody></table></div>`;
+  if (rk) return `${CSS}${RK_CSS}${watermark}<div class="wct rk">${sheetTable(head, body)}</div>`;
+  if (bc) return `${CSS}${BC_CSS}<div class="wct bc">${sheetTable(head, body)}</div>`;
+  return `${CSS}<div class="wct">${sheetTable(head, body)}</div>`;
 }
 
 /** Footer line for the PDF's per-page footer (left of "Page n/N"). */

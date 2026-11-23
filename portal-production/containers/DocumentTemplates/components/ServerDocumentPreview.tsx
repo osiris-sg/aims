@@ -43,6 +43,48 @@ const PREVIEW_CSS = `<style>
   }
 </style>`;
 
+// Browser print of the WCT layout (guru 2026-11-23): Chrome draws its own
+// header (date, title) and footer (URL, page no.) in the page margin when
+// "Headers and footers" is ticked. With @page margin 0 it has no room to, and
+// the document carries its own margins instead: 14mm left/right on the .wct
+// wrapper (horizontal padding holds on every page) and ~12mm top/bottom from
+// the renderer's spacer rows (wct.ts sheetTable: a row in the repeating thead
+// and one in the repeating tfoot, 0 high on screen and in the server PDF), so
+// every printed page keeps its top and bottom margin. Added to the iframe only
+// for the print and only when it holds the WCT sheet, so CIEL's ID quotation
+// (the other server layout) and the Puppeteer PDF are unaffected.
+export const WCT_PRINT_STYLE_ID = "aims-wct-browser-print";
+export const WCT_BROWSER_PRINT_CSS = `@media print {
+  @page { size: A4; margin: 0 }
+  .wct { padding: 0 14mm; }
+  table.wct-sheet > thead > tr.wct-pgtop > td { height: 12mm !important; }
+  table.wct-sheet > tfoot > tr.wct-pgbot > td { height: 12mm !important; }
+}`;
+
+/** Prints the iframe; a WCT sheet gets the browser-print CSS just for the print. */
+export function printServerDocument(w: Window): void {
+  const doc = w.document;
+  let style: HTMLStyleElement | null = null;
+  if (doc?.querySelector("table.wct-sheet") && !doc.getElementById(WCT_PRINT_STYLE_ID)) {
+    style = doc.createElement("style");
+    style.id = WCT_PRINT_STYLE_ID;
+    style.textContent = WCT_BROWSER_PRINT_CSS;
+    // Last in the document: the renderer's own <style> blocks sit in the body,
+    // and a later sheet wins a tie.
+    (doc.body || doc.documentElement).appendChild(style);
+  }
+  const cleanup = () => {
+    style?.remove();
+    style = null;
+  };
+  // Chrome's print() returns once the dialog closes; Safari returns at once and
+  // fires afterprint later, so remove the style on afterprint (it is print-only
+  // CSS, harmless on screen if that event never comes).
+  w.addEventListener("afterprint", cleanup, { once: true });
+  w.focus();
+  w.print();
+}
+
 const ServerDocumentPreview = forwardRef<ServerDocumentPreviewHandle, Props>(function ServerDocumentPreview(
   { documentType, documentId, templateId, data, minHeight = "calc(100vh - 220px)", onLoaded },
   ref,
@@ -112,8 +154,7 @@ const ServerDocumentPreview = forwardRef<ServerDocumentPreviewHandle, Props>(fun
     print: () => {
       const w = iframeRef.current?.contentWindow;
       if (!w) return;
-      w.focus();
-      w.print();
+      printServerDocument(w);
     },
   }));
 
