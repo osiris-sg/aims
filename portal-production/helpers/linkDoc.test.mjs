@@ -72,24 +72,22 @@ test("doc chain sections: Order, QO, DO(s), Invoice(s); Create only where the or
   assert.deepEqual(chainSections({ kind: "INVOICE", order: null, quotations: [], dos: [], invoices: [], canCreateDo: false, canCreateInvoice: false, direct: [] }), []);
 });
 
-test("fields: DO / Invoice Reference becomes Link Document; quotation Reference becomes Customer Remarks + a Link Document row", () => {
+test("fields: DO / Invoice Reference becomes Link Document; WCT group: no Customer Remarks row, Link Document in its place", () => {
   const base = [{ fieldName: "documentNo", displayLabel: "Invoice No." }, { fieldName: "documentInfo.referenceNo", displayLabel: "Reference" }, { fieldName: "customer", displayLabel: "Customer" }];
-  // WCT group (split on): DO / Invoice get Customer Remarks + Link Document rows, like the quotation.
-  assert.deepEqual(withLinkDocFields(base, { page: "INVOICE", linkOn: true, remarksSplit: true }).map((f) => f.displayLabel), ["Invoice No.", "Customer Remarks", "Link Document", "Customer"]);
-  assert.deepEqual(withLinkDocFields(base, { page: "DELIVERY_ORDER", linkOn: true, remarksSplit: true }).map((f) => f.fieldName), ["documentNo", "documentInfo.referenceNo", LINK_DOC_FIELD, "customer"]);
+  // WCT group (split on, 2026-11-24): the Reference / Customer Remarks row is gone; the Link Document row takes its place.
+  assert.deepEqual(withLinkDocFields(base, { page: "INVOICE", linkOn: true, remarksSplit: true }).map((f) => f.displayLabel), ["Invoice No.", "Link Document", "Customer"]);
+  assert.deepEqual(withLinkDocFields(base, { page: "DELIVERY_ORDER", linkOn: true, remarksSplit: true }).map((f) => f.fieldName), ["documentNo", LINK_DOC_FIELD, "customer"]);
   // Split off, Link Document on: the Reference row is the pills row.
   assert.deepEqual(withLinkDocFields(base, { page: "INVOICE", linkOn: true, remarksSplit: false }).map((f) => f.displayLabel), ["Invoice No.", "Link Document", "Customer"]);
   assert.equal(withLinkDocFields(base, { page: "INVOICE", linkOn: false, remarksSplit: false }), base);
   const qo = withLinkDocFields(base, { page: "QUOTATION", linkOn: true, remarksSplit: true });
-  assert.deepEqual(qo.map((f) => [f.fieldName, f.displayLabel]), [["documentNo", "Invoice No."], ["documentInfo.referenceNo", "Customer Remarks"], [LINK_DOC_FIELD, "Link Document"], ["customer", "Customer"]]);
-  // YMM (doc nav on, no WCT orders): the split, no Link Document row.
-  assert.deepEqual(withLinkDocFields(base, { page: "QUOTATION", linkOn: false, remarksSplit: true }).map((f) => f.displayLabel), ["Invoice No.", "Customer Remarks", "Customer"]);
+  assert.deepEqual(qo.map((f) => [f.fieldName, f.displayLabel]), [["documentNo", "Invoice No."], [LINK_DOC_FIELD, "Link Document"], ["customer", "Customer"]]);
+  assert.equal(qo.some((f) => f.displayLabel === "Customer Remarks"), false);
+  // YMM (doc nav on, no WCT orders): no Reference row and no Link Document row.
+  assert.deepEqual(withLinkDocFields(base, { page: "QUOTATION", linkOn: false, remarksSplit: true }).map((f) => f.displayLabel), ["Invoice No.", "Customer"]);
   // Any other org: untouched.
   assert.equal(withLinkDocFields(base, { page: "QUOTATION", linkOn: false, remarksSplit: false }), base);
-  // displayOrder keeps the new row right after Customer Remarks.
-  const ordered = withLinkDocFields([{ fieldName: "documentInfo.referenceNo", displayLabel: "Reference", displayOrder: 3 }], { page: "QUOTATION", linkOn: true, remarksSplit: true });
-  assert.equal(ordered[1].displayOrder, 3.01);
-  // Both quotation rows are full rows, so a half-width Reference never pairs them side by side.
-  const half = withLinkDocFields([{ fieldName: "documentInfo.referenceNo", displayLabel: "Reference", gridSize: 6 }], { page: "QUOTATION", linkOn: true, remarksSplit: true });
-  assert.deepEqual(half.map((f) => f.gridSize), [12, 12]);
+  // The Link Document row keeps the Reference row's place and is a full row.
+  const ordered = withLinkDocFields([{ fieldName: "documentInfo.referenceNo", displayLabel: "Reference", displayOrder: 3, gridSize: 6 }], { page: "QUOTATION", linkOn: true, remarksSplit: true });
+  assert.deepEqual(ordered.map((f) => [f.fieldName, f.displayOrder, f.gridSize]), [[LINK_DOC_FIELD, 3, 12]]);
 });

@@ -1177,9 +1177,9 @@ export default function TabbedDocumentCreator({
       importedOrders: !!(orgFeatureFlags as any)?.enableImportedOrders,
     });
   // Link Document (WCT group, 2026-11-22; helpers/linkDoc.ts): the QO / DO / Invoice "Link Document" row (pills + the
-  // big picker) and the doc chain panel on the left (enableWctOrders). On a QO, DO and Invoice the left Reference box
-  // becomes "Customer Remarks" (config.remarks, printed as Remarks) and the right box Internal remarks (never printed)
-  // (enableWctDocNav); link text never shows in either. Every other org: unchanged.
+  // big picker) and the doc chain panel on the left (enableWctOrders). On a QO, DO and Invoice (enableWctDocNav) there
+  // is no left Reference / Customer Remarks box; the right box is "Remarks" and edits config.remarks (printed as
+  // Remarks; 2026-11-24). Internal remarks are no longer shown or written. Every other org: unchanged.
   const linkPage = linkPageKindOf(isQuotation ? "QUOTATION" : isInvoiceTypeDoc ? "INVOICE" : isDeliveryOrder ? "DELIVERY_ORDER" : null);
   const linkOn = !!linkPage && linkDocOn(linkPage, { wctOrders: !!isWctOrdersEnabled, templateEdit: isTemplateEditMode });
   const remarksSplit = remarksSplitOn(linkPage, { wctDocNav: !!isWctDocNavEnabled, templateEdit: isTemplateEditMode });
@@ -1254,7 +1254,7 @@ export default function TabbedDocumentCreator({
       } as any,
     ];
   }, [templateFieldConfig, legacyInvoice]);
-  // WCT QO / DO / Invoice (2026-11-23): the Internal remarks memo sits under the totals in the open General tab, so the
+  // WCT QO / DO / Invoice (2026-11-23): the Remarks memo sits under the totals in the open General tab, so the
   // General fields get the memo column's width back (the paired rows were squeezed to nothing at 1280-1440px).
   const memoInGeneral = remarksSplit && !isTemplateEditMode && !isFieldsCollapsed && editorTabs[mainTabValue]?.tabId === "general";
   // Active template's display name — drives the Stock Card rental/sales lock
@@ -1693,8 +1693,8 @@ export default function TabbedDocumentCreator({
       || "",
     bankDetails: existingData?.bankDetails || "",
     remarks: existingData?.remarks || "",
-    // WCT QO / DO / Invoice Internal remarks (2026-11-22): never printed.
-    // Undefined when the document has none, so no other org's save gains the key.
+    // WCT QO / DO / Invoice Internal remarks (2026-11-22): no longer shown or edited (2026-11-24), only carried
+    // through so a save never drops old text. Undefined when the document has none, so no other org's save gains the key.
     internalRemarks: (existingData as any)?.internalRemarks ?? (existingData as any)?.config?.internalRemarks ?? undefined,
     // Header GL (enableHeaderGlAccount): saved flat on the config.
     glAccountCode: existingData?.glAccountCode ?? existingData?.config?.glAccountCode ?? "",
@@ -1724,7 +1724,7 @@ export default function TabbedDocumentCreator({
     : isJournalVoucher
     ? formData.jvData?.notes || ""
     : remarksSplit
-    ? (formData as any).internalRemarks || ""
+    ? (formData as any).remarks || ""
     : (formData.documentInfo as any)?.referenceNo || "";
   const setDocRemarks = (next: string) =>
     setFormData((prev: any) =>
@@ -1735,8 +1735,8 @@ export default function TabbedDocumentCreator({
         : isJournalVoucher
         ? { ...prev, jvData: { ...(prev.jvData || {}), notes: next } }
         : remarksSplit
-        ? // WCT QO / DO / Invoice: the right box is Internal remarks (config.internalRemarks, never printed).
-          { ...prev, internalRemarks: next }
+        ? // WCT QO / DO / Invoice (2026-11-24): the right box is Remarks (config.remarks, printed as Remarks).
+          { ...prev, remarks: next }
         : // Typed-over refs are no longer a picked quotation (Biofuel DO picker).
           { ...prev, remarks: next, documentInfo: { ...(prev.documentInfo || {}), referenceNo: next, referenceQuotationDate: null } },
     );
@@ -2049,8 +2049,7 @@ export default function TabbedDocumentCreator({
       sx={headerInputSx}
     />
   ) : null;
-  // Link Document (WCT group, 2026-11-22): the pills row + picker in place of the Reference combobox (DO / Invoice), and
-  // on a quotation the Customer Remarks box (config.remarks, printed as Remarks) with its own Link Document row.
+  // Link Document (WCT group, 2026-11-22): the pills row + picker in place of the Reference combobox (QO / DO / Invoice).
   const linkDocId = (documentId || (existingData as any)?.id || null) as string | null;
   const linkDocField =
     linkOn && linkPage ? (
@@ -2080,19 +2079,9 @@ export default function TabbedDocumentCreator({
         sx={headerInputSx}
       />
     ) : null;
-  const customerRemarksField = remarksSplit ? (
-    <TextField
-      size="small"
-      fullWidth
-      value={(formData as any).remarks || ""}
-      onChange={(e) => setFormData((prev: any) => ({ ...prev, remarks: e.target.value }))}
-      disabled={lockReadOnly || confirmedReadOnly}
-      sx={{ ...headerInputSx, flex: 1 }}
-      inputProps={{ "data-tour": "quotation-customer-remarks" }}
-    />
-  ) : null;
   const orderRefMerge = (base?: Record<string, React.ReactNode>) => {
-    if (remarksSplit) return { ...(base || {}), "documentInfo.referenceNo": customerRemarksField, referenceNo: customerRemarksField, ...(linkDocField ? { [LINK_DOC_FIELD]: linkDocField } : {}) };
+    // WCT group: the Reference row is gone (withLinkDocFields); only the Link Document row needs its input.
+    if (remarksSplit) return linkDocField ? { ...(base || {}), [LINK_DOC_FIELD]: linkDocField } : base;
     const refField = linkDocField || orderRefField;
     return refField ? { ...(base || {}), "documentInfo.referenceNo": refField, referenceNo: refField } : base;
   };
@@ -6489,7 +6478,7 @@ export default function TabbedDocumentCreator({
                     adaptivePairs={remarksSplit}
                     rightAppend={
                       memoInGeneral && tab.tabId === "general" ? (
-                        <DocRemarksMemo embedded value={docRemarks} onChange={setDocRemarks} disabled={lockReadOnly || confirmedReadOnly} title="Internal remarks" />
+                        <DocRemarksMemo embedded value={docRemarks} onChange={setDocRemarks} disabled={lockReadOnly || confirmedReadOnly} title="Remarks" />
                       ) : undefined
                     }
                     prependRightRow={
@@ -6553,7 +6542,7 @@ export default function TabbedDocumentCreator({
                       // two stay in step through the form state.
                       if (
                         !isSettlementDoc &&
-                        // remarksSplit (WCT group incl. YMM): the row hosts Customer Remarks, so it is always there.
+                        // remarksSplit (WCT group incl. YMM): injected so withLinkDocFields can swap it for Link Document (or drop it).
                         (!legacyLayout || orderRefOn || remarksSplit) &&
                         tab.tabId === "general" &&
                         !fields.some((f: any) => f.fieldName === "documentInfo.referenceNo" || f.fieldName === "referenceNo")
@@ -6599,8 +6588,8 @@ export default function TabbedDocumentCreator({
                           fields = [...fields, { fieldName: "deliveryTo", displayLabel: "Deliver To", fieldType: "textarea", required: false }];
                         }
                       }
-                      // Link Document / Customer Remarks (WCT group, 2026-11-22): relabel the Reference row and add the
-                      // quotation's Link Document row (helpers/linkDoc.ts). Untouched for every other org.
+                      // Link Document (WCT group, 2026-11-22): the Reference row becomes Link Document (WCT group: the
+                      // Reference row itself is dropped, 2026-11-24; helpers/linkDoc.ts). Untouched for every other org.
                       if (tab.tabId === "general") fields = withLinkDocFields(fields, { page: linkPage, linkOn, remarksSplit });
                       return fields;
                     })()}
@@ -8877,10 +8866,10 @@ export default function TabbedDocumentCreator({
           </Box>
           {/* The Remarks memo, right of every editor (guru 2026-11-21): on the vouchers it is the
               old To-Do List memo, now called what it is. */}
-          {/* WCT QO / DO / Invoice (2026-11-23): Internal remarks sit under the totals in the General card instead
+          {/* WCT QO / DO / Invoice (2026-11-23): the Remarks memo sits under the totals in the General card instead
               (memoInGeneral), giving the General fields this column's width; the column stays while the fields are
               hidden or another tab is open. */}
-          {!isTemplateEditMode && !memoInGeneral && <DocRemarksMemo value={docRemarks} onChange={setDocRemarks} disabled={lockReadOnly || confirmedReadOnly} title={remarksSplit ? "Internal remarks" : "Remarks"} />}
+          {!isTemplateEditMode && !memoInGeneral && <DocRemarksMemo value={docRemarks} onChange={setDocRemarks} disabled={lockReadOnly || confirmedReadOnly} title="Remarks" />}
           </Box>
           </Box>
         ) : (

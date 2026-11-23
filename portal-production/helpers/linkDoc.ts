@@ -1,9 +1,9 @@
 // Link Document + doc chain (WCT group, 2026-11-22; enableWctOrders). The QO / DO / Invoice editor's "Link Document"
 // row: pills for what the document is linked to, and a big picker (tabs Order, QO, DO, Invoice minus the page's own
 // type) to add one. The doc chain panel on the left lists the order's QO, DO(s) and Invoice(s). On a QO, DO and
-// Invoice the left "Reference" box becomes "Customer Remarks" (config.remarks, printed as Remarks) and the right box
-// Internal remarks (config.internalRemarks, never printed); link text never shows in either. API: api-server-production/src/orders/doc-links*.ts. Pure helpers, tested
-// by helpers/linkDoc.test.mjs.
+// Invoice (WCT group) the left "Reference" box is gone and the right box is "Remarks" (config.remarks, printed as
+// Remarks; 2026-11-24). config.internalRemarks is no longer shown or written (old text stays stored). Link text never
+// shows in the remarks. API: api-server-production/src/orders/doc-links*.ts. Pure helpers, tested by helpers/linkDoc.test.mjs.
 
 export type PageKind = "QUOTATION" | "DELIVERY_ORDER" | "INVOICE";
 export type PickKind = "ORDER" | PageKind;
@@ -31,9 +31,9 @@ export function pickerTabs(page: PageKind): Array<{ value: PickKind; label: stri
 export const linkDocOn = (type: string | null | undefined, f: { wctOrders?: boolean; templateEdit?: boolean }): boolean => !!f.wctOrders && !f.templateEdit && !!pageKindOf(type);
 
 /**
- * The Customer Remarks / Internal remarks split on a QO, DO and Invoice (WCT group: enableWctDocNav; DO + Invoice
- * since 2026-11-23). Left = Customer Remarks (config.remarks, printed as Remarks), right = Internal remarks
- * (config.internalRemarks, never printed). The old Reference text box is gone: links live only in the pills.
+ * The WCT remarks layout on a QO, DO and Invoice (WCT group: enableWctDocNav; DO + Invoice since 2026-11-23).
+ * Since 2026-11-24: no left Reference / Customer Remarks box; the right box is "Remarks" and edits config.remarks
+ * (printed as Remarks). No internal remarks on these pages. Links live only in the Link Document pills.
  */
 export const remarksSplitOn = (type: string | null | undefined, f: { wctDocNav?: boolean; templateEdit?: boolean }): boolean => !!f.wctDocNav && !f.templateEdit && !!pageKindOf(type);
 
@@ -143,8 +143,8 @@ export function chainSections(c: DocChain | null | undefined): Array<{ key: stri
 }
 
 /**
- * The editor's header fields with Link Document applied. Split on (WCT group): the Reference row becomes "Customer
- * Remarks" (its input edits config.remarks) and, with Link Document on, a "Link Document" row follows it; both full rows.
+ * The editor's header fields with Link Document applied. Split on (WCT group): the Reference row is removed (the
+ * remarks live in the right-hand Remarks box) and, with Link Document on, a full-row "Link Document" takes its place.
  * Split off but Link Document on (a DO / Invoice): the Reference row is renamed "Link Document" (its input is the pills).
  */
 export function withLinkDocFields<F extends { fieldName: string; displayLabel?: string; displayOrder?: number; gridSize?: number }>(fields: F[], opts: { page: PageKind | null; linkOn: boolean; remarksSplit: boolean }): F[] {
@@ -156,9 +156,9 @@ export function withLinkDocFields<F extends { fieldName: string; displayLabel?: 
         out.push(f);
         continue;
       }
-      // Full rows (gridSize 12): a half-width Reference would pair the two side by side and squeeze both.
-      out.push({ ...f, displayLabel: "Customer Remarks", gridSize: 12 });
-      if (opts.linkOn) out.push({ ...f, fieldName: LINK_DOC_FIELD, displayLabel: "Link Document", gridSize: 12, ...(typeof f.displayOrder === "number" ? { displayOrder: f.displayOrder + 0.01 } : {}) } as F);
+      // The Reference row goes (2026-11-24: no Customer Remarks on the left); Link Document takes its place as a full
+      // row (gridSize 12: a half-width row would pair with its neighbour and squeeze both).
+      if (opts.linkOn) out.push({ ...f, fieldName: LINK_DOC_FIELD, displayLabel: "Link Document", gridSize: 12 } as F);
     }
     return out;
   }

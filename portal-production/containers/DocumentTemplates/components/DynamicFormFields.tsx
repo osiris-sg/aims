@@ -937,7 +937,7 @@ interface DynamicFormFieldsProps {
   // built by filtering field definitions, so a control with no field
   // definition — the quotation totals switch — has no other way in.
   prependRightRow?: React.ReactNode;
-  // Rendered LAST in the right column (made if the template has no summary fields): WCT's Internal remarks memo.
+  // Rendered LAST in the right column (made if the template has no summary fields): WCT's Remarks memo.
   rightAppend?: React.ReactNode;
   // WCT QO / DO / Invoice (2026-11-23): paired rows keep label | value | label | value only while the left card is wide
   // enough (narrower labels); below that each field takes its own full row, so nothing is squeezed or overlaps.

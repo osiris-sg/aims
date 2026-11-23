@@ -58,6 +58,7 @@ import { QUOTATION_REVISION_FLAG, nextRevision } from './quotation-revision';
 import { SOFT_DELETE_DRAFTS_FLAG, SOFT_DELETED_TYPE, WCT_STATUSES_FLAG, isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, LINE_GL_ACCOUNTS_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { linkedDocIdsForNumber, wantsLinkedSearch } from '../orders/linked-number-search';
+import { SUBJECT_LIST_FLAG, listSubjectOf, pageSubjectsQuery, subjectListOn, subjectSearchQuery, subjectSortQuery } from './list-subject';
 import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceReference, planOrderInvoice, quoteDiscountAmount, splitJobLines } from '../orders/order-billing';
 import { loadSubjectAccounts, subjectPostingLines } from './subject-type-account';
 
@@ -5116,7 +5117,8 @@ export class DocumentsService {
       status?: string | string[];
       customerId?: string;
       createdOn?: { startDate?: string | Date | null; endDate?: string | Date | null };
-      sortBy?: 'name' | 'createdAt' | 'status' | 'type' | 'issueDate';
+      // 'subject': the WCT group's Subject column (list-subject.ts); ignored on every other list.
+      sortBy?: 'name' | 'createdAt' | 'status' | 'type' | 'issueDate' | 'subject';
       sortDir?: 'asc' | 'desc';
       // Only documents built on this template — the editor's Locate dialog
       // (it used to pull EVERY document in the org and filter in the browser:
@@ -5161,6 +5163,10 @@ export class DocumentsService {
           });
         }
       }
+
+      // WCT group (enableWctDocNav, 2026-11-24): the Quotations / DOs / Invoices lists show a Subject column (sorted and
+      // searched in the database, list-subject.ts) instead of Remarks. Other lists and orgs: no flag read, no change.
+      const subjectOn = subjectListOn(true, opts.documentTypes) && (await isOrgFeatureEnabled(this.prisma, organizationId, SUBJECT_LIST_FLAG).catch(() => false));
 
       if (opts.documentTypes?.length) where.type = { in: opts.documentTypes };
       // Soft-deleted drafts (type DELETED) are never listed.
@@ -5342,6 +5348,11 @@ export class DocumentsService {
         // listSearch / listCustomerId columns instead of unpacking every config (WCT's 24k
         // documents took 2-4 s per search). Same fields, same customer-name match.
         const customerIdsLike = Prisma.sql`SELECT c.id::text FROM "Customer" c WHERE c."organizationId" = ${organizationId} AND c.name ILIKE ${like} ESCAPE '\\'`;
+        // WCT group Subject column: the shown Subject (own, else the quotation's) is searched too, started now so it
+        // runs alongside the search below (.then starts a Prisma query; a failure only drops the Subject matches).
+        const subjectSearch: Promise<Array<{ id: string }>> = subjectOn
+          ? (this.prisma.$queryRaw(subjectSearchQuery(organizationId, opts.documentTypes!, like)) as Promise<Array<{ id: string }>>).then((r) => r, () => [])
+          : Promise.resolve([]);
         const hits: Array<{ id: string }> = (await this.listKeysReady(organizationId))
           ? await this.prisma.$queryRaw`
           SELECT d.id FROM "Document" d
@@ -5382,6 +5393,8 @@ export class DocumentsService {
           { type: { contains: term, mode: 'insensitive' } },
         ];
         if (hits.length) or.push({ id: { in: hits.map((h) => h.id) } });
+        const subjectHits = await subjectSearch;
+        if (subjectHits.length) or.push({ id: { in: subjectHits.map((h) => h.id) } });
         // WCT group (enableWctOrders, 2026-11-23): a number also finds the documents linked to it (order, its
         // quotation, DOs, invoices; orders/linked-number-search.ts). The list's type filter keeps its own type.
         if (wantsLinkedSearch(term) && (await isWctOrdersEnabled(this.prisma as any, organizationId))) {
@@ -5396,7 +5409,17 @@ export class DocumentsService {
       const sortDir = opts.sortDir === 'asc' ? 'asc' : 'desc';
       let rows: any[];
       let total: number;
-      if (opts.sortBy === 'issueDate' && (await this.listKeysReady(organizationId))) {
+      if (opts.sortBy === 'subject' && subjectOn) {
+        // Subject sorted in the database (list-subject.ts: own Subject, else the quotation's; blank last), then just
+        // this page is loaded, like the issue-date sort.
+        const ids = (await this.prisma.document.findMany({ where, select: { id: true } })).map((d) => d.id);
+        const ordered: Array<{ id: string }> = ids.length ? await this.prisma.$queryRaw(subjectSortQuery(organizationId, ids, sortDir, limit, skip)) : [];
+        const pageIds = ordered.map((x) => x.id);
+        const page = pageIds.length ? await this.prisma.document.findMany({ where: { id: { in: pageIds }, organizationId } }) : [];
+        const byId = new Map(page.map((d: any) => [d.id, d]));
+        rows = pageIds.map((id) => byId.get(id)).filter(Boolean);
+        total = ids.length;
+      } else if (opts.sortBy === 'issueDate' && (await this.listKeysReady(organizationId))) {
         // Issue date sorted in the database on the trigger-kept listIssueDate (same key as
         // documentIssueDate; ties by createdAt, as before), then just this page is loaded.
         const ids = (await this.prisma.document.findMany({ where, select: { id: true } })).map((d) => d.id);
@@ -5449,6 +5472,12 @@ export class DocumentsService {
         : [];
       const projectMap = new Map(projects.map((p) => [p.id, p.name]));
       const orderByQuotation = await this.quotationOrders(organizationId, rows);
+      // WCT group Subject column: each row's own Subject, else its quotation's (one query for the page).
+      const subjects = new Map<string, { text: string; inherited: boolean } | null>();
+      if (subjectOn && rows.length) {
+        const found: Array<{ id: string; type: string; own: string | null; linked: string | null }> = await this.prisma.$queryRaw(pageSubjectsQuery(organizationId, rows.map((d: any) => d.id)));
+        for (const r of found) subjects.set(r.id, listSubjectOf(r.type, r.own, r.linked));
+      }
       // WCT group: each row's status in the WCT set (the chip shows it).
       const wctToday = sgToday();
       const wctCredits = wctOn ? await this.wctInvoiceCredits(organizationId, rows.filter((d: any) => wctFamilyOf(d.type) === 'INVOICE').map((d: any) => d.id)) : new Map<string, number>();
@@ -5490,6 +5519,8 @@ export class DocumentsService {
           config: doc.config,
           // WCT: the order a confirmed quotation became (the list shows its number).
           ...(orderByQuotation.has(doc.id) ? { linkedOrder: orderByQuotation.get(doc.id) } : {}),
+          // WCT group Subject column: { text, inherited } (inherited = the quotation's, shown muted); null = none.
+          ...(subjectOn ? { listSubject: subjects.get(doc.id) ?? null } : {}),
           // Imported from the previous ERP (common/erp-import.ts): the list shows an "Imported" tag.
           ...(isErpImported(config) ? { imported: true } : {}),
           // WCT imported quotation still open in the ERP: "ERP draft" / "ERP sent" beside its status.

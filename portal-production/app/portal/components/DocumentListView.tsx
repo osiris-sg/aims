@@ -73,6 +73,7 @@ import { invoiceStatusOptions } from "@/helpers/invoiceStatusOptions";
 import DoStatusTag from "@/components/DoStatusTag";
 import { docDoTag } from "@/helpers/doStatusTag";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
+import { SUBJECT_SORT, subjectCell, subjectColumnOn } from "@/helpers/listSubject";
 
 interface Props {
   documentTypes: string[];
@@ -303,7 +304,9 @@ export default function DocumentListView({
   // Column-header sort → server sort field (name/status/createdAt only; the
   // JSON-derived Customer/Item columns aren't server-sortable, so their sort is
   // disabled in the column defs below).
-  const sortColMap: Record<string, string> = { name: "name", status: "status", createdAt: "createdAt", issueDate: "issueDate" };
+  // WCT group (enableWctDocNav, 2026-11-24): Quotations / DOs / Invoices show Subject (not Remarks), sorted on the server.
+  const showSubject = subjectColumnOn(documentTypes, isWctDocNavEnabled);
+  const sortColMap: Record<string, string> = { name: "name", status: "status", createdAt: "createdAt", issueDate: "issueDate", ...(showSubject ? { [SUBJECT_SORT]: SUBJECT_SORT } : {}) };
   const sortState = sorting[0];
   const sortBy = sortState ? sortColMap[sortState.id] : undefined;
   const sortDir = sortState ? (sortState.desc ? "desc" : "asc") : undefined;
@@ -501,18 +504,34 @@ export default function DocumentListView({
         );
       },
     },
-    {
-      // Free-text Remarks — what the document is FOR (guru 2026-07-24: every document carries
-      // one and every list shows it; 2026-11-21: ONE Remarks memo on the right of every editor,
-      // this column is what people take their reference from). Canonical key referenceNo.
-      accessorKey: "reference",
-      header: "Remarks",
-      enableSorting: false, // JSON-derived (config), not server-sortable
-      cell: ({ row }: any) => {
-        const c: any = row.original.config || {};
-        return c?.documentInfo?.referenceNo || c?.referenceNo || c?.remarks || c?.reference || c?.xeroReference || "—";
-      },
-    },
+    showSubject
+      ? {
+          // WCT group: the Subject (server listSubject); a DO / Invoice with none of its own shows its quotation's, muted.
+          id: SUBJECT_SORT,
+          header: "Subject",
+          enableSorting: true,
+          cell: ({ row }: any) => {
+            const cell = subjectCell(row.original);
+            if (!cell) return "";
+            return (
+              <Box component="span" sx={{ color: cell.muted ? "text.secondary" : "inherit" }}>
+                {cell.text}
+              </Box>
+            );
+          },
+        }
+      : {
+          // Free-text Remarks — what the document is FOR (guru 2026-07-24: every document carries
+          // one and every list shows it; 2026-11-21: ONE Remarks memo on the right of every editor,
+          // this column is what people take their reference from). Canonical key referenceNo.
+          accessorKey: "reference",
+          header: "Remarks",
+          enableSorting: false, // JSON-derived (config), not server-sortable
+          cell: ({ row }: any) => {
+            const c: any = row.original.config || {};
+            return c?.documentInfo?.referenceNo || c?.referenceNo || c?.remarks || c?.reference || c?.xeroReference || "—";
+          },
+        },
     // "Associated Item" dropped from all document lists (2026-07-13, guru).
     ...(showCovers
       ? [
