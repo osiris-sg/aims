@@ -22,7 +22,7 @@ import {
   TextField,
   Typography,
   Step,
-  StepLabel,
+  StepButton,
   Stepper,
   useMediaQuery,
   useTheme,
@@ -176,6 +176,10 @@ interface EditRun {
   siteclock?: { workerId: string | null; workerName: string | null; durationMin: number } | null;
   // Custom job fields (enableJobFields): this run's values ({ fieldId: value }).
   jobFieldValues?: Record<string, any> | null;
+  /** An unfinished office draft — reopened in the stepped dialog, resumed where it was left. */
+  isDraft?: boolean;
+  /** enableScheduleWizard: what the run was scheduled on, so a resumed draft keeps its paperwork. */
+  scheduleSource?: ScheduleSource | null;
 }
 
 export default function ScheduleDeliveryDialog({
@@ -295,11 +299,16 @@ export default function ScheduleDeliveryDialog({
   // The one long form becomes five steps: Customer -> Paperwork -> Site &
   // contacts -> Products -> Schedule.
   //
-  // CREATE ONLY. An edit already has its paperwork behind it, and walking five
-  // steps to move a time would be worse than the form this replaces. "Add job"
-  // (WCT orders) is create-mode too, but it arrives pre-filled from its order
-  // and belongs to a different org's flow, so it keeps the flat form as well.
-  const wizard = !!isScheduleWizardEnabled && !editRun && !prefill;
+  // Creating a schedule, or finishing a DRAFT — never an already-scheduled run
+  // (guru 2026-11-24). The split is by what the run IS, not by create-vs-edit:
+  // a draft is literally an unfinished walk through these steps, so reopening
+  // one continues it (resumed at the step it still needs, see below); a run
+  // that is really scheduled is settled, and one screen beats five steps for
+  // changing a date. That also closes the dead end — a draft parked before its
+  // paperwork was chosen is asked for it on reopening, so it can always be
+  // finished. "Add job" (WCT orders) arrives pre-filled from its order and
+  // keeps the flat form.
+  const wizard = !!isScheduleWizardEnabled && !prefill && (!editRun || !!editRun.isDraft);
   const [activeStep, setActiveStep] = useState(0);
   // WHAT this schedule is based on. The point of the whole wizard: a run never
   // goes out with nothing behind it. Sent as dto.scheduleSource, and the
@@ -394,6 +403,31 @@ export default function ScheduleDeliveryDialog({
       setMachineLocation(editRun.document?.machineLocation ?? "");
       setCustomer(editRun.customer ? { id: editRun.customer.id, name: editRun.customer.name, customerCode: editRun.customer.customerCode ?? null, address: null } : null);
       setProject(editRun.project ? { id: editRun.project.id, name: editRun.project.name } : null);
+      // Paperwork already chosen on this draft: restore it so the step reads as
+      // done and the resume below skips past it.
+      if (editRun.scheduleSource?.kind) {
+        setSource(editRun.scheduleSource);
+        setSourceKind(editRun.scheduleSource.kind);
+      }
+      // A resumed draft still needing a project gets the same suggestion a
+      // fresh one does, taken from the address the paperwork filled in — the
+      // office should not have to invent a name on the way back in either.
+      if (!editRun.project && editRun.siteAddress?.trim()) {
+        setProjectSuggestion(editRun.siteAddress.split("\n")[0].trim().slice(0, 80) || null);
+      }
+      // RESUME where this draft was left (guru 2026-11-24): land on the first
+      // step it still needs, rather than making the office click Next past the
+      // ones they already did. Computed HERE from the draft's own fields, not
+      // from form state in an effect — the state above is set in this same
+      // pass, so an effect reading it would run before React has applied any
+      // of it and would always land on step 1.
+      setActiveStep(
+        !editRun.customer ? 0
+          : !editRun.scheduleSource?.kind ? 1
+          : !(serviceJobs || editRun.project) ? 2
+          : editRun.items.length === 0 ? 3
+          : 4,
+      );
       return;
     }
     // Create mode: blank form.
@@ -1166,9 +1200,19 @@ export default function ScheduleDeliveryDialog({
           ),
           ...(poNumber.trim() ? { poNumber: poNumber.trim() } : {}),
           ...(saleOrder ? { saleOrderId: saleOrder.id } : {}),
-          // Stepped dialog: WHAT this schedule is based on. The backend applies
-          // the same rule, so this is not merely a record of the choice.
-          ...(source ? { scheduleSource: source } : {}),
+          // WHAT this schedule is based on. The backend applies the same rule,
+          // so this is not merely a record of the choice.
+          //
+          // The fallback matters: the flat EDIT form has no paperwork step, but
+          // it does have the Sales Order picker, and a Sales Order IS one of
+          // the three answers. Without this, promoting a draft from the edit
+          // form could never satisfy the server's rule and the office would be
+          // stuck with a run they cannot finish (guru 2026-11-24).
+          ...(source
+            ? { scheduleSource: source }
+            : saleOrder
+              ? { scheduleSource: { kind: "SALES_ORDER", documentId: saleOrder.id, ...(saleOrder.name ? { number: saleOrder.name } : {}) } }
+              : {}),
           ...(address.trim() ? { address: address.trim() } : {}),
           ...(machineLocation.trim() ? { machineLocation: machineLocation.trim() } : {}),
           ...(customer ? { customerId: customer.id } : {}),
@@ -1215,6 +1259,12 @@ export default function ScheduleDeliveryDialog({
         // an incomplete one is saved as a DRAFT to come back to, however little
         // was entered. An unfinished schedule is not an error. Only Cancel
         // discards.
+        //
+        // That holds at EVERY step of the stepped dialog too (guru 2026-11-24):
+        // walking away half-way keeps the draft rather than throwing the work
+        // out. What makes that safe is the resume below — reopening a draft
+        // puts the office back on the step it still needs, so an unfinished
+        // run is always finishable rather than a dead record.
         if (submitting) return;
         void submit(!canSubmit);
       }}
@@ -1223,7 +1273,17 @@ export default function ScheduleDeliveryDialog({
       fullScreen={fullScreenDialog}
       PaperProps={split && !fullScreenDialog ? { sx: SPLIT_PAPER_SX } : undefined}
     >
-      <DialogTitle>{editRun ? `Edit scheduled ${w.noun}` : prefill ? `Add a job to ${prefill.orderNumber}` : `Schedule a ${w.noun}`}</DialogTitle>
+      {/* A draft is not scheduled yet, so "Edit scheduled delivery" was telling
+          the office the opposite of what the page behind it says. */}
+      <DialogTitle>
+        {editRun
+          ? editRun.isDraft
+            ? `Finish this ${w.noun}`
+            : `Edit scheduled ${w.noun}`
+          : prefill
+            ? `Add a job to ${prefill.orderNumber}`
+            : `Schedule a ${w.noun}`}
+      </DialogTitle>
       <DialogContent dividers sx={split ? { display: "flex", flexDirection: "column", minHeight: 0 } : undefined}>
         <SplitIf
           split={split}
@@ -1249,12 +1309,22 @@ export default function ScheduleDeliveryDialog({
         {/* STEPPER — the stepped dialog's own header. Hidden on every org that
             keeps the flat form, and on an edit (which keeps it too). */}
         {wizard && (
-          <Stepper activeStep={activeStep} alternativeLabel sx={{ mb: 2.5 }}>
-            {STEPS.map((label) => (
-              <Step key={label}>
-                <StepLabel>{label}</StepLabel>
-              </Step>
-            ))}
+          <Stepper activeStep={activeStep} alternativeLabel sx={{ mb: 2.5 }} nonLinear>
+            {STEPS.map((label, i) => {
+              // A step is reachable once every step BEFORE it is satisfied —
+              // which on an edit is usually all of them, so changing a date is
+              // one click on "Schedule" rather than four on Next. Going
+              // BACKWARDS is always allowed: nothing is lost by revisiting a
+              // step that is already filled in.
+              const reachable = i <= activeStep || Array.from({ length: i }, (_, k) => k).every((k) => !stepBlocked(k));
+              return (
+                <Step key={label} completed={i < activeStep && !stepBlocked(i)}>
+                  <StepButton onClick={() => setActiveStep(i)} disabled={!reachable}>
+                    {label}
+                  </StepButton>
+                </Step>
+              );
+            })}
           </Stepper>
         )}
 

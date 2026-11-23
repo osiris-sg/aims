@@ -102,6 +102,8 @@ interface RunDetail {
   // Set by a claim or a rider-started run; null while nobody has started it.
   riderUserId?: string | null;
   isDraft?: boolean;
+  /** enableScheduleWizard: { kind, documentId?, number?, fileName?, fileUrl? } or null. */
+  scheduleSource?: { kind: string; documentId?: string; number?: string; fileName?: string; fileUrl?: string } | null;
   // Driver hand-off (2026-09): the current trip is with another driver.
   handoffMode?: "SELF" | "DRIVER" | null;
   vehicleNumber?: string | null;
@@ -809,8 +811,13 @@ export default function DeliveryDetailPage() {
   }
 
   // A draft job of a WCT order is not scheduled yet: it reads Draft, as on the order page, until it is given a date and confirmed.
-  const orderDraft = !!run.order && !!run.isDraft && run.status === "scheduled";
-  const chip0 = orderDraft ? { label: "Draft", color: "default" as const } : STATUS_CHIP[run.status] ?? { label: run.status, color: "default" as const };
+  // A DRAFT is a draft whoever it belongs to. This used to require run.order,
+  // so it only ever labelled WCT order drafts — a Biofuel draft (the stepped
+  // dialog parks one when the office closes it half-finished) rendered as
+  // "Scheduled" with no date, reading like a real delivery that had lost its
+  // date rather than an unfinished one (guru 2026-11-24, #121).
+  const isDraftRun = !!run.isDraft && run.status === "scheduled";
+  const chip0 = isDraftRun ? { label: "Draft", color: "default" as const } : STATUS_CHIP[run.status] ?? { label: run.status, color: "default" as const };
   const chip = { ...chip0, label: jobLabel(chip0.label, w.isWct) };
   // Per-item link state. distinctDocs powers the header when the run spans DOs.
   const unlinkedItems = run.items.filter((i) => !i.documentId);
@@ -1071,13 +1078,15 @@ export default function DeliveryDetailPage() {
       {run.status === "scheduled" && (
         <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
           <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
-            {orderDraft ? (run.scheduledFor ? `Draft for ${fmtDateTime(run.scheduledFor, run.scheduledAllDay)}` : "Draft, no date yet") : `Scheduled for ${fmtDateTime(run.scheduledFor, run.scheduledAllDay)}`}
+            {isDraftRun ? (run.scheduledFor ? `Draft for ${fmtDateTime(run.scheduledFor, run.scheduledAllDay)}` : "Draft, no date yet") : `Scheduled for ${fmtDateTime(run.scheduledFor, run.scheduledAllDay)}`}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            {orderDraft
+            {isDraftRun
               ? manualFlow
                 ? "Edit the job to set the date and confirm the schedule."
-                : "Edit the job to set the date and confirm the schedule. It goes to the worker once it is confirmed."
+                : run.order
+                  ? "Edit the job to set the date and confirm the schedule. It goes to the worker once it is confirmed."
+                  : "Unfinished. Open Edit to finish it — it is invisible to riders and has no Delivery Order until it is scheduled."
               : manualFlow && run.order
                 ? "Done in the office: when the work is finished, use Complete job (top right). Product lines get their units there."
                 : "Waiting for a rider. They claim it by scanning any unit of a scheduled product. Nothing is reserved until then."}
@@ -1890,6 +1899,11 @@ export default function DeliveryDetailPage() {
             ? { workerId: run.siteclock.workerId, workerName: run.siteclock.workerName, durationMin: run.siteclock.durationMin }
             : null,
           jobFieldValues: run.jobFields?.values ?? null,
+          // An unfinished draft reopens in the stepped dialog, resumed at the
+          // step it still needs; a run that is really scheduled keeps the flat
+          // form. Its paperwork rides along so the resume skips that step.
+          isDraft: !!run.isDraft,
+          scheduleSource: (run as any).scheduleSource ?? null,
         }}
       />
     </Box>
