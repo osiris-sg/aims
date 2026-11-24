@@ -20,7 +20,9 @@ const ev = (over = {}) => ({
 
 test("chip row 1: time, ✅ / 2✅, ❌, ⭕, 📌, 🟫, customer; row 2 only when there is a prefix or a PTW", () => {
   const plain = chipLines(ev());
-  assert.deepEqual(plain, { time: "10am", icons: "", customer: "Acme", row2: "" });
+  assert.deepEqual(plain, { time: "10am", icons: "", customer: "Acme", row2: "", title: "" });
+  // Job title (2026-11-24) rides along for the Week / Day chips.
+  assert.equal(chipLines(ev({ jobTitle: "CD 1 x Air Cleaner" })).title, "CD 1 x Air Cleaner");
   const busy = chipLines(ev({ doCount: 2, sticker: true, cod: true, ptwStatus: "APPROVED", style: style({ prefix: "(SV)", applicantIcon: "🔴" }) }));
   assert.equal(busy.icons, "2✅ 📌 🟫");
   assert.equal(busy.row2, "(SV) 👍 🔴");

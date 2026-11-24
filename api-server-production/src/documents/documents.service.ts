@@ -9239,7 +9239,7 @@ export class DocumentsService {
     documentTemplateId: string | null | undefined,
     organization: any,
     doc?: { imported?: boolean; createdAt?: Date | string | null; isNew?: boolean; id?: string },
-  ): Promise<{ design: any; logoUrl: string | null }> {
+  ): Promise<{ design: any; logoUrl: string | null; stampUrl: string | null }> {
     let raw: any = null;
     let templateType: string | null = null;
     if (documentTemplateId) {
@@ -9265,14 +9265,24 @@ export class DocumentsService {
     if (design.logoPosition !== 'none' && key) {
       logoUrl = /^(https?:|data:)/i.test(String(key)) ? String(key) : await this.s3Service.getSignedUrl(String(key), 3600).catch(() => null);
     }
-    return { design, logoUrl };
+    // Company stamp (WCT layout, 2026-11-24): the org's stamp image (Settings > Company profile > Stamp), signed for
+    // the render; printed only when the document ticks "Add company stamp" (a SAMPLE stamp when the org has none).
+    let stampUrl: string | null = null;
+    if ((design as any)?.layout === 'wct' && orgId) {
+      const stampKey =
+        organization?.defaultStamp ??
+        (await this.prisma.organization.findUnique({ where: { id: orgId }, select: { defaultStamp: true } }).catch(() => null))?.defaultStamp ??
+        null;
+      if (stampKey) stampUrl = /^(https?:|data:)/i.test(String(stampKey)) ? String(stampKey) : await this.s3Service.getSignedUrl(String(stampKey), 3600).catch(() => null);
+    }
+    return { design, logoUrl, stampUrl };
   }
 
   /** Same, starting from a document id (the editor's generate-pdf call).
    *  A document not saved yet (the editor sends `temp_…`) has no row, so the
    *  editor also names the template it is working from — a new WCT quotation
    *  previews in its layout before the first save. */
-  async designForDocument(documentId: string | undefined, organizationId: string, templateId?: string | null): Promise<{ design: any; logoUrl: string | null }> {
+  async designForDocument(documentId: string | undefined, organizationId: string, templateId?: string | null): Promise<{ design: any; logoUrl: string | null; stampUrl: string | null }> {
     const doc = documentId
       ? await this.prisma.document
           .findFirst({ where: { id: documentId, organizationId }, select: { documentTemplateId: true, config: true, createdAt: true, organization: { select: { id: true, logo: true } } } })
@@ -9280,7 +9290,7 @@ export class DocumentsService {
       : null;
     const org = doc?.organization ?? (await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true, logo: true } }).catch(() => null));
     const effectiveTemplateId = doc?.documentTemplateId || templateId || null;
-    if (!effectiveTemplateId) return { design: resolveDesign(null), logoUrl: null };
+    if (!effectiveTemplateId) return { design: resolveDesign(null), logoUrl: null, stampUrl: null };
     // No document id = not saved yet (the editor's first preview / print): a new document.
     return this.designForTemplate(effectiveTemplateId, org, { imported: isImportedDoc(doc?.config), createdAt: doc?.createdAt ?? null, isNew: !documentId });
   }
@@ -9322,6 +9332,7 @@ export class DocumentsService {
       revisionNumber: doc.revisionNumber ?? null,
       design: styled.design,
       logoUrl: styled.logoUrl,
+      stampUrl: styled.stampUrl,
       organization: org,
       company: org,
       maintenanceReports: Array.isArray(reports) ? reports : [],
@@ -9517,6 +9528,7 @@ export class DocumentsService {
           ...(await this.withSalesPersonName(p.config || {})),
           design: styled.design,
           logoUrl: styled.logoUrl,
+      stampUrl: styled.stampUrl,
           // The number lives on Document.name, not in config — the renderer
           // falls back to it for the "QUOTATION NO." / header line.
           name: p.document.name,
@@ -9884,6 +9896,7 @@ export class DocumentsService {
       ...(renderFlags || {}),
       design: styled.design,
       logoUrl: styled.logoUrl,
+      stampUrl: styled.stampUrl,
       name: document.name,
       revisionNumber: (document as any).revisionNumber ?? null,
       organization: document.organization,

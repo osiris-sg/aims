@@ -157,7 +157,7 @@ export default function QuickJobDialog({
   const editId = edit?.id ?? null;
   useEffect(() => {
     if (!open || editId || !people.pending) return;
-    setForm((f) => ({ ...f, style: f.style ?? { salesperson: null, ptwApplicant: null, cod: false, sticker: false, team: "", crew: [], shopName: "" } }));
+    setForm((f) => ({ ...f, style: f.style ?? { salesperson: null, ptwApplicant: null, cod: false, sticker: false, team: "", crew: [], shopName: "", jobTitle: "" } }));
   }, [open, editId, people.pending]);
   useEffect(() => {
     if (!open || !people.loaded || !people.enabled) return;
@@ -167,7 +167,7 @@ export default function QuickJobDialog({
         ...f,
         style: f.style
           ? { ...f.style, salesperson: f.style.salesperson ?? people.defaultSalesperson, ptwApplicant: f.style.ptwApplicant ?? people.defaultApplicant }
-          : { salesperson: people.defaultSalesperson, ptwApplicant: people.defaultApplicant, cod: false, sticker: false, team: "", crew: [], shopName: "" },
+          : { salesperson: people.defaultSalesperson, ptwApplicant: people.defaultApplicant, cod: false, sticker: false, team: "", crew: [], shopName: "", jobTitle: "" },
       }));
       return;
     }
@@ -178,7 +178,7 @@ export default function QuickJobDialog({
       const person = (id: string | null | undefined, name: string | null | undefined) => (id ? { id, name: name || people.applicants.find((p) => p.id === id)?.name || id } : null);
       setForm((f) => ({
         ...f,
-        style: { salesperson: person(d?.salespersonId, d?.salespersonName), ptwApplicant: person(d?.ptwApplicantId, d?.ptwApplicantName) ?? people.defaultApplicant, cod: !!d?.cod, sticker: !!d?.sticker, team: d?.team ?? "", crew: Array.isArray(d?.crew) ? d.crew : [], shopName: d?.shopName ?? "" },
+        style: { salesperson: person(d?.salespersonId, d?.salespersonName), ptwApplicant: person(d?.ptwApplicantId, d?.ptwApplicantName) ?? people.defaultApplicant, cod: !!d?.cod, sticker: !!d?.sticker, team: d?.team ?? "", crew: Array.isArray(d?.crew) ? d.crew : [], shopName: d?.shopName ?? "", jobTitle: d?.jobTitle ?? "" },
       }));
     });
     return () => {
@@ -208,7 +208,10 @@ export default function QuickJobDialog({
     setQuotation(q);
     if (q.customer) setCustomer(q.customer as PickerCustomer);
     setForm((f) => {
-      const filled = applyQuotationPick(f, q);
+      const picked = applyQuotationPick(f, q);
+      // Job title (WCT group, 2026-11-24): the quotation subject fills an empty Job title (not the Remarks any more).
+      const subject = (q.subject ?? "").trim();
+      const filled = f.style ? { ...picked, remarks: f.remarks, style: { ...f.style, jobTitle: f.style.jobTitle?.trim() ? f.style.jobTitle : subject } } : picked;
       return { ...filled, quotationId: q.id, doId: q.openDos.length === 1 ? q.openDos[0].id : null, doRequired: needsDoPick(q) };
     });
   };
@@ -274,7 +277,7 @@ export default function QuickJobDialog({
           form={
         <Stack spacing={2} sx={{ mt: 1 }}>
           {companies?.group && !edit && companies.orgs.length > 1 && (
-            <TextField select label="Company" size="small" fullWidth value={companyId ?? companies.current} onChange={(e) => switchCompany(e.target.value)} data-tour="quick-job-company">
+            <TextField select label="Organisation" size="small" fullWidth value={companyId ?? companies.current} onChange={(e) => switchCompany(e.target.value)} data-tour="quick-job-company">
               {companies.orgs.map((o) => (
                 <MenuItem key={o.id} value={o.id}>
                   {o.name}
@@ -282,8 +285,8 @@ export default function QuickJobDialog({
               ))}
             </TextField>
           )}
-          {companies?.group && edit && <TextField label="Company" size="small" fullWidth value={companyName(companies.current)} InputProps={{ readOnly: true }} disabled />}
-          {!companies && wctForm && <TextField label="Company" size="small" fullWidth value="" disabled InputProps={{ endAdornment: <CircularProgress size={14} /> }} data-tour="quick-job-company" />}
+          {companies?.group && edit && <TextField label="Organisation" size="small" fullWidth value={companyName(companies.current)} InputProps={{ readOnly: true }} disabled />}
+          {!companies && wctForm && <TextField label="Organisation" size="small" fullWidth value="" disabled InputProps={{ endAdornment: <CircularProgress size={14} /> }} data-tour="quick-job-company" />}
           {quotationOn && (
             <QuotationPicker key={`quotation-${orgFor ?? "own"}`} api={api} value={quotation} customerId={form.customerId} busy={quotationBusy} onChange={(o) => void pickQuotation(o)} />
           )}
@@ -316,7 +319,7 @@ export default function QuickJobDialog({
               setCustomer(c);
               set({ customerId: c?.id ?? null, ...(c && !form.siteAddress ? { siteAddress: (c as any).address || "" } : {}) });
             }}
-            label="Customer"
+            label={wctForm ? "Company" : "Customer"}
             required
             size="small"
             fullWidth
@@ -324,6 +327,17 @@ export default function QuickJobDialog({
           {/* Shop name (WCT group, 2026-11-24): optional, under Customer; this customer's earlier shop names suggested. */}
           {wctForm && form.style && (
             <ShopNameField api={api} customerId={form.customerId} value={form.style.shopName ?? ""} onChange={(v) => setForm((f) => ({ ...f, style: { ...f.style!, shopName: v } }))} />
+          )}
+          {/* Job title (WCT group, 2026-11-24): under Shop name; prefilled from the quotation subject, editable. */}
+          {wctForm && form.style && (
+            <TextField
+              label="Job title"
+              size="small"
+              fullWidth
+              value={form.style.jobTitle ?? ""}
+              onChange={(e) => setForm((f) => ({ ...f, style: { ...f.style!, jobTitle: e.target.value } }))}
+              inputProps={{ maxLength: 200, "data-tour": "quick-job-title" }}
+            />
           )}
           <TextField label="Site / address" size="small" fullWidth value={form.siteAddress} onChange={(e) => set({ siteAddress: e.target.value })} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>

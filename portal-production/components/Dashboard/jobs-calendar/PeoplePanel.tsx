@@ -65,7 +65,7 @@ export default function PeoplePanel({
         <>
           <Divider sx={{ my: 1 }} />
           <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
-            Companies
+            Organisations
           </Typography>
           <Stack>{companies.map(row)}</Stack>
         </>

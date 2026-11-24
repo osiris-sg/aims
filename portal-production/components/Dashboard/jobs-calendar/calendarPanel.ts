@@ -3,6 +3,7 @@
 // Pure helpers, tested by helpers/calendarPanel.test.mjs. The events come from GET /dashboard/jobs-calendar
 // (api-server-production/src/dashboard/jobs-calendar.service.ts styled()).
 
+import { crewDisplay } from "@/helpers/crewPicker";
 import { CALENDAR_TZ, compactTime, dayOfInstant, titleWithoutNumbers, type CalendarEvent } from "./calendarModel";
 
 // ── Chip content (Month rows, Week / Day blocks and Schedule rows alike) ─────────────────────────────────────────
@@ -50,6 +51,7 @@ export function hoverLines(e: CalendarEvent, time: string, applicant: string | n
   const workers = assignedWorkers(e);
   return [
     customerOf(e),
+    plain(e.jobTitle),
     time,
     e.salesperson?.name ? `Salesperson: ${e.salesperson.name}` : "",
     e.createdBy?.name ? `Created by: ${e.createdBy.name}` : "",
@@ -64,7 +66,8 @@ export function hoverLines(e: CalendarEvent, time: string, applicant: string | n
  * Line 2: assigned workers · QO no. · salesperson · created by.
  */
 export function scheduleLines(e: CalendarEvent): { name: string; where: string; subject: string; team: string; remarks: string; line2: string } {
-  const subject = plainText(e.subject);
+  // Job title (2026-11-24) in the brackets when filled, else the quotation subject.
+  const subject = plainText(e.jobTitle) || plainText(e.subject);
   const remarks = plainText(e.remarks);
   return {
     name: customerOf(e),
@@ -72,7 +75,7 @@ export function scheduleLines(e: CalendarEvent): { name: string; where: string; 
     subject,
     team: plainText(e.team),
     // Remarks prefilled from the quotation's Subject are not repeated.
-    remarks: remarks && remarks.toLowerCase() !== subject.toLowerCase() ? remarks : "",
+    remarks: remarks && remarks.toLowerCase() !== subject.toLowerCase() && remarks.toLowerCase() !== plainText(e.subject).toLowerCase() ? remarks : "",
     line2: [assignedWorkers(e).join(", "), e.quotationNumber ?? "", e.salesperson?.name ?? "", e.createdBy?.name ? `Created by ${e.createdBy.name}` : ""].filter(Boolean).join(" · "),
   };
 }
@@ -87,6 +90,8 @@ export interface ChipLines {
   customer: string;
   /** (SV) / (M) / (CC), the PTW status icon, the PTW applicant's colour circle; "" when none (no second row). */
   row2: string;
+  /** Job title (2026-11-24); "" when none. Week / Day chips show it; Month chips only when it fits. */
+  title: string;
 }
 
 /**
@@ -98,7 +103,7 @@ export function chipLines(e: CalendarEvent): ChipLines {
   const ptw = ptwStatusIcon(ptwStatusOf(e));
   // Postponed pair (2026-11-24): "Postponed to dd/mm" on the old record, "Postponed from dd/mm" on the moved job.
   const row2 = [e.style?.prefix ?? "", ptw, ptw ? e.style?.applicantIcon ?? "" : "", postponedLabel(e)].filter(Boolean).join(" ");
-  return { time: e.allDay ? "" : compactTime(e.start), icons, customer: customerOf(e), row2 };
+  return { time: e.allDay ? "" : compactTime(e.start), icons, customer: customerOf(e), row2, title: plain(e.jobTitle) };
 }
 
 /** The chip's look: cancelled fully grey (greyscale), postponed / on hold faded (greyed). */
@@ -215,10 +220,10 @@ export function applyToggle(e: CalendarEvent, t: PanelToggle, defaultApplicant?:
       if (style) style.prefix = categoryPrefix(t.category);
       return { ...e, category: t.category, style };
     case "team":
-      return { ...e, team: t.team?.trim() || null, teamText: t.team?.trim() || null };
+      return { ...e, team: crewDisplay([], t.team) || null, teamText: t.team?.trim() || null };
     case "crew": {
       const free = t.team?.trim() || null;
-      return { ...e, crewPicks: t.crew, teamText: free, team: [...t.crew.map((c) => c.name), free ?? ""].filter(Boolean).join(" + ") || null };
+      return { ...e, crewPicks: t.crew, teamText: free, team: crewDisplay(t.crew, free) || null };
     }
   }
 }
@@ -533,11 +538,12 @@ export function exportLine(e: CalendarEvent): string {
   if (e.recordOnly && e.postponedTo?.date) return `⭕ Postponed to ${ddmm(e.postponedTo.date)} - ${plain(customerOf(e))}`;
   const time = exportTime(e);
   const where = shortAddress(e.address);
-  const subject = plain(e.subject);
+  // Job title (2026-11-24) in the brackets when filled, else the quotation subject.
+  const subject = plain(e.jobTitle) || plain(e.subject);
   const team = plain(e.team);
   const remarks = plain(e.remarks);
   // Remarks prefilled from the quotation's Subject are not repeated.
-  const extra = remarks && norm(remarks) !== norm(subject) ? remarks : "";
+  const extra = remarks && norm(remarks) !== norm(subject) && norm(remarks) !== norm(plain(e.subject)) ? remarks : "";
   return [
     time ? `${time} - ` : "All day - ",
     plain(customerOf(e)),

@@ -177,6 +177,8 @@ export interface JobStyleForm {
   crew?: Array<{ kind: "team" | "worker"; id: string; name: string }>;
   /** Shop name (2026-11-24): shown instead of the customer everywhere when filled; sent when the form has the field. */
   shopName?: string;
+  /** Job title (2026-11-24): prefilled from the quotation subject; sent when the form has the field. */
+  jobTitle?: string;
 }
 
 /** The form → the API body, or a message saying what is missing. */
@@ -198,7 +200,7 @@ export function quickJobBody(f: QuickJobForm): { body?: Record<string, any>; err
       ptwRemark: f.ptwStatus === "NOT_NEEDED" ? "" : f.ptwRemark.trim(),
       ...(f.quotationId ? { quotationId: f.quotationId, ...(f.doId ? { doId: f.doId } : {}) } : {}),
       ...(f.category ? { category: f.category } : {}),
-      ...(f.style ? { salesperson: f.style.salesperson, ptwApplicant: f.style.ptwApplicant, cod: f.style.cod, sticker: !!f.style.sticker, ...(f.style.team !== undefined ? { team: f.style.team.trim() || null } : {}), ...(f.style.crew ? { crew: f.style.crew } : {}), ...(f.style.shopName !== undefined ? { shopName: f.style.shopName.trim() || null } : {}) } : {}),
+      ...(f.style ? { salesperson: f.style.salesperson, ptwApplicant: f.style.ptwApplicant, cod: f.style.cod, sticker: !!f.style.sticker, ...(f.style.team !== undefined ? { team: f.style.team.trim() || null } : {}), ...(f.style.crew ? { crew: f.style.crew } : {}), ...(f.style.shopName !== undefined ? { shopName: f.style.shopName.trim() || null } : {}), ...(f.style.jobTitle !== undefined ? { jobTitle: f.style.jobTitle.trim() || null } : {}) } : {}),
     },
   };
 }

@@ -68,8 +68,27 @@ export const crewOptionList = (o: CrewOptions | null | undefined): CrewPick[] =>
 
 export const crewLabel = (c: CrewChip): string => (typeof c === "string" ? c : c.name);
 export const sameCrew = (a: CrewChip, b: CrewChip): boolean => (typeof a === "string" || typeof b === "string" ? a === b : a.kind === b.kind && a.id === b.id);
-/** The text the job shows (same rule as the API's crewText). */
-export const crewDisplay = (crew: CrewPick[] | null | undefined, team: string | null | undefined): string => crewChips(crew, team).map(crewLabel).filter(Boolean).join(" + ");
+/** A team written out (2026-11-24): "D" -> "Team D"; a name already starting with "Team" is kept. Display only. */
+export const teamName = (name: string): string => {
+  const n = String(name ?? "").replace(/\s+/g, " ").trim();
+  return !n || /^team\b/i.test(n) ? n : `Team ${n}`;
+};
+const freePiece = (p: string): string => (/^[a-z][0-9]?$/i.test(p) ? teamName(p.toUpperCase()) : p);
+
+/** The text the job shows (same rule as the API's crewText): "Team D, Team E, Guru". */
+export const crewDisplay = (crew: CrewPick[] | null | undefined, team: string | null | undefined): string => {
+  const parts = [
+    ...(crew ?? []).map((c) => (c.kind === "team" ? teamName(c.name) : c.name)),
+    ...String(team ?? "")
+      .split(/\s*,\s*|\s+\+\s+/)
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .map(freePiece),
+  ].filter(Boolean);
+  const out: string[] = [];
+  for (const x of parts) if (!out.some((y) => y.toLowerCase() === x.toLowerCase())) out.push(x);
+  return out.join(", ");
+};
 
 /** Two { crew, team } values hold the same chips (same picks in the same order, same text). */
 export const sameValue = (a: { crew: CrewPick[]; team: string }, b: { crew: CrewPick[]; team: string }): boolean =>

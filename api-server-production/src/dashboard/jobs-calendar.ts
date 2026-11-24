@@ -190,6 +190,8 @@ export interface CalendarEvent {
   calendarCancelled?: true;
   /** Shop name (2026-11-24, calendar style): the name shown instead of the customer when filled. */
   shopName?: string;
+  /** Job title (2026-11-24, calendar style). */
+  jobTitle?: string;
   /** Postpone keeps the old event (2026-11-24): the other job of the pair and its date; recordOnly = the old one. */
   postponedTo?: { id: string; date: string };
   postponedFrom?: { id: string; date: string };

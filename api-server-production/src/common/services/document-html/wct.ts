@@ -35,6 +35,7 @@ import { amountPaidOf, outstandingOf } from '../../document-money';
 import { billToText, decodeHtmlEntities as decodeEntities, escapeHtml, makeDi, money, printableSalesman, richContent } from './shared';
 import { erpStoredTotalsOf, moneySignature, type ErpStoredTotals } from '../../erp-import';
 import { BCAIR_DOC } from './wct-brand';
+import { withSingapore } from '../../sg-address';
 
 export type WctDocKind = 'quotation' | 'invoice' | 'do';
 
@@ -129,6 +130,9 @@ const CSS = `
   .wct .footnote { margin-top: 10px; font-weight: 700; }
   .wct .doboxes { display: flex; gap: 40px; margin: 14px 0 16px; }
   .wct .doboxes .bx { flex: 1; border: 1.2px solid #000; padding: 5px 8px 12px; min-height: 86px; white-space: pre-line; }
+  /* Company stamp (2026-11-24): "Add company stamp" on the document; bottom-left after the closing. */
+  .wct .cstamp { margin-top: 18px; text-align: left; page-break-inside: avoid; break-inside: avoid; }
+  .wct .cstamp img { display: block; max-width: 150px; max-height: 110px; object-fit: contain; }
   @media print { .wct .screen-only { display: none; } }
 </style>`;
 
@@ -393,7 +397,7 @@ function linesTable(data: any, items: any[], kind: WctDocKind, currency: string,
 function billToBlock(data: any, di: (k: string, d?: any) => any): string {
   const customer = data?.customer || {};
   const name = first(customer.name, data?.customerName);
-  const address = billToText(first(data?.billTo, customer.address, data?.customerAddress), name);
+  const address = withSingapore(billToText(first(data?.billTo, customer.address, data?.customerAddress), name));
   // The editor's Attention trio stores the person in attention.name /
   // documentInfo.contactName, the phone in contactNumber, and the email in
   // attention.email — read all three so the printout matches what was typed.
@@ -406,7 +410,7 @@ function billToBlock(data: any, di: (k: string, d?: any) => any): string {
 }
 
 function jobBoxes(di: (k: string, d?: any) => any): string {
-  const location = first(di('location'), di('jobLocation'), di('siteAddress'));
+  const location = withSingapore(first(di('location'), di('jobLocation'), di('siteAddress')));
   const subject = first(di('subject'), di('title'));
   if (!location && !subject) return '';
   return `<div class="boxes">${location ? `<div class="row"><b>Job Location:</b> ${escapeHtml(location)}</div>` : ''}${
@@ -518,8 +522,21 @@ function doProof(data: any): { received: string; appendix: string } {
   return { received, appendix };
 }
 
+/** A clearly marked SAMPLE stamp, printed until the company uploads its own (Settings > Company profile > Stamp). */
+const SAMPLE_STAMP = `data:image/svg+xml;base64,${Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="150" height="110" viewBox="0 0 150 110"><g fill="none" stroke="#1a3fa0" stroke-width="3"><ellipse cx="75" cy="55" rx="70" ry="50"/><ellipse cx="75" cy="55" rx="60" ry="40" stroke-width="1.5"/></g><text x="75" y="50" text-anchor="middle" font-family="Arial" font-size="22" font-weight="700" fill="#1a3fa0">SAMPLE</text><text x="75" y="72" text-anchor="middle" font-family="Arial" font-size="11" fill="#1a3fa0">COMPANY STAMP</text></svg>',
+).toString('base64')}`;
+
+/** "Add company stamp" ticked on the document: the stamp image, bottom-left; nothing otherwise. */
+function companyStamp(data: any, di: (k: string, d?: any) => any): string {
+  if (di('addCompanyStamp') !== true && data?.addCompanyStamp !== true) return '';
+  const src = typeof data?.stampUrl === 'string' && data.stampUrl ? data.stampUrl : SAMPLE_STAMP;
+  return `<div class="cstamp"><img src="${escapeHtml(src)}" alt="Company stamp" /></div>`;
+}
+
 export function renderWctBody(kind: WctDocKind, data: any, organization: any, design: DocumentDesign): string {
   const di = makeDi(data);
+  const stamp = companyStamp(data, di);
   const org = organization || data?.organization || {};
   const items: any[] = (Array.isArray(data?.items) ? data.items : []).filter((it: any) => it && !it.isTagGroup);
   const docNumber = first(di('documentNumber'), data?.name);
@@ -538,7 +555,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
     const proof = doProof(data);
     const customer = data?.customer || {};
     const soldName = first(customer.name, data?.customerName);
-    const soldAddr = billToText(first(data?.billTo, customer.address, data?.customerAddress), soldName);
+    const soldAddr = withSingapore(billToText(first(data?.billTo, customer.address, data?.customerAddress), soldName));
     const attention = first(di('contact'), di('contactName'), data?.attention?.name, data?.deliveryAddress?.attention);
     const mobile = first(di('contactNumber'), customer.mobile, customer.phoneNumber);
     const da = data?.deliveryAddress || {};
@@ -546,7 +563,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
       data?.deliveryTo,
       [da.line1, da.line2, [da.city, da.postalCode].filter(Boolean).join(' '), da.country].filter((x: any) => String(x || '').trim()).join('\n'),
     );
-    const shipTo = shipLines || soldAddr;
+    const shipTo = withSingapore(shipLines) || soldAddr;
     const quotationNo = first(di('quotationNo'), di('quotationNumber'), di('referenceNo'), data?.sourceDocumentNumber);
     // WCT orders (enableWctOrders): the job's order. No line at all on a DO without one.
     const orderNo = first(di('orderNo'), data?.orderNo);
@@ -568,6 +585,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
     ${linesTable(data, items, 'do', 'SGD', false, skipTitles)}
     ${first(data?.remarks, di('remarks')) ? `<div class="remarks" style="margin-top:16px;"><b>Remarks:</b>${richContent(first(data?.remarks, di('remarks')), 'font-size:10.5px;line-height:1.5;')}</div>` : ''}
     ${proof.received}
+    ${stamp}
     ${footerMessage ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>` : ''}
     ${proof.appendix}`;
     return bc ? sheet(bcLetterhead(data, BCAIR_DOC.numberLabel.do, docNumber), body, true) : sheet(letterhead(org, data, 'Delivery Order No', docNumber, racking), body, false, racking);
@@ -695,11 +713,11 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
       </div>`;
 
   if (bc) {
-    const bcBody = `${header}${linesTable(data, items, kind, t.currency, false, skipTitles)}${totals}${remarksBlock}${bcTnc}${bcSign}${footerMessage ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>` : ''}`;
+    const bcBody = `${header}${linesTable(data, items, kind, t.currency, false, skipTitles)}${totals}${remarksBlock}${bcTnc}${bcSign}${stamp}${footerMessage ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>` : ''}`;
     return sheet(bcLetterhead(data, BCAIR_DOC.numberLabel.invoice, docNumber), bcBody, true);
   }
   if (rkQuote) {
-    const rkBody = `${header}${linesTable(data, items, kind, t.currency, true)}${totals}${rkFooter}${signBlock(di, true)}${rkClosing}`;
+    const rkBody = `${header}${linesTable(data, items, kind, t.currency, true)}${totals}${rkFooter}${signBlock(di, true)}${rkClosing}${stamp}`;
     const wm = wmUrl ? `<div class="rkwm"><img src="${escapeHtml(wmUrl)}" alt="" /></div>` : '';
     return sheet(letterhead(org, data, 'Quotation No', docNumber, true), rkBody, false, true, wm);
   }
@@ -708,7 +726,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   const rkInvTnc = racking && isInvoice && tnc
     ? `<div class="rkfoot">${hasTermsHeading(tnc) ? '' : `<div class="hd">TERMS &amp; CONDITIONS:</div>`}${rackingFooterText(tnc)}</div>`
     : null;
-  const body = `${header}${linesTable(data, items, kind, t.currency, false, skipTitles)}${totals}${remarksBlock}${rkInvTnc ?? tncBlock}${signBlock(di)}${closing}`;
+  const body = `${header}${linesTable(data, items, kind, t.currency, false, skipTitles)}${totals}${remarksBlock}${rkInvTnc ?? tncBlock}${signBlock(di)}${closing}${stamp}`;
   return sheet(letterhead(org, data, isInvoice ? 'Invoice No' : 'Quotation No', docNumber, racking), body, false, racking);
 }
 

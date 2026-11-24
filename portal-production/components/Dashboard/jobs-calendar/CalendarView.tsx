@@ -515,7 +515,7 @@ export default function CalendarView({
             <Typography variant="subtitle1" sx={{ fontWeight: 600, lineHeight: 1.3, mb: 1 }}>
               {noteTitle(noteView.note)}
             </Typography>
-            {noteView.note.orgName && <Row label="Company">{noteView.note.orgName}</Row>}
+            {noteView.note.orgName && <Row label="Organisation">{noteView.note.orgName}</Row>}
             <Row label="When">{noteWhen(noteView.note)}</Row>
             <Row label="Type">{noteType(noteView.note.type).label}</Row>
             {noteView.note.staffName && <Row label="Staff">{noteView.note.staffName}</Row>}
@@ -676,7 +676,7 @@ function EventCard({
           styledTitle(e)
         )}
       </Typography>
-      {company && <Row label="Company">{company}</Row>}
+      {company && <Row label="Organisation">{company}</Row>}
       <Row label="When">{timeWindow(e)}</Row>
       {(e.address || e.site) && (
         <Row label={e.source === "siteclock" ? "Site" : "Address"}>
@@ -976,7 +976,29 @@ function StyledBox({ event: e, block }: { event: CalendarEvent; block: boolean }
           {l.customer}
         </Box>
       </Box>
+      {/* Job title (2026-11-24): Week / Day blocks always; Month only when the whole title fits (else in the hover). */}
+      {l.title && (block ? <Box data-testid="chip-job-title" sx={{ whiteSpace: "nowrap", overflow: "hidden", fontSize: CHIP_FONT.row2 }}>{l.title}</Box> : <FitLine text={l.title} />)}
       {l.row2 && <Box sx={{ whiteSpace: "nowrap", overflow: "hidden", fontSize: CHIP_FONT.row2 }}>{l.row2}</Box>}
+    </Box>
+  );
+}
+
+/** One line shown only when it fits whole (measured after layout and on resize); otherwise nothing. */
+function FitLine({ text }: { text: string }) {
+  const ref = React.useRef<HTMLDivElement | null>(null);
+  const [fits, setFits] = React.useState(true);
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => setFits(el.scrollWidth <= el.clientWidth + 1);
+    check();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(check) : null;
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  }, [text]);
+  return (
+    <Box ref={ref} data-testid="chip-job-title" sx={{ whiteSpace: "nowrap", overflow: "hidden", fontSize: CHIP_FONT.row2, ...(fits ? {} : { height: 0, visibility: "hidden" }) }}>
+      {text}
     </Box>
   );
 }

@@ -49,6 +49,8 @@ export interface JobStyleMeta {
   calendarCancel: { from: string; at: string; byId: string | null } | null;
   /** Shop name (2026-11-24): shown instead of the customer everywhere when filled; suggested per customer. */
   shopName: string | null;
+  /** Job title (2026-11-24): e.g. "CD 1 x Air Cleaner"; prefilled from the quotation subject, shown with the job. */
+  jobTitle: string | null;
   /**
    * Postpone keeps the old event (2026-11-24): the job moved to a new date keeps `postponedFrom` (the record left on
    * the old date); that record has `recordOnly` + `postponedTo` (the job's new date). Server-stamped only.
@@ -70,6 +72,12 @@ export const shopNameOf = (v: unknown): string | null => {
   return t ? t.slice(0, 120) : null;
 };
 
+/** Job title: one line, at most 200 characters (null when empty). */
+export const jobTitleOf = (v: unknown): string | null => {
+  const t = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
+  return t ? t.slice(0, 200) : null;
+};
+
 export const EMPTY_JOB_STYLE: JobStyleMeta = {
   salespersonId: null,
   salespersonName: null,
@@ -83,6 +91,7 @@ export const EMPTY_JOB_STYLE: JobStyleMeta = {
   crew: [],
   calendarCancel: null,
   shopName: null,
+  jobTitle: null,
   postponedTo: null,
   postponedFrom: null,
   recordOnly: false,
@@ -144,12 +153,33 @@ export function dedupeCrewTeam(crew: CrewPick[], team: string | null): { crew: C
   return { crew: picks, team: free.length ? free.join(' + ').slice(0, TEAM_MAX) : null };
 }
 
-/** What the calendar, the panel and the WhatsApp list show: picked teams / workers first, then the free text. */
+/**
+ * A team written out (WCT group, 2026-11-24): "D" -> "Team D"; a name already starting with "Team" is kept. Display
+ * only, stored values are unchanged.
+ */
+export const teamName = (name: string): string => {
+  const n = String(name ?? '').replace(/\s+/g, ' ').trim();
+  return !n || /^team\b/i.test(n) ? n : `Team ${n}`;
+};
+/** A free-text piece that is a bare team letter ("D", "e", "A2"): written out as a team; anything else as typed. */
+const freePiece = (p: string): string => (/^[a-z][0-9]?$/i.test(p) ? teamName(p.toUpperCase()) : p);
+
+/**
+ * What the calendar, the panel and the WhatsApp list show: picked teams / workers first, then the free text, as
+ * "Team D, Team E, Guru" (teams written out, comma separated, 2026-11-24).
+ */
 export function crewText(m: Pick<JobStyleMeta, 'crew' | 'team'> | null | undefined): string | null {
   if (!m) return null;
   const d = dedupeCrewTeam(m.crew ?? [], m.team ?? null);
-  const parts = [...d.crew.map((c) => c.name).filter(Boolean), d.team ?? ''].filter(Boolean);
-  return parts.length ? parts.join(' + ') : null;
+  const free = String(d.team ?? '')
+    .split(/\s*,\s*|\s+\+\s+/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map(freePiece);
+  const parts = [...d.crew.map((c) => (c.kind === 'team' ? teamName(c.name) : c.name)).filter(Boolean), ...free];
+  const out: string[] = [];
+  for (const x of parts) if (!out.some((y) => crewKey(y) === crewKey(x))) out.push(x);
+  return out.length ? out.join(', ') : null;
 }
 
 export async function isCalendarStyleEnabled(prisma: any, organizationId: string): Promise<boolean> {
@@ -176,6 +206,7 @@ export function jobStyleOf(raw: unknown): JobStyleMeta {
     crew: crew.crew,
     calendarCancel: cancelOf(v.calendarCancel),
     shopName: shopNameOf(v.shopName),
+    jobTitle: jobTitleOf(v.jobTitle),
     postponedTo: linkOf(v.postponedTo),
     postponedFrom: linkOf(v.postponedFrom),
     recordOnly: v.recordOnly === true,
@@ -234,6 +265,10 @@ export function parseJobStylePatch(body: any): Partial<JobStyleMeta> {
   if (body && 'shopName' in body) {
     if (body.shopName !== null && typeof body.shopName !== 'string') throw new BadRequestException('Shop name must be text');
     out.shopName = shopNameOf(body.shopName);
+  }
+  if (body && 'jobTitle' in body) {
+    if (body.jobTitle !== null && typeof body.jobTitle !== 'string') throw new BadRequestException('Job title must be text');
+    out.jobTitle = jobTitleOf(body.jobTitle);
   }
   // Round 39 B4: picked teams / workers (names are re-read from the org's Workers & Teams before saving).
   if (body && 'crew' in body) {

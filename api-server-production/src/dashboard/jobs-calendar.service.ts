@@ -19,6 +19,7 @@ import type { PanelPerson } from './calendar-style';
 import { isLiveDo, withPanelFills } from './calendar-style';
 import { quotationStatusLabel } from '../orders/quotation-status-label';
 import { crewText } from '../deliveries/job-style';
+import { withSingapore } from '../common/sg-address';
 import { currentCrewNames } from '../workers-teams/crew';
 import { quotationSubjectOf } from '../deliveries/quick-job-quotation';
 import { isTsv, tsvEvent } from './calendar-note-types';
@@ -423,6 +424,9 @@ export class JobsCalendarService {
         // Shop name (2026-11-24): the name everywhere when filled, the customer under it in the panel.
         chipLabel: m?.shopName || chipLabelOf(run, e.title),
         ...(m?.shopName ? { shopName: m.shopName } : {}),
+        ...(m?.jobTitle ? { jobTitle: m.jobTitle } : {}),
+        // Singapore in addresses (2026-11-24): "... 639273" shows as "... Singapore 639273". Display only.
+        ...(e.address ? { address: withSingapore(e.address) } : {}),
         // Postpone keeps the old event (2026-11-24): the pair links both ways; the old one is a record only.
         ...(m?.postponedTo ? { postponedTo: m.postponedTo } : {}),
         ...(m?.postponedFrom ? { postponedFrom: m.postponedFrom } : {}),

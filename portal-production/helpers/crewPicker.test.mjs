@@ -11,7 +11,10 @@ test("existing free text stays as typed; picks come first", () => {
   assert.deepEqual(chipsToValue(chips), { crew: [{ kind: "team", id: "t1", name: "Team A" }], team: "Ali (lorry)" });
   // A legacy value round-trips unchanged.
   assert.deepEqual(chipsToValue(crewChips([], "Team B + Ah Seng")), { crew: [], team: "Team B + Ah Seng" });
-  assert.equal(crewDisplay([{ kind: "team", id: "t1", name: "Team A" }, { kind: "worker", id: "w1", name: "Guru" }], null), "Team A + Guru");
+  assert.equal(crewDisplay([{ kind: "team", id: "t1", name: "Team A" }, { kind: "worker", id: "w1", name: "Guru" }], null), "Team A, Guru");
+  // Teams written out (2026-11-24): "D" -> "Team D", comma separated, workers and other text as typed.
+  assert.equal(crewDisplay([], "D, E"), "Team D, Team E");
+  assert.equal(crewDisplay([{ kind: "team", id: "t1", name: "D" }], "+2pt"), "Team D, +2pt");
 });
 
 test("options: teams then workers; duplicates and blanks dropped", () => {

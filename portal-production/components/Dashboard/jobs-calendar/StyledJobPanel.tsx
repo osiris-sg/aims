@@ -304,7 +304,13 @@ export default function StyledJobPanel({
           </Button>
         )}
       </Stack>
-      {e.subject && (
+      {/* Job title (2026-11-24): under the name, bold; the quotation subject stays under it when different. */}
+      {e.jobTitle && (
+        <Typography variant="body2" data-testid="panel-job-title" sx={{ mt: 0.5, fontWeight: 600, wordBreak: "break-word" }}>
+          {e.jobTitle}
+        </Typography>
+      )}
+      {e.subject && e.subject.trim().toLowerCase() !== (e.jobTitle ?? "").trim().toLowerCase() && (
         <Typography variant="body2" sx={{ mt: 0.5, wordBreak: "break-word" }}>
           {e.subject}
         </Typography>

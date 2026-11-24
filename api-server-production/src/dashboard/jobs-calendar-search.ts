@@ -4,6 +4,7 @@
  * QO / Order / DO / Invoice nos. (the order's links), team / crew and job fields (the job's custom values), the
  * assigned SiteClock worker. Results: upcoming first (nearest first), then past (most recent first), 20 at most.
  */
+import { withSingapore } from '../common/sg-address';
 import { runAsOrg } from '../common/tenancy/tenant-context';
 import { jobStyleValues } from '../deliveries/job-style';
 import { CALENDAR_TZ } from './jobs-calendar';
@@ -102,9 +103,10 @@ export async function searchOrg(prisma: any, org: { id: string; name: string }, 
         at: at.toISOString(),
         // Shop name (2026-11-24) first, else the customer.
         customer: meta.get(j.id)?.shopName || j.customer || null,
-        address: j.address ?? null,
+        address: j.address ? withSingapore(j.address) : null,
         icons: jobIcons(j, meta.get(j.id)),
-        label: [`#${j.no}`, j.orderNumber].filter(Boolean).join(' · '),
+        // Job title (2026-11-24) first; the style values (f.txt) already make it searchable.
+        label: [meta.get(j.id)?.jobTitle, `#${j.no}`, j.orderNumber].filter(Boolean).join(' · '),
       };
     }),
     ...notes.map((n) => ({

@@ -6498,7 +6498,31 @@ export default function TabbedDocumentCreator({
                       ) : undefined
                     }
                     prependRightRow={
-                      isQuotation && isQuotationTotalsToggleEnabled ? (
+                      (isQuotation && isQuotationTotalsToggleEnabled) || (remarksSplit && tab.tabId === "general") ? (
+                        <Box sx={{ display: "flex", flexWrap: "wrap", columnGap: 2 }}>
+                        {/* Company stamp (WCT group QO / DO / Invoice, 2026-11-24): off by default; prints bottom-left. */}
+                        {remarksSplit && tab.tabId === "general" && (
+                          <FormControlLabel
+                            sx={{ m: 0 }}
+                            control={
+                              <Checkbox
+                                size="small"
+                                sx={{ p: 0.5, mr: 0.5 }}
+                                checked={(formData?.documentInfo as any)?.addCompanyStamp === true}
+                                disabled={lockReadOnly || confirmedReadOnly}
+                                onChange={(e) =>
+                                  setFormData((prev: any) => ({
+                                    ...prev,
+                                    documentInfo: { ...(prev?.documentInfo || {}), addCompanyStamp: e.target.checked },
+                                  }))
+                                }
+                                inputProps={{ "data-tour": "doc-company-stamp" } as any}
+                              />
+                            }
+                            label={<Typography variant="body2">Add company stamp</Typography>}
+                          />
+                        )}
+                        {isQuotation && isQuotationTotalsToggleEnabled && (
                         <FormControlLabel
                           sx={{ m: 0 }}
                           control={
@@ -6516,6 +6540,8 @@ export default function TabbedDocumentCreator({
                           }
                           label={<Typography variant="body2">Show totals on the document</Typography>}
                         />
+                        )}
+                        </Box>
                       ) : undefined
                     }
                     fields={(() => {

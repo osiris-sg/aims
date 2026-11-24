@@ -1,4 +1,5 @@
 import { runAsOrg } from '../common/tenancy/tenant-context';
+import { withSingapore } from '../common/sg-address';
 import { assertImportedOrderOpen } from '../orders/imported-orders';
 import { randomBytes, randomUUID } from 'crypto';
 import * as QRCode from 'qrcode';
@@ -924,7 +925,8 @@ export class DeliveriesService {
       scheduledFor: when,
       scheduledAllDay: sched.scheduledAllDay,
       durationMin,
-      siteAddress: siteAddress || null,
+      // Singapore in addresses (calendar style, 2026-11-24): a new save of "... 639273" stores "... Singapore 639273".
+      siteAddress: (styleOn ? withSingapore(siteAddress) : siteAddress) || null,
       notes: notes || null,
       ptwStatus,
       ptwRemark: parsePtwRemark(body?.ptwRemark),
@@ -1369,6 +1371,7 @@ export class DeliveriesService {
           team: meta.team,
           crew: meta.crew,
           shopName: meta.shopName,
+          jobTitle: meta.jobTitle,
           postponed: true,
           recordOnly: true,
           postponedTo: { id: jobId, date: newDate },

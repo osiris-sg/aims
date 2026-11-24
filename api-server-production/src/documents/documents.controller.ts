@@ -627,6 +627,7 @@ export class DocumentsController {
       revisionNumber,
       design: styled.design,
       logoUrl: styled.logoUrl,
+        stampUrl: styled.stampUrl,
       organization: req.userOrganization,
     });
     return { html, layout: styled.design?.layout || 'standard' };
@@ -661,6 +662,7 @@ export class DocumentsController {
         ...(erpStoredTotals ? { erpStoredTotals } : {}),
         design: styled.design,
         logoUrl: styled.logoUrl,
+        stampUrl: styled.stampUrl,
         organization: req.userOrganization,
       };
       const html = this.pdfGeneratorService.generateInvoiceHtml(renderData);

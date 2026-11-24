@@ -79,7 +79,7 @@ export default function CalendarFilterBar({
         <Multi label="Applicant" value={value.applicants} options={[...applicants.map((a) => ({ value: a.id, label: a.name })), { value: NO_APPLICANT, label: "None" }]} onChange={(v) => set({ applicants: v })} width={140} />
       )}
       {categories.length > 0 && <Multi label="Category" value={value.categories} options={categories.map((c) => ({ value: c, label: c }))} onChange={(v) => set({ categories: v })} width={140} />}
-      {companies.length > 1 && <Multi label="Company" value={value.companies} options={companies.map((c) => ({ value: c.id, label: c.name }))} onChange={(v) => set({ companies: v })} width={150} />}
+      {companies.length > 1 && <Multi label="Organisation" value={value.companies} options={companies.map((c) => ({ value: c.id, label: c.name }))} onChange={(v) => set({ companies: v })} width={150} />}
       {n > 0 && (
         <Button size="small" onClick={() => onChange(NO_FILTERS)}>
           {`Clear (${n})`}

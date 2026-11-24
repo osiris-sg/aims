@@ -81,6 +81,8 @@ export interface CalendarEvent {
   customer?: string | null;
   /** Shop name (2026-11-24, WCT group): shown instead of the customer everywhere when filled. */
   shopName?: string | null;
+  /** Job title (2026-11-24, calendar style). */
+  jobTitle?: string | null;
   /** Postpone keeps the old event (2026-11-24): the other job of the pair (id + date); recordOnly = the old one. */
   postponedTo?: { id: string; date: string } | null;
   postponedFrom?: { id: string; date: string } | null;

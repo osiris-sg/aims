@@ -190,7 +190,7 @@ describe('calendar style: people', () => {
     expect(parseJobStylePatch({})).toEqual({});
     expect(() => parseJobStylePatch({ cod: 'yes' })).toThrow(BadRequestException);
     expect(() => parseJobStylePatch({ salesperson: { name: 'x' } })).toThrow(BadRequestException);
-    expect(jobStyleOf('junk')).toEqual({ salespersonId: null, salespersonName: null, ptwApplicantId: null, ptwApplicantName: null, cod: false, postponed: false, sticker: false, createdById: null, team: null, crew: [], calendarCancel: null, shopName: null, postponedTo: null, postponedFrom: null, recordOnly: false });
+    expect(jobStyleOf('junk')).toEqual({ salespersonId: null, salespersonName: null, ptwApplicantId: null, ptwApplicantName: null, cod: false, postponed: false, sticker: false, createdById: null, team: null, crew: [], calendarCancel: null, shopName: null, jobTitle: null, postponedTo: null, postponedFrom: null, recordOnly: false });
   });
 
   it('✅ counts only completed / signed DOs: not drafts, not cancelled or voided', () => {
@@ -666,7 +666,7 @@ describe('round 36: panel fields on the calendar events', () => {
       customer: 'Acme',
       subject: 'Troubleshoot Exhaust VSD Issue at Rooftop',
       remarks: 'Please call the management 96420116 upon arrival',
-      team: 'Team A + Guru',
+      team: 'Team A, Guru', // teams written out, comma separated (2026-11-24)
       ptwStatus: 'REQUIRED',
       quotationStatus: 'ACCEPTED',
     });
@@ -886,5 +886,20 @@ describe('withPanelFills', () => {
     expect(withPanelFills(colours, [{ id: 'a', name: 'Amy', colour: '#33b679', auto: true }]).fill.a).toBe('#039be5');
     expect(withPanelFills(colours, null)).toBe(colours);
     expect(colours.fill).toEqual({ a: '#039be5' });
+  });
+});
+
+describe('teams written out (2026-11-24)', () => {
+  const { crewText, teamName } = require('../deliveries/job-style');
+  it('prefixes bare team names, keeps names already starting with Team, joins with commas', () => {
+    expect(teamName('D')).toBe('Team D');
+    expect(teamName('Team D')).toBe('Team D');
+    expect(teamName('team e')).toBe('team e');
+    expect(crewText({ team: 'D, E', crew: [] })).toBe('Team D, Team E');
+    expect(crewText({ team: 'B', crew: [] })).toBe('Team B');
+    expect(crewText({ team: '+2pt', crew: [] })).toBe('+2pt');
+    expect(crewText({ team: 'Guru', crew: [{ kind: 'team', id: 't1', name: 'D' }, { kind: 'worker', id: 'w1', name: 'Ali' }] })).toBe('Team D, Ali, Guru');
+    expect(crewText({ team: 'D', crew: [{ kind: 'team', id: 't1', name: 'Team D' }] })).toBe('Team D');
+    expect(crewText({ team: null, crew: [] })).toBeNull();
   });
 });
