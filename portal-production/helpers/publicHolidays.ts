@@ -23,14 +23,16 @@ const nextDay = (d: string): string => new Date(Date.parse(`${d}T00:00:00Z`) + 8
 
 /** Valid holidays only, one per date (the first wins), by date. */
 export function cleanHolidays(holidays: ReadonlyArray<Partial<PublicHoliday>> | null | undefined): PublicHoliday[] {
-  const by = new Map<string, string>();
+  // One banner per holiday per day (date + name, any case), however many companies are ticked (2026-11-24).
+  const by = new Map<string, PublicHoliday>();
   for (const h of holidays ?? []) {
     const date = clean(h?.date).slice(0, 10);
     const name = clean(h?.name);
-    if (!YMD.test(date) || !name || by.has(date)) continue;
-    by.set(date, name);
+    const key = `${date}|${name.toLowerCase()}`;
+    if (!YMD.test(date) || !name || by.has(key)) continue;
+    by.set(key, { date, name });
   }
-  return [...by].sort(([a], [b]) => a.localeCompare(b)).map(([date, name]) => ({ date, name }));
+  return [...by.values()].sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
 }
 
 /** "Public holiday: Deepavali" (the banner and the Export list line). */
@@ -45,7 +47,7 @@ export const holidaysOn = (holidays: ReadonlyArray<Partial<PublicHoliday>> | nul
  */
 export function holidayCalendarInputs(holidays: ReadonlyArray<Partial<PublicHoliday>> | null | undefined) {
   return cleanHolidays(holidays).map((h) => ({
-    id: `holiday:${h.date}`,
+    id: `holiday:${h.date}|${h.name.toLowerCase()}`,
     title: holidayExportLine(h.name),
     start: h.date,
     end: nextDay(h.date),

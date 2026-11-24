@@ -422,6 +422,9 @@ export function addressToBillTo(address?: string | null): string {
     .join("\n");
 }
 
+/** A balance DO's "Check qty" warning (config.checkQtyWarning, 2026-11-24), or "". */
+const checkQtyWarningOf = (d: any): string => String(d?.config?.checkQtyWarning ?? d?.checkQtyWarning ?? "").trim();
+
 export default function TabbedDocumentCreator({
   documentType,
   actualDocumentType,
@@ -7491,6 +7494,13 @@ export default function TabbedDocumentCreator({
                     whole page scrolls, Xero-style (guru 2026-09-03). No inner
                     table scrollbar. */}
                 <TabPanel value={itemsTabValue} index={0} grow>
+                  {/* Balance DO (2026-11-24): earlier DOs that did not match some quotation lines. On screen only, above
+                      the lines, until the DO is confirmed; never printed. */}
+                  {isDeliveryOrder && !isDocumentConfirmedStatus && checkQtyWarningOf(existingData) && (
+                    <Alert severity="warning" sx={{ mb: 1 }} data-testid="do-check-qty-warning">
+                      {checkQtyWarningOf(existingData)}
+                    </Alert>
+                  )}
                   <Box
                     {...readOnlyShield(confirmedReadOnly)}
                     sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 120, ...(readOnlyShield(confirmedReadOnly).sx || {}) }}

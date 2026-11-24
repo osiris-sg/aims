@@ -2059,8 +2059,9 @@ export class DeliveriesService {
       } as any);
       if (order.sourceQuotationId) await applyQuotationLinkToDoConfig(this.prisma, organizationId, order.sourceQuotationId, doConfig, this.logger);
       await applyOrderToDoConfig(this.prisma, organizationId, order.id, doConfig);
-      // Internal remarks (config.internalRemarks: never printed), not the printed Customer Remarks.
-      if (unmatchedRemark) (doConfig as any).internalRemarks = [String((doConfig as any).internalRemarks ?? '').trim(), unmatchedRemark].filter(Boolean).join('\n');
+      // 2026-11-24 (Elroy): not printed, not hidden: an on-screen warning on the draft DO (config.checkQtyWarning, shown
+      // above the lines until the DO is confirmed; the PDF never reads it).
+      if (unmatchedRemark) (doConfig as any).checkQtyWarning = unmatchedRemark;
       const doc = await this.documentsService.createNumberedDeliveryOrder(
         templateId,
         organizationId,

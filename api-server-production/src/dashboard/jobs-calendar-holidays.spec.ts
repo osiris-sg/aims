@@ -6,10 +6,11 @@ import { JobsCalendarService } from './jobs-calendar.service';
 const WCT = '5c700000-0000-4000-8000-5c7000000001';
 
 describe('holidaysInRange', () => {
-  it('in range, one per date (first wins), by date; junk dropped', () => {
+  it('in range, one per holiday per day (date + name, any case), by date; junk dropped', () => {
     const rows = [
       { date: '2026-12-25', name: 'Christmas Day' },
       { date: '2026-11-08', name: '  Deepavali ' },
+      { date: '2026-12-25', name: 'christmas  day' },
       { date: '2026-12-25', name: 'Christmas (other org)' },
       { date: '2027-01-01', name: "New Year's Day" },
       { date: 'junk', name: 'x' },
@@ -17,6 +18,7 @@ describe('holidaysInRange', () => {
     ];
     expect(holidaysInRange(rows, '2026-11-01', '2026-12-31')).toEqual([
       { date: '2026-11-08', name: 'Deepavali' },
+      { date: '2026-12-25', name: 'Christmas (other org)' },
       { date: '2026-12-25', name: 'Christmas Day' },
     ]);
   });

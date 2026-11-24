@@ -34,3 +34,14 @@ test("same dialog as the DO page, opened on Upload signed DO; the file opens fro
   assert.match(read("app/portal/orders/[id]/OrderPageLayout.tsx"), /d\.uploadDoId && onUploadDo &&/);
   assert.match(read("helpers/orderPage.ts"), /d\.completed && d\.stampedFileKey\s*\? \{ label: "File", path: "", fileKey: String\(d\.stampedFileKey\) \}/);
 });
+
+test("balance DO 'Check qty' (24 Nov): on screen above the lines of a draft DO only, never printed", () => {
+  const editor = read("containers/DocumentTemplates/components/TabbedDocumentCreator.tsx");
+  assert.match(editor, /isDeliveryOrder && !isDocumentConfirmedStatus && checkQtyWarningOf\(existingData\) && \(/);
+  assert.match(editor, /data-testid="do-check-qty-warning"/);
+  const server = readFileSync(new URL("../../api-server-production/src/deliveries/deliveries.service.ts", import.meta.url), "utf8");
+  assert.match(server, /\(doConfig as any\)\.checkQtyWarning = unmatchedRemark;/);
+  assert.ok(!/internalRemarks = \[String\(\(doConfig as any\)\.internalRemarks/.test(server));
+  const pdf = readFileSync(new URL("../../api-server-production/src/common/services/document-html/wct.ts", import.meta.url), "utf8");
+  assert.ok(!pdf.includes("checkQtyWarning"), "the PDF never reads it");
+});

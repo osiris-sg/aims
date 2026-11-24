@@ -412,12 +412,14 @@ export interface CalendarHoliday {
  * date (the first org's name wins), by date.
  */
 export function holidaysInRange(rows: Array<{ date?: unknown; name?: unknown }>, from: string, to: string): CalendarHoliday[] {
-  const out = new Map<string, string>();
+  // One per holiday per day (date + name, any case), whichever companies' lists carry it (2026-11-24).
+  const out = new Map<string, CalendarHoliday>();
   for (const r of rows) {
     const date = typeof r?.date === 'string' ? r.date.trim().slice(0, 10) : '';
     const name = typeof r?.name === 'string' ? r.name.replace(/\s+/g, ' ').trim() : '';
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !name || date < from || date > to || out.has(date)) continue;
-    out.set(date, name);
+    const key = `${date}|${name.toLowerCase()}`;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !name || date < from || date > to || out.has(key)) continue;
+    out.set(key, { date, name });
   }
-  return [...out].sort(([a], [b]) => a.localeCompare(b)).map(([date, name]) => ({ date, name }));
+  return [...out.values()].sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
 }

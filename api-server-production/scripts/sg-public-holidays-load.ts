@@ -54,7 +54,7 @@ async function main() {
     const orgs = (
       await c.query(
         `select o.id::text id, o.name from "Organization" o join "OrganizationUIConfig" u on u."organizationId" = o.id
-         where u.features->>'enableCalendarStyle' = 'true' order by o.name`,
+         where u.features->>'enableCalendarStyle' = 'true' or o.id = '5c700000-0000-4000-8000-5c7000000003' order by o.name`, // + YMM (WCT group, Elroy 2026-11-24)
       )
     ).rows as Array<{ id: string; name: string }>;
     console.log(`${ENV.toUpperCase()} ${APPLY ? 'APPLY' : 'DRY RUN'}: ${SG_PUBLIC_HOLIDAYS.length} Singapore public holidays (2026 + 2027), ${orgs.length} calendar style org(s)`);
