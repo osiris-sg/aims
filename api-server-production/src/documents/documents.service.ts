@@ -1,4 +1,7 @@
 import { invoiceDoNumbers, isInvoiceDocType } from './invoice-do-nos';
+import { gstSwitchFor } from '../gst-switch/gst-switch-state';
+import { taxedInvoiceConfig } from '../gst-switch/gst-switch';
+const INVOICE_TYPES_FOR_GST = ['INVOICE', 'TI', 'TI2'];
 import { IMPORTED_ORDER_USE_CREATE_INVOICE, importedMarkerOf, importedOrderDraftInvoice, importedStatusFrom, isImportedOrder, isImportedOrdersEnabled, loadImportedOrderInputs, refreshImportedOrderStatus } from '../orders/imported-orders';
 import { remainingForOrder } from '../orders/imported-remaining';
 import { docCustomerIdOf } from '../orders/imported-order-links';
@@ -346,6 +349,11 @@ export class DocumentsService {
     });
   }
 
+
+  /** GST switch company move (gst-switch.service.ts): the document's history line. */
+  logMoveHistory(opts: { documentId: string; organizationId: string; documentName?: string; detail: string; actor?: DocumentActor }): Promise<void> {
+    return this.logDocumentEvent({ ...opts, action: 'EDITED' });
+  }
 
   /** Swap unit on a delivered run (enableDeliveryUnitSwap): the DO's history line. */
   logUnitSwapHistory(opts: { documentId: string; organizationId: string; documentName?: string; detail: string; changes?: string[]; actor?: DocumentActor }): Promise<void> {
@@ -4016,6 +4024,16 @@ export class DocumentsService {
       }
       if ((di.gstPercent === undefined || di.gstPercent === null || di.gstPercent === 0) && orgTaxRate != null) {
         di.gstPercent = Number(orgTaxRate);
+      }
+      // GST switch (WCT group, 2026-11-24; gst-switch/): the non-GST company of the pair (BC Air) issues non-GST
+      // invoices by default. Every other org: no change.
+      if (INVOICE_TYPES_FOR_GST.includes(String(type).toUpperCase()) && !initialConfig.erpImport) {
+        const sw = await gstSwitchFor(this.prisma, organizationId);
+        if (sw.on && !sw.gst) {
+          const { documentInfo: taxedDi, ...taxedFlat } = taxedInvoiceConfig({ ...initialConfig, documentInfo: di }, false);
+          Object.assign(initialConfig, taxedFlat);
+          Object.assign(di, taxedDi);
+        }
       }
       const orgCurrency = (organization as any)?.defaultCurrency;
       if (!di.currency && orgCurrency) {

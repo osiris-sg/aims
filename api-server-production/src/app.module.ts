@@ -85,6 +85,7 @@ import { FixedAssetsModule } from './fixed-assets/fixed-assets.module';
 import { BudgetsModule } from './budgets/budgets.module';
 import { BillsModule } from './bills/bills.module';
 import { ReceiptsModule } from './receipts/receipts.module';
+import { GstSwitchModule } from './gst-switch/gst-switch.module';
 import { PaymentVouchersModule } from './payment-vouchers/payment-vouchers.module';
 import { JournalVouchersModule } from './journal-vouchers/journal-vouchers.module';
 import { ContraModule } from './contra/contra.module';
@@ -176,6 +177,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     BudgetsModule,
     BillsModule,
     ReceiptsModule,
+    GstSwitchModule,
     PaymentVouchersModule,
     JournalVouchersModule,
     ContraModule,

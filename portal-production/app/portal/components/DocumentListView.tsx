@@ -480,7 +480,14 @@ export default function DocumentListView({
       cell: ({ row }: any) => {
         const r = row.original;
         if (!r.name) return "—";
-        const num = <Box sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{r.name}</Box>;
+        // GST switch move (WCT group, 2026-11-24): a moved document shows its old number under the new one.
+        const prev = isWctDocNavEnabled && typeof r.config?.previousNumber === "string" ? r.config.previousNumber : null;
+        const num = (
+          <Box sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
+            {r.name}
+            {prev && <Box sx={{ fontWeight: 400, fontSize: "0.75rem", color: "text.secondary" }}>Previously {prev}</Box>}
+          </Box>
+        );
         const isDo = ["DELIVERY_ORDER", "DO"].includes(String(r.documentType || r.type || "").toUpperCase());
         if (!isRealDoOnScheduleEnabled || !isDo) return num;
         return (

@@ -356,6 +356,8 @@ export class ActionLogInterceptor implements NestInterceptor {
       // Workers & Teams (WCT 2026-11-20): unhide a worker / team; POST siteclock-sync applies the SiteClock sync.
       if (segments[0] === 'workers-teams' && s === 'unhide') return 'UNHIDE';
       if (segments[0] === 'workers-teams' && s === 'siteclock-sync') return method === 'POST' ? 'SYNC' : METHOD_ACTION[method] || 'UNKNOWN';
+      // GST switch (WCT group, 2026-11-24): POST /gst-switch/:id/move moves an order to the sister company.
+      if (segments[0] === 'gst-switch' && s === 'move' && method === 'POST') return 'GST_MOVE';
       if (VERB_ACTIONS[s]) return VERB_ACTIONS[s];
       break;
     }

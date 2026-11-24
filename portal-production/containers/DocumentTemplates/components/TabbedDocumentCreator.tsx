@@ -194,6 +194,7 @@ import { todayIso } from "@/helpers/orgToday";
 import { storedTotalsFor } from "@/helpers/erpImport";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
 import InvoiceSplitDialog from "./InvoiceSplitDialog";
+import GstSwitchToggle from "./GstSwitchToggle";
 import { RevisionSaveDialog, RevisionHistoryDialog } from "./QuotationRevisionDialogs";
 import { nextRevisionName } from "@/helpers/quotationRevision";
 import { splitButtons } from "@/helpers/invoiceSplit";
@@ -5851,6 +5852,19 @@ export default function TabbedDocumentCreator({
             >
               {isConfirming ? "Confirming..." : "Confirm"}
             </Button>
+          )}
+          {/* GST switch (WCT group 2026-11-24): GST / Non-GST invoice; the other one moves the order to the sister company. */}
+          {isInvoiceTypeDoc && !!isWctOrdersEnabled && !isTemplateEditMode && !!splitDocId && !!existingData?.name && (
+            <GstSwitchToggle
+              documentId={splitDocId}
+              beforeSwitch={async () => {
+                if (hasUnsavedChanges && !(await performManualSave({ silent: true }))) {
+                  toast.error("Save the invoice first");
+                  return false;
+                }
+                return true;
+              }}
+            />
           )}
           {/* Split payment (enableInvoiceSplit, WCT group 2026-11-17): a draft invoice into parts -1..-n; Undo split while all parts are drafts. */}
           {splitUi.split && !isTemplateEditMode && (
