@@ -1732,6 +1732,11 @@ export class DocumentsService {
         // Link Document (WCT group, 2026-11-22): two documents on no order linked to each other (orders/doc-links.ts).
         // Server-owned; the editor never sends it, so a bare save must not drop it.
         'linkedDocs',
+        // GST switch company move (WCT group, 2026-11-24; gst-switch/): "Previously <no.>", the move history and the
+        // credit / re-issue links. Server-owned; the editor never sends them.
+        'previousNumber',
+        'movedFrom',
+        'gstMove',
       ];
       // Only meaningful when the caller actually sent a config. A status-only
       // save (dto.config absent → configAsPlainObject null) has nothing to
