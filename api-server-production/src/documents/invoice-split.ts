@@ -385,8 +385,13 @@ export function dominantLineAccount(items: any[]): { accountCode?: string; reven
 export const SPLIT_TOTAL_KEYS = ['grossTotal', 'subTotal', 'gstAmount', 'nettTotal', 'gstPercent', 'taxApplicable', 'absorbTax', 'discountAmount', 'discountPercent'] as const;
 /** Money stamps (document-money.ts writes them; Undo split restores them as they were). */
 export const SPLIT_MONEY_KEYS = ['outstandingBalance', 'xeroBalance', 'paidToDate', 'xeroAmountPaid', 'totalWithTax', 'xeroGross'] as const;
-/** Copied from the original onto a new part: never (identity, payment link, edit stamps, jobs billed). */
-export const SPLIT_NOT_COPIED = ['payToken', 'savedAt', 'savedBy', 'lastUsedAt', 'lastUsedBy', 'confirmedAt', 'orderJobIds', 'xeroInvoiceId', 'xeroSyncedAt', 'invoiceSplit', 'sentAt', 'emailedAt'] as const;
+/**
+ * Copied from the original onto a new part: never (identity, payment link, use stamps, jobs billed).
+ * savedAt / savedBy ARE copied (UAT 2026-11-25): the WCT status wording reads "Pending" for a draft someone saved and
+ * "Draft" for one only the system made (portal helpers/wctStatusFlow.ts), so stripping them showed part 1 Pending and
+ * part 2 Draft after one split. Every part now reads like the invoice it was split from.
+ */
+export const SPLIT_NOT_COPIED = ['payToken', 'lastUsedAt', 'lastUsedBy', 'confirmedAt', 'orderJobIds', 'xeroInvoiceId', 'xeroSyncedAt', 'invoiceSplit', 'sentAt', 'emailedAt'] as const;
 
 /** The part's config: the original's header with the part's one line and totals. */
 export function partConfig(
