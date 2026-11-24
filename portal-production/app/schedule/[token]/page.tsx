@@ -1,4 +1,5 @@
 "use client";
+import { fileSrc, registerSignedUrls } from "@/helpers/fileUrl";
 
 // PUBLIC (no login): the client's live project schedule. The token URL is
 // shared by the designer on WhatsApp; every visit shows the LATEST calendar.
@@ -50,6 +51,7 @@ export default function PublicSchedulePage() {
         const res = await fetch(`${base}/public/schedule/${token}`, { cache: "no-store" });
         const json = await res.json();
         if (!res.ok) throw new Error(json?.message || "This link is not valid");
+        registerSignedUrls((json?.data ?? json)?.fileUrls);
         setData(json?.data ?? json);
       } catch (e: any) {
         setError(e.message || "This link is not valid");
@@ -161,7 +163,7 @@ export default function PublicSchedulePage() {
         <Container maxWidth="lg" sx={{ py: 2 }}>
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }}>
             <Box sx={{ flex: 1, minWidth: 0 }}>
-              {h.logo ? <img src={h.logo} alt={h.orgName} style={{ maxHeight: 36, maxWidth: 160, objectFit: "contain", marginBottom: 6 }} /> : <Typography sx={{ fontWeight: 800 }}>{h.orgName}</Typography>}
+              {h.logo ? <img src={fileSrc(h.logo)} alt={h.orgName} style={{ maxHeight: 36, maxWidth: 160, objectFit: "contain", marginBottom: 6 }} /> : <Typography sx={{ fontWeight: 800 }}>{h.orgName}</Typography>}
               <Typography sx={{ fontWeight: 800, fontSize: { xs: 16, sm: 18 }, lineHeight: 1.25 }}>PROJECT SITE: {h.projectSite}</Typography>
               <Typography sx={{ color: C.sub, fontSize: 13 }}>
                 {h.contractNo ? `(${h.contractNo}) · ` : ""}Project Manager: {h.manager || "—"}

@@ -38,6 +38,7 @@ import { OperatorContext, PendingAction, WebUiEvent } from './operator.types';
 import { ActionLogService } from '../action-log/action-log.service';
 import { cleanText } from './text.util';
 import { runAsOrg } from '../common/tenancy/tenant-context';
+import { fetchableUrl } from '../common/storage-sign';
 
 /** What a tool hands back to the loop. `pending` asks the caller to raise a
  *  confirm prompt instead of proceeding. */
@@ -1871,7 +1872,7 @@ export class OperatorToolsService {
         run: async (ctx) => {
           const up = ctx.upload;
           if (!up?.attachmentUrl) return { result: { error: 'Upload the bank payment page (photo or PDF) first, then try again.' } };
-          const resp = await fetch(up.attachmentUrl);
+          const resp = await fetch(await fetchableUrl(up.attachmentUrl));
           if (!resp.ok) return { result: { error: 'Could not read the uploaded file back from storage.' } };
           const buf = Buffer.from(await resp.arrayBuffer());
           const mime = resp.headers.get('content-type') || ((up.filename || '').toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');

@@ -10,6 +10,7 @@ import { BillsService } from '../bills/bills.service';
 import { DocumentsService } from '../documents/documents.service';
 import { ID_SCHEDULE_SEQUENCE, SG_PUBLIC_HOLIDAYS, MY_PUBLIC_HOLIDAYS, buildWeeks, renderScheduleHtml } from './schedule';
 import { orgTodayFor } from '../common/org-today';
+import { signBucketUrlsInHtml } from '../common/storage-sign';
 
 const DEFAULT_ENGAGEMENT_FEE = 1500; // S$ — in lieu of the 10% deposit (their T&C clause A)
 
@@ -1069,7 +1070,7 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
   async scheduleHtml(projectId: string, organizationId: string) {
     const h = await this.scheduleHeader(projectId, organizationId);
     const items = await this.prisma.projectScheduleItem.findMany({ where: { projectId }, orderBy: [{ startDate: 'asc' }, { sortOrder: 'asc' }] });
-    return { html: renderScheduleHtml({ projectSite: h.projectSite, contractNo: h.contractNo, manager: h.manager, contact: h.contact, orgName: h.orgName, logo: h.logo, items }) };
+    return { html: await signBucketUrlsInHtml(String(renderScheduleHtml({ projectSite: h.projectSite, contractNo: h.contractNo, manager: h.manager, contact: h.contact, orgName: h.orgName, logo: h.logo, items }))) };
   }
 
   /** Mint (or reuse) the public schedule link — the client always sees the latest calendar. */
@@ -1105,7 +1106,7 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
     return {
       header: { projectSite: h.projectSite, contractNo: h.contractNo, manager: h.manager, contact: h.contact, orgName: h.orgName, logo: h.logo },
       weeks: buildWeeks(items).map((w) => ({ index: w.index, days: w.days.map((d) => ({ iso: d.iso, dow: d.dow, holiday: d.holiday, work: d.work, notes: d.notes })) })),
-      html: renderScheduleHtml({ projectSite: h.projectSite, contractNo: h.contractNo, manager: h.manager, contact: h.contact, orgName: h.orgName, logo: h.logo, items }).toString(),
+      html: await signBucketUrlsInHtml(renderScheduleHtml({ projectSite: h.projectSite, contractNo: h.contractNo, manager: h.manager, contact: h.contact, orgName: h.orgName, logo: h.logo, items }).toString()),
     };
   }
 

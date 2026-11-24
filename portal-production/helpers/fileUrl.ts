@@ -11,6 +11,15 @@ const BUCKET_URL_RE =
 /** Pages without a Clerk session (token links): they must get signed URLs from their own backend. */
 const PUBLIC_PATH_RE = /^\/(guest|pay|sign|schedule|book|signature|preview)(\/|$)/;
 
+// Signed links a token page's backend handed out ({ stored value → URL }), see registerSignedUrls.
+const signedUrls = new Map<string, string>();
+
+/** Remember the `fileUrls` map a public token endpoint returned (no session on those pages). */
+export function registerSignedUrls(map: unknown): void {
+  if (!map || typeof map !== "object") return;
+  for (const [k, v] of Object.entries(map as Record<string, unknown>)) if (typeof v === "string") signedUrls.set(k, v);
+}
+
 function onPublicPage(): boolean {
   return typeof window !== "undefined" && PUBLIC_PATH_RE.test(window.location.pathname);
 }
@@ -39,10 +48,14 @@ export function storedKeyOf(v: string | null | undefined): string | null {
 /** The URL to show / open a stored file. `download` saves it under that name. */
 export function fileSrc(v: string | null | undefined, opts: { download?: string } = {}): string {
   if (!v) return "";
+  const signed = signedUrls.get(v) ?? signedUrls.get(v.trim());
+  if (signed && !opts.download) return signed;
   const key = storedKeyOf(v);
   if (!key) return v; // data:, blob:, signed links, /api/f/..., other hosts
   if (onPublicPage()) {
-    // Until the public page's backend hands out signed links (phase 3), keys there use the public base.
+    const signedKey = signedUrls.get(key);
+    if (signedKey) return signedKey;
+    // A file the token page's backend did not sign: the public base while the bucket is still public.
     const base = process.env.NEXT_PUBLIC_RESOURCE_URL || "";
     return base ? `${base.replace(/\/$/, "")}/${key}` : v;
   }

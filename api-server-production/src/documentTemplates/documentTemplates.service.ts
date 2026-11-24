@@ -10,6 +10,7 @@ import { TEMPLATE_FIELD_DEFINITIONS, getTemplateFields } from './templateFieldDe
 import { S3Service } from 'src/common/services/s3.service';
 import { renderDocumentHtml } from 'src/common/services/document-html';
 import { DEFAULT_DESIGN, DocumentDesign, resolveDesign } from 'src/common/services/document-html/design';
+import { signBucketUrlsInHtml } from '../common/storage-sign';
 
 @Injectable()
 export class DocumentTemplatesService {
@@ -101,7 +102,7 @@ export class DocumentTemplatesService {
       logoUrl,
     };
     const html = renderDocumentHtml(type, data, org);
-    if (html) return { html, ported: true };
+    if (html) return { html: await signBucketUrlsInHtml(html), ported: true };
     return {
       ported: false,
       html: `<!DOCTYPE html><html><body style="font-family:Helvetica,Arial,sans-serif;padding:32px;color:#444;font-size:14px;"><p><b>${t.name || t.type}</b> prints with the standard layout for its type. Design options apply to quotations, invoices, credit notes and debit notes.</p></body></html>`,

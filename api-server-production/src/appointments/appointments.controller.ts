@@ -1,10 +1,11 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards, UseInterceptors } from '@nestjs/common';
 import { Request } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { Public } from '../decorators/public.decorator';
 import { AppointmentsService } from './appointments.service';
+import { SignedFileUrlsInterceptor } from '../common/storage-sign';
 
 interface RequestWithOrganization extends Request {
   userOrganization?: { id: string };
@@ -28,6 +29,7 @@ export class PublicBookingController {
 
   @Public()
   @Get('public/booking/:token')
+  @UseInterceptors(SignedFileUrlsInterceptor) // files as signed links (no session on this page)
   slots(@Param('token') token: string) {
     return this.service.publicSlots(token);
   }

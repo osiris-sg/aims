@@ -3,6 +3,7 @@ import * as puppeteer from 'puppeteer';
 import { renderDocumentHtml } from './document-html';
 import { resolveTimeZone } from '../org-today';
 import { DESCRIPTION_HAS_MODEL, DESCRIPTION_HAS_SERIAL } from './document-html/shared';
+import { signBucketUrlsInHtml } from '../storage-sign';
 
 @Injectable()
 export class PdfGeneratorService {
@@ -51,6 +52,8 @@ export class PdfGeneratorService {
     },
   ): Promise<Buffer> {
     let browser = null;
+    // Files load through short-lived signed links (the bucket is going private).
+    html = await signBucketUrlsInHtml(html);
 
     try {
       // Launch puppeteer browser

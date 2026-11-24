@@ -1,4 +1,5 @@
 "use client";
+import { fileSrc, registerSignedUrls } from "@/helpers/fileUrl";
 
 // PUBLIC (no login): the client-facing e-signature page for a quotation.
 // Reached from the token URL the designer shares (WhatsApp / e-mail). Shows the
@@ -101,6 +102,7 @@ export default function PublicSignPage() {
         const json = await res.json();
         if (!res.ok) throw new Error(json?.message || "This link is not valid");
         const p: Payload = json?.data ?? json;
+        registerSignedUrls((p as any)?.fileUrls);
         setData(p);
         setName((prev) => prev || p.document?.clientName || "");
       } catch (e: any) {
@@ -184,6 +186,7 @@ export default function PublicSignPage() {
       // Refresh so the rendered document shows the signature + PDF link.
       const again = await fetch(`${base}/public/sign/${token}?lang=${lang}`);
       const j2 = await again.json();
+      registerSignedUrls((j2?.data ?? j2)?.fileUrls);
       setData(j2?.data ?? j2);
     } catch (e: any) {
       setError(e.message || "Could not submit signature");
@@ -218,7 +221,7 @@ export default function PublicSignPage() {
   const d = data.document;
   const header = (
     <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 3 }}>
-      {org.logo ? <img src={org.logo} alt={org.name} style={{ maxHeight: 44, maxWidth: 180, objectFit: "contain" }} /> : <Typography variant="h6" sx={{ fontWeight: 800 }}>{org.name}</Typography>}
+      {org.logo ? <img src={fileSrc(org.logo)} alt={org.name} style={{ maxHeight: 44, maxWidth: 180, objectFit: "contain" }} /> : <Typography variant="h6" sx={{ fontWeight: 800 }}>{org.name}</Typography>}
       <Box sx={{ flex: 1 }} />
       <ToggleButtonGroup size="small" exclusive value={lang} onChange={(_, v) => v && setLang(v)} sx={{ bgcolor: "#fff" }}>
         <ToggleButton value="en" sx={{ px: 1.25, py: 0.25, textTransform: "none" }}>English</ToggleButton>

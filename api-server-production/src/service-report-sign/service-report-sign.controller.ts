@@ -1,9 +1,10 @@
-import { Body, Controller, Get, HttpException, HttpStatus, Param, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpException, HttpStatus, Param, Post, Req, Res, UseInterceptors } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { Public } from '../decorators/public.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { ServiceReportSignService } from './service-report-sign.service';
+import { SignedFileUrlsInterceptor } from '../common/storage-sign';
 
 interface AuthedRequest extends Request {
   userOrganization?: { id: string };
@@ -54,6 +55,7 @@ export class ServiceReportSignController {
   /** PUBLIC — summary of the reports behind the token, with its state. */
   @Public()
   @Get('public/service-report/:token')
+  @UseInterceptors(SignedFileUrlsInterceptor) // files as signed links (no session on this page)
   view(@Param('token') token: string, @Req() req: Request) {
     this.service.readGate(token, this.ip(req));
     return this.service.view(token);

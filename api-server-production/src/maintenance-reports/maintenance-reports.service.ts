@@ -25,6 +25,7 @@ import { isManualOrderFlow } from '../orders/manual-order-flow';
 import { isOrgFeatureEnabled, NO_AUTO_CUSTOMER_EMAILS_FLAG } from '../common/org-features';
 import { OrdersService } from '../orders/orders.service';
 import { isOrgFolderKey } from '../common/storage-keys';
+import { signBucketUrlsInHtml } from '../common/storage-sign';
 
 /** Org fields every renderer may need: name/logo for the stock sheets, the rest for the WCT letterhead + footer. */
 /** Most reports one bulk download may carry (POST /maintenance-reports/bulk-pdf). */
@@ -620,7 +621,7 @@ export class MaintenanceReportsService {
     const sd = (report.serviceData as any) ?? {};
     // Edit mode only for a WCT report still being written.
     const edit = !!opts.edit && templateFor(sd.templateId) === 'WCT_V1' && report.status !== 'completed';
-    return { html: this.renderReportHtml(report, { edit }), templateId: templateFor(sd.templateId) };
+    return { html: await signBucketUrlsInHtml(this.renderReportHtml(report, { edit })), templateId: templateFor(sd.templateId) };
   }
 
   // ── In-place editing on the report page (WCT, 2026-11-16) ──────────────────
@@ -650,7 +651,7 @@ export class MaintenanceReportsService {
     const clean = this.cleanWctDraft(draft, organizationId);
     await this.saveDraft(id, clean as any, organizationId);
     const report = await this.loadForRender(id, organizationId);
-    return { html: this.renderReportHtml(report, { edit: true }), savedAt: new Date().toISOString() };
+    return { html: await signBucketUrlsInHtml(this.renderReportHtml(report, { edit: true })), savedAt: new Date().toISOString() };
   }
 
   /** A draft from the page: known keys only; photos must be report photos (maintenance-reports/...). */

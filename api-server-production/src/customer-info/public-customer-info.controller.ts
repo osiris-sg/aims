@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, UseInterceptors } from '@nestjs/common';
 import type { Request } from 'express';
 import { Public } from '../decorators/public.decorator';
 import { CustomerInfoService } from './customer-info.service';
 import { SubmitCustomerInfoDto } from './dto/customer-info.dto';
+import { SignedFileUrlsInterceptor } from '../common/storage-sign';
 
 /**
  * Public (no-login) Customer Information surface. Both handlers are @Public()
@@ -24,6 +25,7 @@ export class PublicCustomerInfoController {
   /** PUBLIC: read-only view (customer + project + current contacts) + state. */
   @Public()
   @Get(':token')
+  @UseInterceptors(SignedFileUrlsInterceptor) // files as signed links (no session on this page)
   view(@Param('token') token: string, @Req() req: Request) {
     this.service.publicRateGate(token, this.clientIp(req));
     return this.service.getPublicView(token);

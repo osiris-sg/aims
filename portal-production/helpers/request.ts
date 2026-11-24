@@ -1,3 +1,4 @@
+import { registerSignedUrls } from "./fileUrl";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // import moment from "moment";
 import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
@@ -177,6 +178,9 @@ export class RequestService {
         result = await this.instance.request({ ...options });
       }
 
+      // Public token endpoints send signed links for their files (fileSrc reads them).
+      const fileUrls = result?.data?.data?.fileUrls;
+      if (fileUrls) registerSignedUrls(fileUrls);
       return result.data;
     } catch (error: any) {
       // Distinguish a timeout/abort (our AbortController or axios's own timeout)

@@ -15,6 +15,7 @@ import { DocumentExtractionService, DocumentType } from './document-extraction.s
 import { S3Service } from '../common/services/s3.service';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
+import { fetchableUrl } from '../common/storage-sign';
 
 // Extend Request type to include userOrganization
 interface RequestWithOrganization extends Request {
@@ -156,7 +157,8 @@ export class DocumentExtractionController {
       console.log(`📄 Processing ${documentType} from URL for organization: ${organizationId}`);
 
       // Fetch image from URL and convert to base64
-      const response = await fetch(imageUrl);
+      // The body was org-checked (FileOwnershipInterceptor); our bucket's files load through a signed link.
+      const response = await fetch(await fetchableUrl(imageUrl));
       if (!response.ok) {
         throw new HttpException(
           'Failed to fetch image from URL',

@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards, UseInterceptors } from '@nestjs/common';
 import { Request } from 'express';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { Public } from '../decorators/public.decorator';
 import { PublicSignService } from './public-sign.service';
+import { SignedFileUrlsInterceptor } from '../common/storage-sign';
 
 interface RequestWithOrganization extends Request {
   userOrganization?: { id: string };
@@ -97,6 +98,7 @@ export class PublicSignController {
 
   @Public()
   @Get('public/sign/:token')
+  @UseInterceptors(SignedFileUrlsInterceptor) // files as signed links (no session on this page)
   @ApiOperation({ summary: 'Public: document to sign (quotation or variation order, by token)' })
   get(@Param('token') token: string, @Query('lang') lang?: string) {
     return this.service.getByToken(token, lang);

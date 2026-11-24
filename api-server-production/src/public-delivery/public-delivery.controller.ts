@@ -16,6 +16,7 @@ import { Public } from '../decorators/public.decorator';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { AltPermissions, DO_UPDATE_ALT } from '../auth/decorators/alt-permissions.decorator';
 import { PublicDeliveryService } from './public-delivery.service';
+import { SignedFileUrlsInterceptor } from '../common/storage-sign';
 
 interface RequestWithOrganization extends Request {
   userOrganization?: { id: string };
@@ -69,6 +70,7 @@ export class PublicDeliveryController {
   /** PUBLIC — read-only view of the run behind the token. */
   @Public()
   @Get('public/delivery/:token')
+  @UseInterceptors(SignedFileUrlsInterceptor) // files as signed links (no session on this page)
   async view(@Param('token') token: string, @Req() req: Request) {
     this.publicDeliveryService.publicRateGate(token, this.clientIp(req));
     return this.publicDeliveryService.getRunView(token);

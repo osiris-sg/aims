@@ -13,6 +13,7 @@ import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
 import { EmailService } from 'src/email/email.service';
 import { SendInvoiceEmailDto } from 'src/email/dto/send-invoice-email.dto';
 import { ApiBody } from '@nestjs/swagger'; // documents the bulk-download body for api_docs
+import { signBucketUrlsInHtml } from '../common/storage-sign';
 
 // Extend Request type to include userOrganization
 interface RequestWithOrganization extends Request {
@@ -631,7 +632,7 @@ export class DocumentsController {
         stampUrl: styled.stampUrl,
       organization: req.userOrganization,
     });
-    return { html, layout: styled.design?.layout || 'standard' };
+    return { html: await signBucketUrlsInHtml(html), layout: styled.design?.layout || 'standard' };
   }
 
   @Post('generate-pdf')

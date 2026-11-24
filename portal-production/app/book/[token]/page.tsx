@@ -1,4 +1,5 @@
 "use client";
+import { fileSrc, registerSignedUrls } from "@/helpers/fileUrl";
 
 // PUBLIC (no login): book an appointment with a designer. The client sees ONLY
 // which slots are free — taken slots are greyed out with no detail (guru
@@ -39,6 +40,7 @@ function PublicBookingPageInner() {
       const res = await fetch(`${apiBase}/public/booking/${token}`);
       const j = await res.json();
       if (!res.ok) throw new Error(j?.message || "This booking link is not valid");
+      registerSignedUrls((j?.data ?? j)?.fileUrls);
       setData(j?.data ?? j);
     } catch (e: any) {
       setError(e.message || "This booking link is not valid");
@@ -110,7 +112,7 @@ function PublicBookingPageInner() {
         <Paper sx={{ p: { xs: 2, sm: 3 }, borderRadius: 3 }}>
           <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 0.5 }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            {data.orgLogo && <img src={data.orgLogo} alt="" style={{ maxHeight: 34, maxWidth: 120, objectFit: "contain" }} />}
+            {data.orgLogo && <img src={fileSrc(data.orgLogo)} alt="" style={{ maxHeight: 34, maxWidth: 120, objectFit: "contain" }} />}
             <Typography variant="h5" sx={{ fontWeight: 800, color: "#1c1c1e" }}>
               Book an appointment
             </Typography>

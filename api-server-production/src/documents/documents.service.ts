@@ -71,6 +71,7 @@ const quoteSubjectOf = (qc: any): string => String(qc?.subject ?? qc?.documentIn
 import { quotationLinesForJob } from '../deliveries/quotation-to-delivery';
 import { orgTodayFor } from '../common/org-today';
 import { insertWithLockedNumber } from '../document-numbering/locked-number';
+import { signBucketUrlsInHtml } from '../common/storage-sign';
 
 /** Create invoice's lines as the office confirmed them in the dialog (round 19 imported, round 36 AIMS orders). */
 type EditedInvoiceLine = { description: string; quantity: number; unitPrice: number };
@@ -9948,7 +9949,7 @@ export class DocumentsService {
       config,
       isQuotation,
     });
-    return { html, name: document.name, type: document.type };
+    return { html: await signBucketUrlsInHtml(html), name: document.name, type: document.type };
   }
 
   /**

@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Post, Param, Req, HttpException, HttpStatus } from '@nestjs/common';
+import { Body, Controller, Get, Post, Param, Req, HttpException, HttpStatus, UseInterceptors } from '@nestjs/common';
 import type { Request } from 'express';
 import { Public } from '../decorators/public.decorator';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { AltPermissions, DO_UPDATE_ALT } from '../auth/decorators/alt-permissions.decorator';
 import { PublicDocumentService } from './public-document.service';
+import { SignedFileUrlsInterceptor } from '../common/storage-sign';
 
 interface RequestWithOrganization extends Request {
   userOrganization?: { id: string };
@@ -58,6 +59,7 @@ export class PublicDocumentController {
   /** PUBLIC — read-only render payload for the document behind the token. */
   @Public()
   @Get('public/document/:token')
+  @UseInterceptors(SignedFileUrlsInterceptor) // files as signed links (no session on this page)
   async view(@Param('token') token: string, @Req() req: Request) {
     this.service.publicRateGate(token, this.clientIp(req));
     return this.service.getPublicView(token);
@@ -96,6 +98,7 @@ export class PublicDocumentController {
    */
   @Public()
   @Get('public/document/:token/route/:reportId')
+  @UseInterceptors(SignedFileUrlsInterceptor) // files as signed links (no session on this page)
   async routeTrack(@Param('token') token: string, @Param('reportId') reportId: string, @Req() req: Request) {
     this.service.publicRateGate(token, this.clientIp(req));
     return this.service.getPublicRouteTrack(token, reportId);

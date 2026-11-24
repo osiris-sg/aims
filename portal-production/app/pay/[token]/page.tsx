@@ -1,4 +1,5 @@
 "use client";
+import { fileSrc, registerSignedUrls } from "@/helpers/fileUrl";
 
 // Public "Click to pay" page (guru 2026-08-06, Aspire concept): reached from
 // the invoice email button — no login. Left: the invoice PDF. Right: payment
@@ -47,6 +48,7 @@ function PublicPayPageInner() {
         const res = await fetch(`${base}/public-pay/${token}`);
         const json = await res.json();
         if (!res.ok) throw new Error("This payment link is invalid or has expired.");
+        registerSignedUrls((json?.data ?? json)?.fileUrls);
         setData(json?.data ?? json);
       } catch (e: any) {
         setError(e?.message || "Failed to load");
@@ -114,7 +116,7 @@ function PublicPayPageInner() {
             </Box>
             {data.organization.logo && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={data.organization.logo} alt="" style={{ maxHeight: 42, maxWidth: 140, objectFit: "contain" }} />
+              <img src={fileSrc(data.organization.logo)} alt="" style={{ maxHeight: 42, maxWidth: 140, objectFit: "contain" }} />
             )}
           </Stack>
 

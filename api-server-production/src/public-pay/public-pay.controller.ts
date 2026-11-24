@@ -1,7 +1,8 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PublicPayService } from './public-pay.service';
 import { Public } from '../decorators/public.decorator';
+import { SignedFileUrlsInterceptor } from '../common/storage-sign';
 
 // PUBLIC (no auth): the "Click to pay" page a customer lands on from the
 // invoice email. Documents are looked up by their unguessable payToken only.
@@ -12,6 +13,7 @@ export class PublicPayController {
 
   @Public()
   @Get(':token')
+  @UseInterceptors(SignedFileUrlsInterceptor) // files as signed links (no session on this page)
   @ApiOperation({ summary: 'Public invoice payment page payload (by pay token)' })
   get(@Param('token') token: string) {
     return this.service.getByToken(token);
