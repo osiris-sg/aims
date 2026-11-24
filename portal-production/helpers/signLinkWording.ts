@@ -4,7 +4,8 @@
 // intro, no renovation / project talk, no em-dashes. "generic" (2026-11-13,
 // Chong Aik) is every other enableQuotationESign org: signing only confirms.
 
-export type SignLinkWording = "ciel" | "wct" | "generic";
+// "do" (WCT manual order flow, 2026-11-25): a delivery order on an order; signing completes the DO.
+export type SignLinkWording = "ciel" | "wct" | "generic" | "do";
 
 const money = (n: number) => n.toLocaleString("en-SG", { minimumFractionDigits: 2 });
 
@@ -25,6 +26,13 @@ export const SIGN_LINK_WORDING = {
     signed: "The quotation is confirmed and its order is created.",
     message: (client: string, number: string, total: number, url: string) =>
       `Hi ${client || ""}, please review and sign quotation ${number || ""}${total > 0 ? ` (S$ ${money(total)})` : ""} here: ${url}`,
+  },
+  do: {
+    intro: "On signing, the DO is completed and the office is notified.",
+    footer: "Any edit you make after sharing is what the customer sees when they open the link: the page always renders the latest saved version.",
+    copyFailed: "Copy failed. Select the link and copy it manually.",
+    signed: "The DO is completed.",
+    message: (client: string, number: string, _total: number, url: string) => `Hi ${client || ""}, please review and sign delivery order ${number || ""} here: ${url}`,
   },
   generic: {
     intro: "On signing, the quotation is confirmed and the office is notified.",

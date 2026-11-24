@@ -9376,6 +9376,20 @@ export class DocumentsService {
     }
   }
 
+  /**
+   * The customer signed a DO's public sign link (public-sign, 2026-11-25): complete it exactly as "Customer signs
+   * here" does (DeliveriesService.officeCompleteDo, signature mode), recorded as signed on the link.
+   */
+  async completeOrderDoBySignLink(doId: string, organizationId: string, who: { name: string; image: string }) {
+    return this.deliveriesService.officeCompleteDo(
+      organizationId,
+      doId,
+      { mode: 'signature', signature: who.image, recipientName: who.name },
+      { id: 'customer-sign-link', name: `${who.name} (customer, sign link)` },
+      'sign-link',
+    );
+  }
+
   /** Document.revisionNumber (0 = original, n = "Create Revision" n), or null. */
   async revisionNumberOf(documentId: string, organizationId: string): Promise<number | null> {
     const row = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { revisionNumber: true } }).catch(() => null);

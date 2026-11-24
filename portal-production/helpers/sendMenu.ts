@@ -38,8 +38,8 @@ export function sendDocKind(documentType: string | null | undefined): SendDocKin
  *    old "Send for signature" rule); email = any status (the old Send Email
  *    rule; the menu also offers it on e-sign quotations).
  *  - invoice: email only, any status (the old Send Email rule).
- *  - DO on an order (manual flow): sign = the order DO's "Customer sign link",
- *    not once completed. A DO not on an order: sign = "Share DO link (view /
+ *  - DO on an order (manual flow): sign = the quotation's sign link, DO version,
+ *    and email = the same link by email (2026-11-25), not once completed. A DO not on an order: sign = "Share DO link (view /
  *    sign)", any saved DO. DOs have no email send (the API emails only
  *    invoices and quotations).
  */
@@ -62,7 +62,14 @@ export function editorSendOptions(o: {
     add("email");
   } else if (kind === "do") {
     if (o.templateMode || !o.saved) return [];
-    if (o.doOnOrder ? !o.doCompleted : true) add("sign");
+    // A DO on an order (2026-11-25, like the quotation): Send for signature + Send email (the sign link by email),
+    // until it is completed.
+    if (o.doOnOrder) {
+      if (!o.doCompleted) {
+        add("sign");
+        add("email");
+      }
+    } else add("sign");
   }
   if (!out.length) return [];
   add("whatsapp", true);

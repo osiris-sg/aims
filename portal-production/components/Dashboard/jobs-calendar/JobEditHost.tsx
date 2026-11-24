@@ -99,6 +99,9 @@ export default function JobEditHost({ target, onClose, onSaved }: { target: JobE
             .filter((i: any) => !!i.asset && !i.inventory)
             .map((i: any) => ({ assetId: i.asset.id, name: i.asset.name ?? i.description ?? "Product", quantity: i.quantity ?? 1 }))}
           defaultName={run.customer?.name ?? null}
+          // Send for signature (2026-11-25): the job's DO sign link; signing completes the job the on-screen way.
+          signDocId={(run.items ?? []).find((i: any) => i.document?.id || i.documentId)?.document?.id ?? (run.items ?? []).find((i: any) => i.documentId)?.documentId ?? null}
+          signCustomer={{ name: run.customer?.name ?? null, email: run.customer?.email ?? null, phone: run.customer?.phone ?? null }}
           onDone={done}
         />
       )}

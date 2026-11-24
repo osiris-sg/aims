@@ -10,12 +10,13 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
+import { Button, CircularProgress } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
 import OfficeCompleteJobDialog from "./OfficeCompleteJobDialog";
-import CustomerSignLink from "./CustomerSignLink";
+import DoSignLinkDialog, { doSignCustomerOf } from "./DoSignLinkDialog";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { showBackToOrder } from "@/helpers/wctDocUi";
 
@@ -66,14 +67,17 @@ export default function DoOrderToolbar({ documentId, doName, status, config }: {
           <Button size="small" variant="outlined" disabled={busy} onClick={() => void addJob()} data-tour="do-add-job">
             Add job
           </Button>
+          {/* enableWctDocNav (2026-11-25): Send (toolbar Send menu) + Confirm (DoConfirmButton), like the quotation. */}
           {!isWctDocNavEnabled && (
-            <Button size="small" variant="outlined" onClick={() => setLinkOpen(true)} data-tour="do-sign-link">
-              Customer sign link
-            </Button>
+            <>
+              <Button size="small" variant="outlined" onClick={() => setLinkOpen(true)} data-tour="do-sign-link">
+                Send for signature
+              </Button>
+              <Button size="small" variant="contained" disableElevation onClick={() => setCompleteOpen(true)} data-tour="do-complete">
+                Complete DO
+              </Button>
+            </>
           )}
-          <Button size="small" variant="contained" disableElevation onClick={() => setCompleteOpen(true)} data-tour="do-complete">
-            Complete DO
-          </Button>
         </>
       )}
 
@@ -86,22 +90,96 @@ export default function DoOrderToolbar({ documentId, doName, status, config }: {
           jobLabel={doName || "the DO"}
           defaultName={customer?.name ?? null}
           productSlots={products.map((p: any) => ({ assetId: p.assetId, name: String(p.description || p.itemCode || "Product"), quantity: 1 }))}
-          onDone={(mode) => {
+          signCustomer={doSignCustomerOf(c)}
+          onDone={() => {
             setCompleteOpen(false);
-            if (mode === "sign_link") setLinkOpen(true);
-            else window.location.reload();
+            window.location.reload();
           }}
         />
       )}
-      <Dialog open={linkOpen} onClose={() => setLinkOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Customer sign link</DialogTitle>
-        <DialogContent>
-          <CustomerSignLink documentId={documentId} doName={doName} />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => { setLinkOpen(false); window.location.reload(); }}>Close</Button>
-        </DialogActions>
-      </Dialog>
+      <DoSignLinkDialog open={linkOpen} documentId={documentId} doName={doName} customer={doSignCustomerOf(c)} onClose={() => setLinkOpen(false)} />
     </>
+  );
+}
+
+/**
+ * The DO toolbar's "Confirm" (manual order flow + enableWctDocNav, 2026-11-25), like the quotation's: completes
+ * the DO without a signature in one click. A DO with product lines first asks for their units (the same dialog).
+ */
+export function DoConfirmButton({ documentId, doName, config, onDone, sx }: { documentId: string; doName: string | null; config: any; onDone?: () => void; sx?: any }) {
+  const { getToken } = useAuth();
+  const c: any = config || {};
+  const [busy, setBusy] = useState(false);
+  const [unitsOpen, setUnitsOpen] = useState(false);
+  const products = (Array.isArray(c.items) ? c.items : []).filter((it: any) => it?.assetId && !it.inventoryItemId);
+  const done = () => (onDone ? onDone() : window.location.reload());
+  const confirm = async () => {
+    if (products.length) {
+      setUnitsOpen(true);
+      return;
+    }
+    setBusy(true);
+    try {
+      const token = await getToken();
+      const res: any = await request({ path: `/deliveries/order-dos/${documentId}/complete`, method: "POST", ownError: true }, { mode: "confirm" }, token ?? undefined);
+      if (res?.success === false) throw new Error(res?.message || "Could not confirm the DO");
+      toast.success(`${doName || "The DO"} is completed`);
+      done();
+    } catch (e: any) {
+      toast.error(e?.message || "Could not confirm the DO");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <Button
+        size="small"
+        variant="contained"
+        disableElevation
+        startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <CheckCircleIcon />}
+        disabled={busy}
+        onClick={() => void confirm()}
+        sx={sx ?? { bgcolor: "#15803D", color: "#fff", "&:hover": { bgcolor: "#116632" } }}
+        data-tour="do-confirm"
+        data-hotkey="confirm"
+      >
+        Confirm
+      </Button>
+      {unitsOpen && (
+        <OfficeCompleteJobDialog
+          open
+          onClose={() => setUnitsOpen(false)}
+          deliveryId=""
+          doId={documentId}
+          jobLabel={doName || "the DO"}
+          productSlots={products.map((p: any) => ({ assetId: p.assetId, name: String(p.description || p.itemCode || "Product"), quantity: 1 }))}
+          signCustomer={doSignCustomerOf(c)}
+          onDone={() => {
+            setUnitsOpen(false);
+            done();
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+/** The DO ⋮ menu's "Attach signed copy" (manual order flow, 2026-11-25): attaching the signed copy completes the DO. */
+export function DoAttachSignedDialog({ open, documentId, doName, config, onClose }: { open: boolean; documentId: string; doName: string | null; config: any; onClose: () => void }) {
+  if (!open) return null;
+  const c: any = config || {};
+  const products = (Array.isArray(c.items) ? c.items : []).filter((it: any) => it?.assetId && !it.inventoryItemId);
+  return (
+    <OfficeCompleteJobDialog
+      open
+      onClose={onClose}
+      deliveryId=""
+      doId={documentId}
+      jobLabel={doName || "the DO"}
+      initialMode="stamped_do"
+      productSlots={products.map((p: any) => ({ assetId: p.assetId, name: String(p.description || p.itemCode || "Product"), quantity: 1 }))}
+      onDone={() => window.location.reload()}
+    />
   );
 }

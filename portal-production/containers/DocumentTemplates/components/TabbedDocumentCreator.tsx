@@ -148,14 +148,14 @@ import BorderColorIcon from "@mui/icons-material/BorderColor";
 import QuotationSignLinkDialog from "./QuotationSignLinkDialog";
 import SignLinkDialog from "@/app/portal/sales/quotations/id/_components/SignLinkDialog";
 import SendForSignatureButton from "@/app/portal/sales/quotations/id/_components/SendForSignatureButton";
-import DoOrderToolbar from "@/components/delivery/DoOrderToolbar";
+import DoOrderToolbar, { DoAttachSignedDialog, DoConfirmButton } from "@/components/delivery/DoOrderToolbar";
+import DoSignLinkDialog, { doSignCustomerOf } from "@/components/delivery/DoSignLinkDialog";
 import { editorTitleBar, isNarrowSnoCell, lineColumnWidth } from "@/helpers/wctDocUi";
 import { doOrderIdOf } from "@/helpers/doOrder";
 import { usesCielSignFlow } from "@/helpers/signLinkWording";
 import { useAppBack } from "@/app/portal/hooks/useAppBack";
 import SendMenuButton from "@/components/nav/SendMenuButton";
 import { editorSendControls, withoutSendWhenVoided } from "@/helpers/sendMenu";
-import CustomerSignLink from "@/components/delivery/CustomerSignLink";
 import { useDocumentLock } from "@/app/portal/hooks/useDocumentLock";
 import { toast } from "react-toastify";
 import { useForm, Controller } from "react-hook-form";
@@ -1126,6 +1126,8 @@ export default function TabbedDocumentCreator({
   // signature / email / WhatsApp (disabled) replaces "Send for signature" and
   // "Send Email"; same show rules (helpers/sendMenu.ts). Off = the old buttons.
   const [doSignOpen, setDoSignOpen] = useState(false);
+  // DO ⋮ "Attach signed copy" (manual order flow, 2026-11-25): attaching completes the DO.
+  const [doAttachOpen, setDoAttachOpen] = useState(false);
   // Component-scope invoice flag so the header project picker (appendRow) can
   // cover invoices too. (Inner callbacks keep their own local copies.)
   const isInvoiceTypeDoc = documentType === "INVOICE" || documentType === "TI" || documentType === "TI2";
@@ -5811,7 +5813,10 @@ export default function TabbedDocumentCreator({
               options={sendControls.menu}
               dataTour="editor-send-menu"
               onSelect={(k) => {
-                if (k === "email") void handleOpenSendEmail();
+                // A DO on an order (2026-11-25): Send for signature and Send email both open its sign link dialog
+                // (copy / WhatsApp / email the link), the quotation's.
+                if (doOnOrder && (k === "sign" || k === "email")) setDoSignOpen(true);
+                else if (k === "email") void handleOpenSendEmail();
                 else if (k === "sign") {
                   if (isQuotation) setSignLinkDialogOpen(true);
                   else if (doOnOrder) setDoSignOpen(true);
@@ -5822,6 +5827,15 @@ export default function TabbedDocumentCreator({
           )}
           {sendControls.legacySign && (
             <SendForSignatureButton onClick={() => setSignLinkDialogOpen(true)} dataTour="editor-send-signature" />
+          )}
+          {/* DO on an order (manual order flow + enableWctDocNav, 2026-11-25): Confirm after Send, like the quotation. */}
+          {doOnOrder && !!isWctDocNavEnabled && !isTemplateEditMode && !String(documentStatus || "").startsWith("delivered") && !isImportedDo && (
+            <DoConfirmButton
+              documentId={(documentId || (existingData as any)?.id) as string}
+              doName={(existingData as any)?.name ?? (existingData as any)?.documentNumber ?? null}
+              config={(existingData as any)?.config ?? existingData ?? formData}
+              sx={TOOLBAR_GREEN}
+            />
           )}
           {/* Confirm button for Quotations — only when enableConfirmQuotation is on.
               After confirm saves, a popup asks if the user wants to convert the
@@ -6211,6 +6225,12 @@ export default function TabbedDocumentCreator({
               <MenuItem onClick={() => { closeMoreMenu(); handleRevokeDoViewLink(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Revoke DO link</ListItemText>
+              </MenuItem>
+            )}
+            {doOnOrder && !String(documentStatus || "").startsWith("delivered") && !isImportedDo && !isTemplateEditMode && (
+              <MenuItem onClick={() => { closeMoreMenu(); setDoAttachOpen(true); }} data-tour="do-attach-signed">
+                <ListItemIcon><AttachFileIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Attach signed copy</ListItemText>
               </MenuItem>
             )}
             {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (existingData?.id || documentId) && (
@@ -9584,17 +9604,21 @@ export default function TabbedDocumentCreator({
         />
       )}
       {/* Send menu > Send for signature on a DO of an order (enableWctDocNav): the order DO's Customer sign link. */}
-      {doSignOpen && (
-        <Dialog open onClose={() => setDoSignOpen(false)} fullWidth maxWidth="sm">
-          <DialogTitle>Customer sign link</DialogTitle>
-          <DialogContent>
-            <CustomerSignLink documentId={(documentId || (existingData as any)?.id) as string} doName={(existingData as any)?.name ?? (existingData as any)?.documentNumber ?? null} />
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => { setDoSignOpen(false); window.location.reload(); }}>Close</Button>
-          </DialogActions>
-        </Dialog>
-      )}
+      {/* Send menu > Send for signature / Send email on a DO of an order (2026-11-25): the quotation's sign link, DO version. */}
+      <DoSignLinkDialog
+        open={doSignOpen}
+        documentId={(documentId || (existingData as any)?.id) as string}
+        doName={(existingData as any)?.name ?? (existingData as any)?.documentNumber ?? null}
+        customer={doSignCustomerOf((existingData as any)?.config ?? existingData ?? formData)}
+        onClose={() => setDoSignOpen(false)}
+      />
+      <DoAttachSignedDialog
+        open={doAttachOpen}
+        documentId={(documentId || (existingData as any)?.id) as string}
+        doName={(existingData as any)?.name ?? (existingData as any)?.documentNumber ?? null}
+        config={(existingData as any)?.config ?? existingData ?? formData}
+        onClose={() => setDoAttachOpen(false)}
+      />
       {signLinkDialogOpen && cielSignFlow && (
         <SignLinkDialog
           open={signLinkDialogOpen}

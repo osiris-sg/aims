@@ -2155,6 +2155,8 @@ export class DeliveriesService {
     doId: string,
     body: { mode?: string; signature?: string; recipientName?: string; files?: string[]; units?: Array<{ assetId?: string; inventoryId?: string }> },
     actor: { id?: string; name?: string },
+    // 'sign-link' (2026-11-25): the customer signed the DO's public sign page (public-sign); the same completion path.
+    via: 'office' | 'sign-link' = 'office',
   ) {
     if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('Complete DO needs the manual order flow');
     const d = await this.prisma.document.findFirst({ where: { id: doId, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, name: true, status: true, config: true } });
@@ -2175,7 +2177,8 @@ export class DeliveriesService {
     }
     const draftJobs = jobs.filter((j) => j.isDraft);
     const mode = body?.mode;
-    if (mode !== 'signature' && mode !== 'stamped_do' && mode !== 'sign_link') throw new BadRequestException('Choose how the customer signs off');
+    // confirm (2026-11-25): the DO toolbar's "Confirm", completed without a signature.
+    if (mode !== 'signature' && mode !== 'stamped_do' && mode !== 'sign_link' && mode !== 'confirm') throw new BadRequestException('Choose how the customer signs off');
     // Inputs first, so a refused completion never leaves units reserved.
     if (mode === 'signature') {
       if (!/^data:image\/(png|jpeg);base64,/.test(String(body.signature ?? ''))) throw new BadRequestException('Ask the customer to sign in the box');
@@ -2213,12 +2216,12 @@ export class DeliveriesService {
           technicianName: actor.name ?? null,
           kind: 'DO_ACK',
           status: 'completed',
-          description: 'Signed in the office',
+          description: via === 'sign-link' ? 'Signed by the customer on the sign link' : 'Signed in the office',
           photos: [],
           signature,
           signedByName: name,
           signedAt: now,
-          serviceData: { signedVia: 'office-screen', signedSubmittedAt: now.toISOString() } as Prisma.InputJsonValue,
+          serviceData: { signedVia: via === 'sign-link' ? 'sign-link' : 'office-screen', signedSubmittedAt: now.toISOString() } as Prisma.InputJsonValue,
         } as any,
       });
     } else if (mode === 'stamped_do') {
@@ -2244,6 +2247,11 @@ export class DeliveriesService {
         files.map((key, n) => ({ fileKey: key, fileName: `Stamped DO${files.length > 1 ? ` ${n + 1}` : ''}.${(key.split('.').pop() || 'jpg').toLowerCase()}`, mimeType: 'image/jpeg', label: 'Stamped DO' })),
         { id: actor.id, name: actor.name },
       );
+    } else if (mode === 'confirm') {
+      // Confirmed without a signature: one proof row records who confirmed it (the job's "Proof of job").
+      await this.prisma.maintenanceServiceReport.create({
+        data: { organizationId, documentId: d.id, deliveryId: null, technicianUserId: actor.id || 'office', technicianName: actor.name ?? null, kind: 'DO_ACK', status: 'completed', description: 'Confirmed in the office without a signature', photos: [], serviceData: { confirmedVia: 'office', confirmedAt: now.toISOString() } as Prisma.InputJsonValue } as any,
+      });
     } else {
       // Waits for the customer: the DO link's signature completes it. An unsigned proof row is what the link signs.
       const open = await this.prisma.maintenanceServiceReport.findFirst({ where: { documentId: d.id, deliveryId: null, kind: 'DO_ACK', signature: null } });
@@ -2346,7 +2354,8 @@ export class DeliveriesService {
     if (!(await isManualOrderFlow(this.prisma, organizationId))) {
       throw new BadRequestException('Completing a job in the dashboard is not enabled for this organisation');
     }
-    const mode = dto.mode === 'signature' || dto.mode === 'stamped_do' || dto.mode === 'sign_link' ? dto.mode : null;
+    // confirm (2026-11-25): "Confirm" without a signature, finished as completionMode 'confirmed' and verified at once.
+    const mode = dto.mode === 'signature' || dto.mode === 'stamped_do' || dto.mode === 'sign_link' ? dto.mode : dto.mode === 'confirm' ? 'confirmed' : null;
     if (!mode) throw new BadRequestException('Choose how the job was signed off');
     if (mode === 'signature' && !dto.signature) throw new BadRequestException('The customer signature is required');
     if (mode === 'signature' && !dto.recipientName?.trim()) throw new BadRequestException("Enter the customer's name");
@@ -2463,7 +2472,7 @@ export class DeliveriesService {
         signature: mode === 'signature' ? dto.signature : undefined,
         recipientName: dto.recipientName?.trim() || undefined,
         stampedDoPhotos: mode === 'stamped_do' ? files : undefined,
-        completionNote: dto.note?.trim() || (mode === 'sign_link' ? 'Completed in the office; the customer signs by link' : undefined),
+        completionNote: dto.note?.trim() || (mode === 'sign_link' ? 'Completed in the office; the customer signs by link' : mode === 'confirmed' ? 'Confirmed in the office without a signature' : undefined),
         technicianName: actor.name,
       },
       organizationId,
@@ -2471,7 +2480,7 @@ export class DeliveriesService {
       { manual: true },
     );
     // The office uploaded the signed / stamped DO itself: nothing left to check.
-    if (mode === 'stamped_do') await this.verifyJob(deliveryId, organizationId, actor);
+    if (mode === 'stamped_do' || mode === 'confirmed') await this.verifyJob(deliveryId, organizationId, actor);
     await this.orderFollowsRun(organizationId, deliveryId);
     return { ...(finished as any), mode };
   }
@@ -6212,7 +6221,7 @@ export class DeliveriesService {
           deliveryId,
           kind: 'DO_ACK',
           status: 'completed',
-          description: `${mode === 'stamped_do' ? 'Stamped DO (photo)' : mode === 'sign_link' ? 'Completed: the customer signs by link' : 'Completed: paper copy to follow'}${dto.completionNote?.trim() ? ` — ${dto.completionNote.trim()}` : ''}`,
+          description: `${mode === 'stamped_do' ? 'Stamped DO (photo)' : mode === 'sign_link' ? 'Completed: the customer signs by link' : mode === 'confirmed' ? 'Confirmed in the office without a signature' : 'Completed: paper copy to follow'}${dto.completionNote?.trim() ? ` — ${dto.completionNote.trim()}` : ''}`,
           ...(stampedPhotos.length ? { photos: stampedPhotos } : {}),
           ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
           ...(dto.longitude != null ? { longitude: dto.longitude } : {}),

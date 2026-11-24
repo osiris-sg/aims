@@ -1014,6 +1014,7 @@ export default function DeliveryDetailPage() {
           .filter((i) => !!i.asset && !i.inventory)
           .map((i) => ({ assetId: i.asset!.id, name: i.asset!.name ?? i.description ?? "Product", quantity: i.quantity ?? 1 }))}
         defaultName={run.customer?.name ?? null}
+        signDocId={distinctDocs[0]?.id ?? null}
         onDone={() => {
           setCompleteOpen(false);
           void load();

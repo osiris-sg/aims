@@ -118,7 +118,7 @@ export const HUB_ACTION_LABEL: Record<HubActionKey, string> = {
   "upload-report": "Add service report",
   "send-report": "Send service report",
   "resend-report": "Resend service report",
-  "sign-link": "Customer sign link",
+  "sign-link": "Send for signature",
 };
 
 /** Destructive row actions: styled red and confirmed first. */

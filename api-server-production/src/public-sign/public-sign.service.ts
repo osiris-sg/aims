@@ -12,8 +12,13 @@ import { WhatsAppAdapter } from '../operator/adapters/whatsapp.adapter';
 import { TemplateStatusService } from '../operator/template-status.service';
 import { ActionLogService } from '../action-log/action-log.service';
 import { isOrgFeatureEnabled } from '../common/org-features';
+import { isManualOrderFlow } from '../orders/manual-order-flow';
 
 const QUOTATION_TYPES = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'];
+// Delivery orders on an order (manual order flow, WCT 2026-11-25): "Send for signature" like the quotation; signing
+// completes the DO through the same path as "Customer signs here" (DeliveriesService.officeCompleteDo).
+const DO_TYPES = ['DELIVERY_ORDER', 'DO'];
+const isDoType = (t: unknown) => DO_TYPES.includes(String(t ?? '').toUpperCase());
 const VO_TYPE = 'VARIATION_ORDER'; // VOs sign by the same link flow (Mike 2026-11-07)
 const VALIDITY_DAYS = 14; // "This quotation and agreement is valid for 14 days"
 const MAX_SIGNATURE_BYTES = 400_000; // PNG data URL of a trimmed signature is ~10–40 KB
@@ -116,6 +121,20 @@ export class PublicSignService {
     if (!lines || grand <= 0) throw new BadRequestException('Add priced lines to the quotation before sending it for signature');
   }
 
+  /** A DO that can be sent for signature: manual order flow, on an order, not completed / cancelled / imported, no unit left to pick. */
+  private async assertDoSignable(doc: { status: string; config: any; name?: string | null }, organizationId: string) {
+    const c: any = doc.config || {};
+    const label = doc.name || 'This DO';
+    if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('Only quotations and variation orders can be sent for signature');
+    if (!c.orderId) throw new BadRequestException(`${label} is not on an order`);
+    if (c.erpImport) throw new BadRequestException(`${label} is imported from the old system`);
+    if (c.cancelled === true) throw new BadRequestException(`${label} is cancelled`);
+    if (String(doc.status || '').startsWith('delivered')) throw new BadRequestException(`${label} is already completed`);
+    if ((Array.isArray(c.items) ? c.items : []).some((it: any) => it?.assetId && !it.inventoryItemId)) {
+      throw new BadRequestException(`${label} has product lines without a unit: confirm it (pick the units) instead`);
+    }
+  }
+
   /** VO line count + net (additions − removals, complimentary and area rows at 0). */
   private voStats(config: any): { lines: number; net: number } {
     const vo: any = config?.vo || {};
@@ -132,11 +151,13 @@ export class PublicSignService {
   async createForDocument(documentId: string, organizationId: string) {
     const doc = await this.prisma.document.findFirst({
       where: { id: documentId, organizationId },
-      select: { id: true, type: true, status: true, config: true },
+      select: { id: true, type: true, status: true, config: true, name: true },
     });
     if (!doc) throw new NotFoundException('Document not found');
     const type = String(doc.type).toUpperCase();
-    if (type === VO_TYPE) {
+    if (isDoType(type)) {
+      await this.assertDoSignable(doc, organizationId);
+    } else if (type === VO_TYPE) {
       // A confirmed VO can still be SENT — confirmation locks nothing until
       // the client gets the link (guru 2026-11-08). Only an already-signed
       // one has nothing left to sign.
@@ -208,11 +229,12 @@ export class PublicSignService {
       throw new BadRequestException('The customer has no email on file. Enter the email address to send to.');
     }
     const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } });
-    const total = isVo ? this.voStats(cfg).net : Number(grossOf(cfg) ?? 0);
+    const isDo = isDoType(doc.type);
+    const total = isDo ? 0 : isVo ? this.voStats(cfg).net : Number(grossOf(cfg) ?? 0);
     const amount = total > 0 ? ` (${isVo ? 'net ' : ''}S$ ${total.toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` : '';
     const until = link.expiresAt ? ` The link is valid until ${new Date(link.expiresAt).toLocaleDateString('en-SG', { day: '2-digit', month: 'short', year: 'numeric' })}.` : '';
     const greeting = contactName || customerName ? `Hi ${contactName || customerName}, ` : 'Hi, ';
-    const docLabel = isVo ? 'variation order' : 'quotation';
+    const docLabel = isDo ? 'delivery order' : isVo ? 'variation order' : 'quotation';
     const message = String(body?.message || '').trim() || `${greeting}please review and sign ${docLabel} ${doc.name || ''}${amount} here: ${link.url}.${until} Thank you, ${org?.name || 'AIMS'}.`;
     const text = message.includes(link.url) ? message : `${message}\n${link.url}`;
     const base = { via, to, url: link.url, expiresAt: link.expiresAt ?? null, message: text } as const;
@@ -237,7 +259,7 @@ export class PublicSignService {
 
     if (via === 'email') {
       const html = `<p>${escapeHtml(greeting.trim())}</p><p>Please review and sign ${docLabel} <b>${escapeHtml(doc.name || '')}</b>${escapeHtml(amount)}:</p><p><a href="${link.url}">${link.url}</a></p><p>${escapeHtml(until.trim())}</p><p>Thank you,<br/>${escapeHtml(org?.name || 'AIMS')}</p>`;
-      const res = await this.email.sendSimpleEmail({ to: [to], subject: `${isVo ? 'Variation order' : 'Quotation'} ${doc.name || ''} from ${org?.name || 'AIMS'} — please sign`, html });
+      const res = await this.email.sendSimpleEmail({ to: [to], subject: `${isDo ? 'Delivery order' : isVo ? 'Variation order' : 'Quotation'} ${doc.name || ''} from ${org?.name || 'AIMS'} — please sign`, html });
       await record('email', res.success, res.error);
       return res.success ? { sent: true, ...base } : { sent: false, ...base, reason: res.error || 'email failed' };
     }
@@ -380,12 +402,13 @@ export class PublicSignService {
     // A VO's headline figure is its NET (additions − removals); the quotation's
     // is the grand total. `newQuantum` lets the sign panel show what the
     // contract becomes once the client accepts.
-    const grand = isVo ? this.voStats(cfg).net : this.quoteStats(cfg).grand;
+    const isDo = isDoType(doc.type);
+    const grand = isDo ? 0 : isVo ? this.voStats(cfg).net : this.quoteStats(cfg).grand;
     const base = {
       state,
       document: {
         number: doc.name,
-        docType: isVo ? 'VARIATION_ORDER' : 'QUOTATION',
+        docType: isDo ? 'DELIVERY_ORDER' : isVo ? 'VARIATION_ORDER' : 'QUOTATION',
         clientName: cfg?.client?.name || quote?.header?.clientName || cfg?.customer?.name || cfg?.customerName || '',
         address: cfg?.client?.address || quote?.header?.address || cfg?.customerAddress || cfg?.customer?.address || '',
         designer: cfg?.designer || quote?.header?.designer || '',
@@ -482,7 +505,7 @@ export class PublicSignService {
   async sign(token: string, body: { signerName?: string; signatureDataUrl?: string; agreed?: boolean }, meta: { ip?: string; userAgent?: string }) {
     const { link, state } = await this.resolve(token);
     if (!link) throw new NotFoundException();
-    if (state !== 'active') throw new BadRequestException(state === 'signed' ? 'This quotation has already been signed' : 'This link is no longer valid');
+    if (state !== 'active') throw new BadRequestException(state === 'signed' ? `This ${isDoType(link.document?.type) ? 'delivery order' : 'quotation'} has already been signed` : 'This link is no longer valid');
     const name = (body.signerName || '').trim();
     const image = body.signatureDataUrl || '';
     if (!name) throw new BadRequestException('Please enter your name');
@@ -490,6 +513,7 @@ export class PublicSignService {
     if (!/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(image) || image.length > MAX_SIGNATURE_BYTES) throw new BadRequestException('Please draw your signature');
 
     const doc = link.document;
+    if (isDoType(doc.type)) return this.signDo(link, { name, image }, meta);
     const isVo = String(doc.type).toUpperCase() === VO_TYPE;
     // A VO may legitimately arrive here already confirmed (confirmed-but-
     // unsent VOs stay sendable, guru 2026-11-08) — signing then just attaches
@@ -650,6 +674,38 @@ export class PublicSignService {
     }
     this.logger.log(`quotation ${doc.name} signed by ${name} (${meta.ip || 'ip?'})`);
     return { ok: true, signedAt, projectId };
+  }
+
+  /**
+   * The customer signs a DO's link (2026-11-25): the DO is completed through the same path as "Customer signs here"
+   * (DO status, its job, the order stage, the stock deduction, the order's invoice rules); the signature prints at the
+   * bottom right of the DO. The link is then spent; the office hears it like a signed quotation.
+   */
+  private async signDo(link: any, who: { name: string; image: string }, meta: { ip?: string; userAgent?: string }) {
+    const doc = link.document;
+    await this.assertDoSignable({ status: doc.status, config: doc.config, name: doc.name }, doc.organizationId);
+    await this.documents.completeOrderDoBySignLink(doc.id, doc.organizationId, who);
+    const signedAt = new Date();
+    await this.prisma.$transaction([
+      this.prisma.documentSignLink.update({ where: { id: link.id }, data: { signedAt, signerName: who.name, signerIp: meta.ip || null, userAgent: (meta.userAgent || '').slice(0, 300) } }),
+      this.prisma.documentSignLink.updateMany({ where: { documentId: doc.id, id: { not: link.id }, signedAt: null, revokedAt: null }, data: { revokedAt: signedAt } }),
+    ]);
+    const c: any = doc.config || {};
+    const client = c.customer?.name || c.customerName || '';
+    const linkPath = c.orderId ? `/portal/orders/${c.orderId}` : doc.documentTemplateId ? `/portal/documents/${doc.type}/${doc.documentTemplateId}/${doc.id}` : '/portal';
+    await this.staffWhatsApp.push(doc.organizationId, `DO ${doc.name || ''} signed by ${who.name}${client ? ` (${client})` : ''}. It is completed.`, { linkPath, dedupeKey: `do-signed:${doc.id}` });
+    await this.notifications.emit({
+      organizationId: doc.organizationId,
+      kind: 'do_signed',
+      title: `DO ${doc.name || ''} signed by ${who.name}`,
+      body: `${client || 'The customer'} signed the delivery order. It is completed.`,
+      entityType: 'document',
+      entityId: doc.id,
+      linkUrl: linkPath,
+    });
+    await this.afterESign(doc, { name: who.name, ip: meta.ip, userAgent: meta.userAgent, documentNumber: doc.name || null, orderNumber: c.orderNo ?? null });
+    this.logger.log(`DO ${doc.name} signed by ${who.name} (${meta.ip || 'ip?'})`);
+    return { ok: true, signedAt, projectId: doc.projectId ?? null };
   }
 
   /** enableQuotationESign orgs only: re-render the signed PDF and log the customer's signature. Never throws. */

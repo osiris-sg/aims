@@ -16,7 +16,7 @@ import { uploadFile, publicFileUrl } from "@/helpers/fileUploader";
 import SendServiceReportDialog from "@/components/orders/SendServiceReportDialog";
 import { OrderDoMenu, useAddDo, type OrderDo } from "./OrderDosSection";
 import OfficeCompleteJobDialog from "@/components/delivery/OfficeCompleteJobDialog";
-import CustomerSignLink from "@/components/delivery/CustomerSignLink";
+import DoSignLinkDialog from "@/components/delivery/DoSignLinkDialog";
 import QuickJobDialog from "@/components/Dashboard/jobs-calendar/QuickJobDialog";
 import { linkedToast } from "@/helpers/quickJobQuotation";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
@@ -623,6 +623,7 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
           productSlots={(completeDo.products ?? []).map((p) => ({ assetId: p.assetId, name: p.name, quantity: 1 }))}
           jobLabel={completeDo.name || "the DO"}
           defaultName={order.customer?.name ?? null}
+          signCustomer={{ name: order.customer?.name ?? null, email: (order as any).customer?.email ?? null, phone: (order as any).customer?.phone ?? null }}
           initialMode={completeMode}
           onDone={(mode) => {
             const d = completeDo;
@@ -632,13 +633,17 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
           }}
         />
       )}
-      <Dialog open={!!signLinkDo} onClose={() => setSignLinkDo(null)} fullWidth maxWidth="sm">
-        <DialogTitle>Customer sign link</DialogTitle>
-        <DialogContent>{signLinkDo && <CustomerSignLink documentId={signLinkDo.id} doName={signLinkDo.name} />}</DialogContent>
-        <DialogActions>
-          <Button onClick={() => setSignLinkDo(null)}>Close</Button>
-        </DialogActions>
-      </Dialog>
+      {/* A DO's Send for signature (2026-11-25): the quotation's sign link, DO version (signing completes the DO). */}
+      <DoSignLinkDialog
+        open={!!signLinkDo}
+        documentId={signLinkDo?.id ?? ""}
+        doName={signLinkDo?.name ?? null}
+        customer={{ name: order.customer?.name ?? null, email: (order as any).customer?.email ?? null, phone: (order as any).customer?.phone ?? null }}
+        onClose={() => {
+          setSignLinkDo(null);
+          void load();
+        }}
+      />
       <SendServiceReportDialog
         open={sendReportOpen}
         onClose={() => setSendReportOpen(false)}

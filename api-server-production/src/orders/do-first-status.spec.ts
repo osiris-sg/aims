@@ -76,6 +76,26 @@ describe('Complete DO on a DO with no job (officeCompleteDo)', () => {
     expect(bad.documentsService.bindDoUnits).not.toHaveBeenCalled();
   });
 
+  it('confirm (2026-11-25): completed without a signature, an unsigned proof row records who confirmed it', async () => {
+    const { svc, writes, documentsService } = make(doc());
+    const out = await svc.officeCompleteDo('org', 'd1', { mode: 'confirm' }, { id: 'u1', name: 'Office' });
+    expect(out).toEqual({ id: 'd1', completed: true });
+    const proof = writes.find((w) => w[0] === 'proof')[1].data;
+    expect(proof).toMatchObject({ documentId: 'd1', kind: 'DO_ACK', status: 'completed', description: 'Confirmed in the office without a signature' });
+    expect(proof.signature).toBeUndefined();
+    expect(writes.find((w) => w[0] === 'doc')[1].data.config).toMatchObject({ awaitingSignature: false, completionMode: 'confirm' });
+    expect(documentsService.bulkCompleteDeliveryOrder).toHaveBeenCalledWith('d1', 'org');
+  });
+
+  it('signed on the sign link (2026-11-25): the same completion as "Customer signs here", recorded as the link', async () => {
+    const { svc, writes, documentsService } = make(doc());
+    const out = await svc.officeCompleteDo('org', 'd1', { mode: 'signature', signature: SIG, recipientName: 'Lim' }, { id: 'customer-sign-link', name: 'Lim (customer, sign link)' }, 'sign-link');
+    expect(out).toEqual({ id: 'd1', completed: true });
+    const proof = writes.find((w) => w[0] === 'proof')[1].data;
+    expect(proof).toMatchObject({ kind: 'DO_ACK', signature: SIG, signedByName: 'Lim', description: 'Signed by the customer on the sign link', serviceData: { signedVia: 'sign-link' } });
+    expect(documentsService.bulkCompleteDeliveryOrder).toHaveBeenCalledWith('d1', 'org');
+  });
+
   it('a DO whose job is scheduled: completed through that job (the job path, same body)', async () => {
     const body = { mode: 'signature', signature: SIG, recipientName: 'A' };
     const { svc, officeCompleteJob, documentsService } = make(doc(), [{ id: 'j1', deliveryNumber: 7, isDraft: false, status: 'scheduled' }]);

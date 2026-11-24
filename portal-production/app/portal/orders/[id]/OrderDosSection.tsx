@@ -114,7 +114,7 @@ export function OrderDoMenu({
       )}
       {d && !d.completed && !cancelled && <MenuItem onClick={() => void addJob(d)}>Add job</MenuItem>}
       {d && !d.completed && !cancelled && (
-        <MenuItem onClick={() => { onClose(); onSignLink(d); }}>Customer sign link</MenuItem>
+        <MenuItem onClick={() => { onClose(); onSignLink(d); }}>Send for signature</MenuItem>
       )}
       {extra}
     </Menu>

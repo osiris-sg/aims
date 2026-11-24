@@ -2,39 +2,29 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import {
-  Alert,
-  Autocomplete,
-  Box,
-  Button,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Stack,
-  TextField,
-  ToggleButton,
-  ToggleButtonGroup,
-  Typography,
-} from "@mui/material";
-import SignatureCanvas from "react-signature-canvas";
+import { Alert, Autocomplete, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from "@mui/material";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import DrawIcon from "@mui/icons-material/DrawOutlined";
 import { request } from "@/helpers/request";
 import { uploadFile } from "@/helpers/fileUploader";
+import DoSignLinkDialog from "./DoSignLinkDialog";
 
-type Mode = "signature" | "stamped_do" | "sign_link";
+// "confirm" = completed without a signature; "stamped_do" = the signed copy attached; "sign_link" = sent for signature.
+type Mode = "confirm" | "stamped_do" | "sign_link";
 
 /** A product line still waiting for its unit(s): one in-stock unit is picked per quantity. */
 export type ProductSlot = { assetId: string; name: string; quantity: number };
 type Unit = { id: string; sku: string; serialNumber: string | null; assetId: string };
 
 /**
- * Manual order flow (enableManualOrderFlow, 2026-11-12): the office finishes a
- * job in the dashboard, one of three ways.
- *   Customer signs here   the customer signs on this screen; done at once.
- *   Upload signed DO      the signed / stamped DO (PDF or photo); done at once.
- *   Send sign link        done now, the customer signs the DO by link later;
- *                         the order is invoiced once they have signed.
+ * Manual order flow (enableManualOrderFlow): completing a job or a DO in the office. Since 2026-11-25 it mirrors
+ * the quotation's Send / Confirm (the 3-tab pop-up "sign here / upload / sign link" is gone):
+ *   Send for signature  the quotation's sign link + public sign page, DO version (DoSignLinkDialog). Signing
+ *                       completes the DO / job the same way the on-screen signature did.
+ *   Confirm             completed now, without a signature (product lines: pick their units first).
+ * Opened with initialMode "stamped_do" (the order page's "Upload completed DO", the DO's "Attach signed copy") it
+ * attaches the signed copy and completes the DO.
+ * The on-screen "Customer signs here" is no longer offered in the office: the field apps keep their own sign-off.
  */
 export default function OfficeCompleteJobDialog({
   open,
@@ -46,6 +36,8 @@ export default function OfficeCompleteJobDialog({
   onDone,
   doId,
   initialMode,
+  signDocId,
+  signCustomer,
 }: {
   open: boolean;
   onClose: () => void;
@@ -57,30 +49,32 @@ export default function OfficeCompleteJobDialog({
   onDone: (mode: Mode) => void;
   /** DO first (manual flow, 2026-11-13): complete this DO (deliveryId is unused then; the server uses its job if it has a scheduled one). */
   doId?: string;
-  /** The way it opens on (2026-11-23: the order page's "Upload completed DO" opens on Upload signed DO). */
-  initialMode?: Mode;
+  /** "stamped_do": attach the signed copy (the order page's "Upload completed DO", the DO's "Attach signed copy"). */
+  initialMode?: "stamped_do" | string;
+  /** The DO a job's "Send for signature" signs (its job's DO). Defaults to doId. */
+  signDocId?: string | null;
+  signCustomer?: { name?: string | null; phone?: string | null; email?: string | null } | null;
 }) {
   const isDo = !!doId;
+  const attach = initialMode === "stamped_do";
   const { getToken } = useAuth();
-  const sig = useRef<SignatureCanvas>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const [mode, setMode] = useState<Mode>(initialMode ?? "signature");
-  const [name, setName] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // One pick per unit needed, keyed "<assetId>#<n>".
-  // Keyed by the slot's position too: one product can sit on several slots (one row per unit).
+  const [signOpen, setSignOpen] = useState(false);
+  // One pick per unit needed, keyed by the slot's position too: one product can sit on several slots.
   const sameProduct = (assetId: string) => productSlots.filter((x) => x.assetId === assetId).reduce((t, x) => t + Math.max(1, x.quantity), 0);
-  const needed = productSlots.flatMap((s, i) =>
-    Array.from({ length: Math.max(1, s.quantity) }, (_, n) => ({ key: `${i}:${s.assetId}#${n}`, assetId: s.assetId, name: s.name })),
-  ).map((n, idx, all) => {
-    const total = sameProduct(n.assetId);
-    const nth = all.slice(0, idx + 1).filter((x) => x.assetId === n.assetId).length;
-    return { key: n.key, assetId: n.assetId, label: total > 1 ? `${n.name} (${nth} of ${total})` : n.name };
-  });
+  const needed = productSlots
+    .flatMap((s, i) => Array.from({ length: Math.max(1, s.quantity) }, (_, n) => ({ key: `${i}:${s.assetId}#${n}`, assetId: s.assetId, name: s.name })))
+    .map((n, idx, all) => {
+      const total = sameProduct(n.assetId);
+      const nth = all.slice(0, idx + 1).filter((x) => x.assetId === n.assetId).length;
+      return { key: n.key, assetId: n.assetId, label: total > 1 ? `${n.name} (${nth} of ${total})` : n.name };
+    });
   const [units, setUnits] = useState<Unit[] | null>(null);
   const [picked, setPicked] = useState<Record<string, Unit | null>>({});
+  const signId = signDocId ?? doId ?? null;
 
   useEffect(() => {
     if (!open || !needed.length) return;
@@ -104,14 +98,12 @@ export default function OfficeCompleteJobDialog({
   useEffect(() => {
     if (!open) return;
     setPicked({});
-    // The order page's "Upload completed DO" opens on Upload signed DO (2026-11-23); every other opening on Signature.
-    setMode(initialMode ?? "signature");
-    setName(defaultName ?? "");
     setFiles([]);
     setError(null);
+    setSignOpen(false);
   }, [open, defaultName, initialMode]);
 
-  const submit = async () => {
+  const submit = async (mode: "confirm" | "stamped_do") => {
     setBusy(true);
     setError(null);
     try {
@@ -123,14 +115,8 @@ export default function OfficeCompleteJobDialog({
         if (missing.length) throw new Error(`Pick a unit for ${missing.map((m) => m.label).join(", ")}`);
         body.units = needed.map((n) => ({ assetId: n.assetId, inventoryId: picked[n.key]!.id }));
       }
-      if (mode === "signature") {
-        if (!sig.current || sig.current.isEmpty()) throw new Error("Ask the customer to sign in the box");
-        if (!name.trim()) throw new Error("Enter the customer's name");
-        body.signature = sig.current.getTrimmedCanvas().toDataURL("image/png");
-        body.recipientName = name.trim();
-      }
       if (mode === "stamped_do") {
-        if (!files.length) throw new Error("Choose the signed or stamped DO");
+        if (!files.length) throw new Error("Choose the signed copy");
         const keys: string[] = [];
         for (const f of files) keys.push((await uploadFile({ file: f, folder: isDo ? `documents/${doId}/signed-do` : `deliveries/${deliveryId}/signed-do`, token })).fileKey);
         body.files = keys;
@@ -145,19 +131,17 @@ export default function OfficeCompleteJobDialog({
     }
   };
 
+  if (signOpen && signId) {
+    return <DoSignLinkDialog open documentId={signId} doName={isDo ? jobLabel : null} customer={signCustomer ?? { name: defaultName }} onClose={onClose} />;
+  }
+
   return (
     <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Complete {jobLabel}</DialogTitle>
+      <DialogTitle>{attach ? `Attach signed copy: ${jobLabel}` : `Complete ${jobLabel}`}</DialogTitle>
       <DialogContent>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {isDo ? "The DO is completed. Choose how the customer signs off." : "Every item on the job is marked as done and the DO is completed. Choose how the customer signs off."}
-        </Typography>
         {needed.length > 0 && (
-          <Stack spacing={1.25} sx={{ mb: 2 }}>
+          <Stack spacing={1.25} sx={{ mb: 2, mt: 0.5 }}>
             <Typography variant="subtitle2">Units delivered</Typography>
-            <Typography variant="caption" color="text.secondary">
-              Pick the unit for each product line. Stock moves the same way as when a worker scans it in the field app.
-            </Typography>
             {needed.map((n) => {
               const taken = new Set(Object.entries(picked).filter(([k, u]) => k !== n.key && u).map(([, u]) => u!.id));
               const options = (units ?? []).filter((u) => u.assetId === n.assetId && !taken.has(u.id));
@@ -178,57 +162,19 @@ export default function OfficeCompleteJobDialog({
             })}
           </Stack>
         )}
-        <ToggleButtonGroup exclusive fullWidth size="small" value={mode} onChange={(_, v) => v && setMode(v)} sx={{ mb: 2 }}>
-          <ToggleButton value="signature">Customer signs here</ToggleButton>
-          <ToggleButton value="stamped_do">Upload signed DO</ToggleButton>
-          <ToggleButton value="sign_link">Send sign link</ToggleButton>
-        </ToggleButtonGroup>
 
-        {mode === "signature" && (
-          <Stack spacing={1.5}>
-            <TextField size="small" label="Customer name" value={name} onChange={(e) => setName(e.target.value)} fullWidth />
-            <Box sx={{ position: "relative", border: 1, borderColor: "divider", borderRadius: 1, bgcolor: "#fff" }}>
-              <SignatureCanvas ref={sig} penColor="#111" canvasProps={{ width: 520, height: 160, style: { width: "100%", height: 160, display: "block" } }} />
-              <Button size="small" onClick={() => sig.current?.clear()} sx={{ position: "absolute", right: 4, bottom: 2, color: "text.secondary" }}>
-                Clear
-              </Button>
-            </Box>
-            <Typography variant="caption" color="text.secondary">
-              {isDo ? "The signature prints on the DO. The DO is completed and the order is invoiced once every DO is done." : "The signature prints on the DO. The job is done and the order is invoiced once every job is done."}
-            </Typography>
-          </Stack>
-        )}
-
-        {mode === "stamped_do" && (
-          <Stack spacing={1}>
-            <input
-              ref={fileInput}
-              type="file"
-              hidden
-              multiple
-              accept="application/pdf,image/jpeg,image/png,image/webp"
-              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-            />
+        {attach && (
+          <Stack spacing={1} sx={{ mt: 0.5 }}>
+            <input ref={fileInput} type="file" hidden multiple accept="application/pdf,image/jpeg,image/png,image/webp" onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
             <Button variant="outlined" onClick={() => fileInput.current?.click()}>
-              {files.length ? `${files.length} file${files.length === 1 ? "" : "s"} chosen` : "Choose the signed / stamped DO"}
+              {files.length ? `${files.length} file${files.length === 1 ? "" : "s"} chosen` : "Choose the signed copy"}
             </Button>
             {files.map((f) => (
               <Typography key={f.name} variant="caption" color="text.secondary">
                 {f.name}
               </Typography>
             ))}
-            <Typography variant="caption" color="text.secondary">
-              {isDo ? "The file is attached to the DO. The DO is completed and the order is invoiced once every DO is done." : "The file is attached to the DO. The job is done and the order is invoiced once every job is done."}
-            </Typography>
           </Stack>
-        )}
-
-        {mode === "sign_link" && (
-          <Alert severity="info" variant="outlined">
-            {isDo
-              ? "The DO waits for the customer. Copy the DO sign link (shown next) and send it. When the customer signs, the DO is completed and the order is invoiced once every DO is done."
-              : "The job is marked done now. Then copy the customer sign link on this page and send it. When the customer signs the DO, the job is verified and the order is invoiced once every job is done."}
-          </Alert>
         )}
 
         {error && (
@@ -241,9 +187,27 @@ export default function OfficeCompleteJobDialog({
         <Button onClick={onClose} disabled={busy}>
           Cancel
         </Button>
-        <Button variant="contained" onClick={() => void submit()} disabled={busy} startIcon={busy ? <CircularProgress size={16} color="inherit" /> : undefined} data-tour="office-complete-job-submit">
-          {isDo ? "Complete DO" : "Complete job"}
-        </Button>
+        {attach ? (
+          <Button variant="contained" onClick={() => void submit("stamped_do")} disabled={busy} startIcon={busy ? <CircularProgress size={16} color="inherit" /> : undefined} data-tour="office-complete-attach">
+            Attach and complete
+          </Button>
+        ) : (
+          <>
+            <Button variant="outlined" startIcon={<DrawIcon />} onClick={() => setSignOpen(true)} disabled={busy || !signId} data-tour="office-complete-send-signature">
+              Send for signature
+            </Button>
+            <Button
+              variant="contained"
+              color="success"
+              onClick={() => void submit("confirm")}
+              disabled={busy}
+              startIcon={busy ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />}
+              data-tour="office-complete-job-submit"
+            >
+              Confirm
+            </Button>
+          </>
+        )}
       </DialogActions>
     </Dialog>
   );

@@ -121,7 +121,7 @@ export default function SignLinkDialog({ open, documentId, documentNumber, clien
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" PaperProps={{ sx: { borderRadius: 2 } }}>
-      <DialogTitle>Send for client signature</DialogTitle>
+      <DialogTitle>{wording === "do" ? "Send for signature" : "Send for client signature"}</DialogTitle>
       <DialogContent dividers>
         {signed ? (
           <Alert icon={<CheckCircleIcon fontSize="inherit" />} severity="success">

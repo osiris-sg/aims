@@ -26,7 +26,7 @@ test("invoice: Send email (any status) + WhatsApp; no signature", () => {
 });
 
 test("DO: Send for signature + WhatsApp; no email (the API emails only invoices and quotations)", () => {
-  assert.deepEqual(keys(editorSendOptions({ ...base, documentType: "DELIVERY_ORDER", doOnOrder: true })), ["sign", "whatsapp(off)"]);
+  assert.deepEqual(keys(editorSendOptions({ ...base, documentType: "DELIVERY_ORDER", doOnOrder: true })), ["sign", "email", "whatsapp(off)"]);
   assert.deepEqual(keys(editorSendOptions({ ...base, documentType: "DO" })), ["sign", "whatsapp(off)"]);
   // A completed DO on an order shows no sign link (as the old toolbar); nothing else = no Send button.
   assert.deepEqual(editorSendOptions({ ...base, documentType: "DELIVERY_ORDER", doOnOrder: true, doCompleted: true }), []);

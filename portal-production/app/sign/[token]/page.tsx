@@ -53,6 +53,21 @@ const T_VO: Partial<Record<keyof typeof T, { en: string; zh: string }>> = {
   },
 };
 
+// Delivery orders on an order (WCT manual order flow, 2026-11-25): the customer signs that the work / items were
+// received; signing completes the DO. No total, no T&C page.
+const T_DO: Partial<Record<keyof typeof T, { en: string; zh: string }>> = {
+  accept: { en: "Sign this delivery order", zh: "签收此送货单" },
+  signBelow: {
+    en: "Sign below to confirm the work and items on this delivery order were received.",
+    zh: "请在下方签名，确认已收到本送货单所列的工作及物品。",
+  },
+  agree: {
+    en: "I confirm the work and items on this delivery order were received.",
+    zh: "本人确认已收到本送货单所列的工作及物品。",
+  },
+  sign: { en: "Sign", zh: "签名" },
+};
+
 type Payload = {
   state: "active" | "signed" | "revoked" | "expired" | "notfound";
   document: { number: string | null; docType?: string; clientName: string; address: string; designer: string; grandTotal: number; newQuantum?: number | null; currency: string };
@@ -74,7 +89,8 @@ export default function PublicSignPage() {
   const [error, setError] = useState<string | null>(null);
   const [lang, setLang] = useState<"en" | "zh">("en");
   const isVo = data?.document?.docType === "VARIATION_ORDER";
-  const t = (k: keyof typeof T) => ((isVo && T_VO[k]) || T[k])[lang];
+  const isDo = data?.document?.docType === "DELIVERY_ORDER";
+  const t = (k: keyof typeof T) => ((isVo && T_VO[k]) || (isDo && T_DO[k]) || T[k])[lang];
   const [name, setName] = useState("");
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -229,7 +245,7 @@ export default function PublicSignPage() {
       </ToggleButtonGroup>
       <Box sx={{ textAlign: "right" }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-          {signPageTitle(isVo, d.number)}
+          {signPageTitle(isVo, d.number, isDo)}
         </Typography>
         <Typography variant="body2" sx={{ color: "#555" }}>
           {d.clientName}
@@ -244,7 +260,7 @@ export default function PublicSignPage() {
       <>
         {header}
         <Alert severity="warning">
-          {data.state === "expired" ? `This ${isVo ? "variation order" : "quotation"} link expired on ${fmtDate(data.expiresAt)}.` : `This ${isVo ? "variation order" : "quotation"} link is no longer active.`} Please contact {org.name}
+          {data.state === "expired" ? `This ${isDo ? "delivery order" : isVo ? "variation order" : "quotation"} link expired on ${fmtDate(data.expiresAt)}.` : `This ${isDo ? "delivery order" : isVo ? "variation order" : "quotation"} link is no longer active.`} Please contact {org.name}
           {org.phoneNumber ? ` at ${org.phoneNumber}` : ""} for an updated copy.
         </Alert>
       </>,
@@ -282,7 +298,7 @@ export default function PublicSignPage() {
         >
           <iframe
             ref={frameRef}
-            title={isVo ? "Variation order" : "Quotation"}
+            title={isDo ? "Delivery order" : isVo ? "Variation order" : "Quotation"}
             srcDoc={data.html}
             sandbox="allow-same-origin"
             onLoad={measureFrame}
@@ -306,7 +322,7 @@ export default function PublicSignPage() {
             {t("accept")}
           </Typography>
           <Typography variant="body2" sx={{ color: "#555", mb: 2 }}>
-            {t("grand")} <b>{d.currency} {money(d.grandTotal)}</b>.
+            {isDo ? null : <>{t("grand")} <b>{d.currency} {money(d.grandTotal)}</b>.</>}
             {isVo && d.newQuantum ? <> {lang === "zh" ? "新合同总额" : "New contract sum"} <b>{d.currency} {money(d.newQuantum)}</b>.</> : null} {t("signBelow")}
             {data.expiresAt ? ` This link is valid until ${fmtDate(data.expiresAt)}.` : ""}
           </Typography>

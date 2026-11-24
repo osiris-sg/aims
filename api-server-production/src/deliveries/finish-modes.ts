@@ -17,7 +17,8 @@
  */
 export const WCT_FINISH_MODES_FLAG = 'enableWctFinishModes';
 
-export const COMPLETION_MODES = ['signature', 'stamped_do', 'paper', 'sign_link'] as const;
+// confirmed (2026-11-25, manual order flow): the office's "Confirm", done without a signature, verified at once.
+export const COMPLETION_MODES = ['signature', 'stamped_do', 'paper', 'sign_link', 'confirmed'] as const;
 export type CompletionMode = (typeof COMPLETION_MODES)[number];
 export type VerificationState = 'pending' | 'verified' | 'rejected';
 
@@ -26,6 +27,7 @@ export const COMPLETION_MODE_LABEL: Record<CompletionMode, string> = {
   stamped_do: 'Photo of stamped DO',
   paper: 'Paper copy to follow',
   sign_link: 'Customer to sign by link',
+  confirmed: 'Confirmed in the office',
 };
 
 export const VERIFICATION_LABEL: Record<VerificationState, string> = {

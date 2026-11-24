@@ -20,9 +20,11 @@ test("only pending DOs get Upload completed DO on the DO card (not completed, no
 
 test("same dialog as the DO page, opened on Upload signed DO; the file opens from FILE", () => {
   const dialog = read("components/delivery/OfficeCompleteJobDialog.tsx");
-  assert.match(dialog, /useState<Mode>\(initialMode \?\? "signature"\)/);
-  // The reset when it opens keeps the starting way too (review 23 Nov).
-  assert.match(dialog, /setMode\(initialMode \?\? "signature"\);[\s\S]*\}, \[open, defaultName, initialMode\]\);/);
+  // 25 Nov: opened on "stamped_do" it is the attach form (Attach and complete); otherwise Send for signature / Confirm.
+  assert.match(dialog, /const attach = initialMode === "stamped_do";/);
+  assert.match(dialog, /void submit\("stamped_do"\)/);
+  assert.match(dialog, /void submit\("confirm"\)/);
+  assert.ok(!dialog.includes("<ToggleButton"), "no 3-tab pop-up any more");
   const page = read("app/portal/orders/[id]/WctOrderDetail.tsx");
   assert.match(page, /<OfficeCompleteJobDialog/);
   assert.match(page, /initialMode=\{completeMode\}/);
