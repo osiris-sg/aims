@@ -540,7 +540,8 @@ export function JobsCalendarPanel({
         canAdd={canAdd}
         newButton={newButton}
         focus={focus}
-        holidays={data?.holidays}
+        // Schedule search: a public holiday shows only on a day that still has a match.
+        holidays={scheduleShown ? (data?.holidays ?? []).filter((h) => scheduleShown.events.some((e) => (e.allDay ? e.start.slice(0, 10) : new Date(Date.parse(e.start) + 8 * 3_600_000).toISOString().slice(0, 10)) === h.date) || (scheduleShown.notes ?? []).some((n) => n.startDate <= h.date && h.date <= n.endDate)) : data?.holidays}
         onEditJob={onEditJob}
         onCompleteJob={onCompleteJob}
         onAdd={onAdd}

@@ -112,7 +112,7 @@ export default function NoteDialog({
               size="small"
               value={form.type}
               onChange={(e) => set({ type: e.target.value as NoteType })}
-              sx={{ minWidth: 160 }}
+              sx={{ minWidth: 230 }}
               data-tour="calendar-note-type"
             >
               {typeList.map((t) => (
