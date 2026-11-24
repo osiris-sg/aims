@@ -8,6 +8,11 @@
  *   - Supervisor: an AIMS login linked to a Worker who supervises a site or a team (SiteClock's
  *     SUPERVISOR_DEFAULTS, lib/permissions.ts @62b7d9d), limited to their own sites and teams.
  * A company-scope grant for an area wins over the supervisor grant for that area.
+ *
+ * Custom access orgs (2026-11-24): when the person is governed by a tab map (their own Custom access,
+ * custom roles, or enforced presets), the company levels come from the map's HR tabs and the role
+ * names are not read, so the Roles grid is the one place HR access is set. A person with no roles in
+ * such an org is NOT an Admin.
  */
 import type { FieldArea } from './field-flags';
 import { FIELD_AREAS } from './field-flags';
@@ -23,7 +28,29 @@ export type FieldGrant = Partial<Record<FieldArea, FieldLevel>>;
 export const FIELD_PRESETS: Record<string, FieldGrant> = {
   operations: { people: 'view', jobs: 'edit', punches: 'approve', timesheets: 'approve', leave: 'approve', reports: 'view' },
   accounting: { people: 'view', timesheets: 'view', payroll: 'edit', reports: 'view' },
+  viewer: { people: 'view', jobs: 'view', punches: 'view', timesheets: 'view', leave: 'view', reports: 'view' },
 };
+
+/** The HR tab (src/access/tab-access.ts) behind each area. */
+export const HR_TAB_FOR_AREA: Record<FieldArea, string> = {
+  people: 'hrPeople',
+  jobs: 'hrJobs',
+  punches: 'hrPunches',
+  timesheets: 'hrTimesheets',
+  leave: 'hrLeave',
+  payroll: 'hrPayroll',
+  reports: 'hrReports',
+};
+
+/** A tab map's HR levels as a company grant. */
+export function grantFromTabMap(map: Record<string, unknown>): FieldGrant {
+  const out: FieldGrant = {};
+  for (const area of FIELD_AREAS) {
+    const v = map[HR_TAB_FOR_AREA[area]];
+    out[area] = v === 'view' || v === 'edit' || v === 'approve' ? v : 'none';
+  }
+  return out;
+}
 
 /** SiteClock's built-in Supervisor (live, flagged view + review, timesheets view / edit / export, workers view, jobs view, schedules assign, leave view / approve, attendance report). */
 export const SUPERVISOR_GRANT: FieldGrant = { people: 'view', jobs: 'view', punches: 'approve', timesheets: 'edit', leave: 'approve', reports: 'view' };
@@ -37,13 +64,22 @@ export interface FieldAccess {
   admin: boolean;
 }
 
-export function computeFieldAccess(input: { isOsirisAdmin: boolean; roleNames: string[]; supervises: boolean }): FieldAccess {
-  const names = input.roleNames.map((n) => String(n || '').trim().toLowerCase());
-  const admin = input.isOsirisAdmin || names.length === 0 || names.some((n) => ADMIN_ROLE_NAMES.includes(n));
+export function computeFieldAccess(input: {
+  isOsirisAdmin: boolean;
+  roleNames: string[];
+  supervises: boolean;
+  /** The company grant from the person's tab map; when set the role names are not read. */
+  grant?: FieldGrant | null;
+  /** Custom access org: a person with no roles is not an Admin. */
+  customAccessOrg?: boolean;
+}): FieldAccess {
+  const mapped = !input.isOsirisAdmin && !!input.grant;
+  const names = mapped ? [] : input.roleNames.map((n) => String(n || '').trim().toLowerCase());
+  const admin = input.isOsirisAdmin || (!mapped && ((names.length === 0 && !input.customAccessOrg) || names.some((n) => ADMIN_ROLE_NAMES.includes(n))));
   const levels = {} as Record<FieldArea, FieldLevel>;
   const scoped = {} as Record<FieldArea, boolean>;
   for (const area of FIELD_AREAS) {
-    let company: FieldLevel = admin ? 'approve' : 'none';
+    let company: FieldLevel = admin ? 'approve' : mapped ? input.grant![area] ?? 'none' : 'none';
     for (const n of names) company = max(company, FIELD_PRESETS[n]?.[area] ?? 'none');
     const sup: FieldLevel = input.supervises ? SUPERVISOR_GRANT[area] ?? 'none' : 'none';
     levels[area] = max(company, sup);

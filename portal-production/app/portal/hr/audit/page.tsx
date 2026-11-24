@@ -41,7 +41,7 @@ function Audit() {
           { id: "src", header: "Where", cell: ({ row }: any) => row.original.source },
         ] as any}
         data={q.data?.rows ?? []}
-        tableName="Field audit log"
+        tableName="HR audit log"
         loading={q.isLoading}
         clientPaging
         noSelectionColumn

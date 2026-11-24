@@ -1,5 +1,6 @@
-// Field module (FIELD_PLAN.md, 2026-11-21): SiteClock's office side, native in AIMS. Pure helpers for the
-// flags, the "Field" nav group and the caller's access (mirrors api src/field/common/field-flags.ts and
+// Field module (FIELD_PLAN.md, 2026-11-21): SiteClock's office side, native in AIMS. Shown to people as "HR"
+// (2026-11-24; the code and the API keep the name Field). Pure helpers for the
+// flags, the "HR" nav group and the caller's access (mirrors api src/field/common/field-flags.ts and
 // field-access.ts; helpers/fieldModule.test.mjs keeps the two in step).
 
 export type FieldArea = "people" | "jobs" | "punches" | "timesheets" | "leave" | "payroll" | "reports";
@@ -32,25 +33,28 @@ export interface FieldAccess {
   admin: boolean;
 }
 
-export const FIELD_BASE = "/portal/field";
+export const FIELD_BASE = "/portal/hr";
 
 /** The Field pages, in nav order, with the area each one belongs to. */
 export const FIELD_PAGES: Array<{ key: string; label: string; area: FieldArea; path: string }> = [
   { key: "overview", label: "Overview", area: "reports", path: `${FIELD_BASE}/overview` },
-  { key: "workers", label: "Workers", area: "people", path: `${FIELD_BASE}/workers` },
-  { key: "teams", label: "Teams", area: "people", path: `${FIELD_BASE}/teams` },
-  { key: "sites", label: "Sites", area: "people", path: `${FIELD_BASE}/sites` },
-  { key: "invites", label: "Invites", area: "people", path: `${FIELD_BASE}/invites` },
-  { key: "plan", label: "Plan", area: "jobs", path: `${FIELD_BASE}/plan` },
-  { key: "working-hours", label: "Working hours", area: "jobs", path: `${FIELD_BASE}/working-hours` },
+  { key: "live-site", label: "Live site", area: "punches", path: `${FIELD_BASE}/live-site` },
   { key: "clock-ins", label: "Clock-ins", area: "punches", path: `${FIELD_BASE}/clock-ins` },
   { key: "timesheets", label: "Timesheets", area: "timesheets", path: `${FIELD_BASE}/timesheets` },
   { key: "leave", label: "Leave", area: "leave", path: `${FIELD_BASE}/leave` },
   { key: "payroll", label: "Payroll", area: "payroll", path: `${FIELD_BASE}/payroll` },
+  { key: "workers", label: "Workers", area: "people", path: `${FIELD_BASE}/workers` },
+  { key: "teams", label: "Teams", area: "people", path: `${FIELD_BASE}/teams` },
+  { key: "sites", label: "Sites", area: "people", path: `${FIELD_BASE}/sites` },
+  { key: "invites", label: "Invites", area: "people", path: `${FIELD_BASE}/invites` },
+  { key: "plan", label: "Job plan", area: "jobs", path: `${FIELD_BASE}/plan` },
+  { key: "working-hours", label: "Working hours", area: "jobs", path: `${FIELD_BASE}/working-hours` },
+  { key: "shared-workers", label: "Shared workers", area: "timesheets", path: `${FIELD_BASE}/shared-workers` },
   { key: "reports", label: "Reports", area: "reports", path: `${FIELD_BASE}/reports` },
   { key: "rules", label: "Rules", area: "reports", path: `${FIELD_BASE}/rules` },
+  { key: "terms", label: "Terms", area: "reports", path: `${FIELD_BASE}/terms` },
   { key: "audit", label: "Audit log", area: "reports", path: `${FIELD_BASE}/audit` },
-  { key: "settings", label: "Field settings", area: "people", path: `${FIELD_BASE}/settings` },
+  { key: "settings", label: "HR settings", area: "people", path: `${FIELD_BASE}/settings` },
 ];
 
 /** The pages this person may open: area on and access at least View. */
@@ -59,15 +63,16 @@ export function fieldPagesFor(areas: FieldArea[], access: FieldAccess | null | u
   return FIELD_PAGES.filter((p) => areas.includes(p.area) && fieldAtLeast(access.levels[p.area], "view"));
 }
 
-/** The "Field" nav group (a synthetic module, like Assets for vehicles); null when nothing is open. */
+/** The "HR" nav group (a synthetic module, like Assets for vehicles); null when nothing is open.
+ *  Clicking HR opens the first page the person may see (Overview for whoever has Reports). */
 export function fieldNavModule(areas: FieldArea[], access: FieldAccess | null | undefined, sortOrder = 75) {
   const pages = fieldPagesFor(areas, access);
   if (!pages.length) return null;
   return {
     moduleCode: "FIELD",
-    displayName: "Field",
+    displayName: "HR",
     enabled: true,
-    icon: "Engineering",
+    icon: "PeopleRounded",
     sortOrder,
     config: { route: pages[0].path, subMenus: pages.map((p) => ({ key: p.key, label: p.label, href: p.path })) },
   };

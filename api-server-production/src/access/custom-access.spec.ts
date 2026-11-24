@@ -267,7 +267,8 @@ describe('the preset table (final role x tab)', () => {
     const O = PRESET_TAB_ACCESS.Operations;
     expect([O.orders, O.jobs, O.serviceReports, O.calendar, O.sales, O.accounting]).toEqual(['view', 'edit', 'edit', 'edit', 'none', 'none']);
     const V = PRESET_TAB_ACCESS.Viewer;
-    expect(TAB_KEYS.every((k) => V[k] !== 'none')).toBe(true);
+    // Pay is its own row (2026-11-24): a Viewer sees every tab except HR Payroll.
+    expect(TAB_KEYS.filter((k) => V[k] === 'none')).toEqual(['hrPayroll']);
     expect(TAB_KEYS.filter((k) => V[k] === 'edit')).toEqual(['salesReport']); // Sales report "All" = read everyone's quotations
   });
 

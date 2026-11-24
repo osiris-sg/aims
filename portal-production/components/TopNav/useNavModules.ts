@@ -7,7 +7,7 @@
 // bar itself would show.
 
 import { fieldNavModule } from "@/helpers/fieldModule";
-import { useFieldMe } from "@/app/portal/field/_lib/useField";
+import { useFieldMe } from "@/app/portal/hr/_lib/useField";
 import { useMemo } from "react";
 import { useTranslations } from "next-intl";
 import { useUiLang } from "@/i18n/UiLangProvider";
@@ -130,7 +130,7 @@ export function useNavModules() {
   const { isModuleAllowed, userRoles, hasPermission, customTabs } = useUserPermissions();
   // Same rule as DynamicSidebarContent's Organization Settings group.
   const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled, isCustomAccessEnabled, isJobsCalendarEnabled, isWorkersTeamsEnabled, fieldAreas } = useOrganizationFeatures();
-  // Field module (enableFieldModule + area flags, all default off): the "Field" group, only the pages this person may open.
+  // Field module (enableFieldModule + area flags, all default off): the "HR" group, only the pages this person may open.
   const { me: fieldMe } = useFieldMe();
   const isAdminUser =
     userRoles.length === 0 ||

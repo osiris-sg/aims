@@ -2,6 +2,8 @@
 import { useUiLang } from "@/i18n/UiLangProvider";
 import { useTranslations } from "next-intl";
 import { useNavLabels, SALES_REPORT_SUBMENU } from "@/components/TopNav/useNavModules";
+import { fieldNavModule } from "@/helpers/fieldModule";
+import { useFieldMe } from "@/app/portal/hr/_lib/useField";
 import * as React from "react";
 import {
   List,
@@ -94,7 +96,9 @@ export default function DynamicSidebarContent() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled, isCustomAccessEnabled, isWorkersTeamsEnabled } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled, isCustomAccessEnabled, isWorkersTeamsEnabled, fieldAreas } = useOrganizationFeatures();
+  // HR (the Field module): the same group the top bar shows (useNavModules), for the pages this person may open.
+  const { me: fieldMe } = useFieldMe();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
   const navLang = useUiLang().lang;
@@ -291,7 +295,9 @@ export default function DynamicSidebarContent() {
   const vehiclesModule = isWctVehiclesEnabled && canVehicles(userRoles, hasPermission, 'read') ? [assetsNavModule() as any] : [];
   // Round BW: "Books" after Clients — SHIPMENTS orgs, money holders only (ADH Admin / Manager).
   const booksModule = salesModule && hasPermission('shipments', 'money') ? [booksNavModule(navLang, orderKey(salesModule)) as any] : [];
-  const enabledModules = [...builtModules, ...(salesModule ? [clientsNavModule(navLang, orderKey(salesModule)) as any] : []), ...booksModule, ...vehiclesModule]
+  const hrNav = fieldNavModule(fieldAreas ?? [], fieldMe?.access);
+  const hrModule = hrNav ? [hrNav as any] : [];
+  const enabledModules = [...builtModules, ...(salesModule ? [clientsNavModule(navLang, orderKey(salesModule)) as any] : []), ...booksModule, ...vehiclesModule, ...hrModule]
     .sort((a, b) => orderKey(a) - orderKey(b));
 
   // Resolve the URL for a single submenu key — same rules used when rendering

@@ -52,7 +52,8 @@ describe('field reports', () => {
     await db.fieldPunch.create({ data: { organizationId: ORG, workerId: a.id, siteId: site.id, type: 'IN', serverTime: new Date('2026-03-02T01:00:00Z'), flagReason: 'OUTSIDE_FENCE', status: 'FLAGGED' } });
     expect((await svc.summary(ctx(), { from: '2026-03-01', to: '2026-03-31' })).summary).toHaveLength(1);
     expect((await svc.fraud(ctx(), { from: '2026-03-01', to: '2026-03-31' })).total).toBe(1);
-    const sup = ctx(['Viewer'], { access: computeFieldAccess({ isOsirisAdmin: false, roleNames: ['Viewer'], supervises: true }), supervisedSiteIds: ['other'], supervisedWorkerIds: [] });
+    // Sales: a role with no HR access of its own (Viewer views every HR tab since 2026-11-24).
+    const sup = ctx(['Sales'], { access: computeFieldAccess({ isOsirisAdmin: false, roleNames: ['Sales'], supervises: true }), supervisedSiteIds: ['other'], supervisedWorkerIds: [] });
     expect(sup.access.scoped.reports).toBe(true);
     expect((await svc.attendance(sup, { from: '2026-03-02', to: '2026-03-02' })).rows).toEqual([]);
     expect((await svc.summary(sup, { from: '2026-03-01', to: '2026-03-31' })).summary).toEqual([]);

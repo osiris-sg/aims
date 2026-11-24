@@ -13,7 +13,8 @@ import MoreVertIcon from "@mui/icons-material/MoreVert";
 import PageTable, { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 import { request } from "@/helpers/request";
 import { failureText, replyBody, requestFailed } from "@/helpers/requestOutcome";
-import { accessSummary, copyName, noAccess, readTabAccess, roleMenuItems, type TabAccessMap } from "@/helpers/customAccess";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { accessSummary, copyName, noAccess, readTabAccess, roleMenuItems, withoutHr, type TabAccessMap } from "@/helpers/customAccess";
 import AccessGrid from "./AccessGrid";
 
 type Row = { id: string; name: string; label?: string; tabs: TabAccessMap; users: number; builtIn: boolean };
@@ -21,6 +22,9 @@ type Editing = { id: string | null; name: string; tabs: TabAccessMap; builtIn: b
 
 export default function RolesPanel() {
   const { getToken } = useAuth();
+  // HR rows only where the org has HR (the Field module) on; elsewhere the list and copies read as before.
+  const { fieldAreas } = useOrganizationFeatures();
+  const hrOn = (fieldAreas?.length ?? 0) > 0;
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +82,7 @@ export default function RolesPanel() {
   // Duplicate: a new custom role with the same access, named "<name> copy" (a free name).
   const duplicate = (r: Row) => {
     setDialogError(null);
-    setEditing({ id: null, name: copyName(r.label || r.name, rows.map((x) => x.label || x.name).concat(rows.map((x) => x.name))), tabs: { ...r.tabs }, builtIn: false });
+    setEditing({ id: null, name: copyName(r.label || r.name, rows.map((x) => x.label || x.name).concat(rows.map((x) => x.name))), tabs: hrOn ? { ...r.tabs } : withoutHr(r.tabs), builtIn: false });
   };
 
   const save = async () => {
@@ -119,7 +123,7 @@ export default function RolesPanel() {
       ),
     },
     { accessorKey: "users", header: "Users", size: 8, cell: ({ row }: any) => row.original.users },
-    { accessorKey: "tabs", header: "Access", size: 60, cell: ({ row }: any) => <Typography variant="body2">{accessSummary(row.original.tabs)}</Typography> },
+    { accessorKey: "tabs", header: "Access", size: 60, cell: ({ row }: any) => <Typography variant="body2">{accessSummary(row.original.tabs, hrOn)}</Typography> },
     {
       accessorKey: "action",
       header: "",

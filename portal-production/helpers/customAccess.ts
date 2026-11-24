@@ -1,9 +1,10 @@
 // Custom access (features.enableCustomAccess, WCT group 2026-11-19). The API side is
 // api-server-production/src/access/tab-access.ts (the tab list below mirrors ACCESS_TABS there;
-// helpers/customAccess.test.mjs checks the keys match). Access is per tab: No access / View / Edit.
+// helpers/customAccess.test.mjs checks the keys match). Access is per tab: No access / View / Edit;
+// the HR tabs (2026-11-24, the Field module) sit under an "HR" heading and some also offer Approve.
 // The server enforces it; these helpers only shape the menus and the editors.
 
-export type AccessLevel = "none" | "view" | "edit";
+export type AccessLevel = "none" | "view" | "edit" | "approve";
 export type TabKey =
   | "dashboard"
   | "sales"
@@ -16,10 +17,17 @@ export type TabKey =
   | "orgSettings"
   | "reports"
   | "salesReport"
-  | "calendar";
+  | "calendar"
+  | "hrPeople"
+  | "hrJobs"
+  | "hrPunches"
+  | "hrTimesheets"
+  | "hrLeave"
+  | "hrPayroll"
+  | "hrReports";
 export type TabAccessMap = Record<TabKey, AccessLevel>;
 
-export const ACCESS_TABS: Array<{ key: TabKey; label: string; levels: AccessLevel[] }> = [
+export const ACCESS_TABS: Array<{ key: TabKey; label: string; levels: AccessLevel[]; group?: string }> = [
   { key: "dashboard", label: "Dashboard", levels: ["none", "view"] },
   { key: "sales", label: "Sales", levels: ["none", "view", "edit"] },
   { key: "orders", label: "Orders", levels: ["none", "view", "edit"] },
@@ -32,19 +40,37 @@ export const ACCESS_TABS: Array<{ key: TabKey; label: string; levels: AccessLeve
   { key: "reports", label: "Reports", levels: ["none", "view"] },
   { key: "salesReport", label: "Sales report", levels: ["none", "view", "edit"] },
   { key: "calendar", label: "Calendar", levels: ["none", "view", "edit"] },
+  { key: "hrPeople", label: "People", group: "HR", levels: ["none", "view", "edit"] },
+  { key: "hrJobs", label: "Job plan", group: "HR", levels: ["none", "view", "edit"] },
+  { key: "hrPunches", label: "Clock-ins", group: "HR", levels: ["none", "view", "approve"] },
+  { key: "hrTimesheets", label: "Timesheets", group: "HR", levels: ["none", "view", "edit", "approve"] },
+  { key: "hrLeave", label: "Leave", group: "HR", levels: ["none", "view", "approve"] },
+  { key: "hrPayroll", label: "Payroll", group: "HR", levels: ["none", "view", "edit"] },
+  { key: "hrReports", label: "Reports", group: "HR", levels: ["none", "view"] },
 ];
+
+/** The HR rows are offered only where the org has the HR (Field) module on. */
+export const isHrTab = (key: TabKey) => key.startsWith("hr");
+/** A map with the HR rows at No access (what an org without HR saves and copies). */
+export function withoutHr(map: TabAccessMap): TabAccessMap {
+  const out = { ...map };
+  for (const t of ACCESS_TABS) if (isHrTab(t.key)) out[t.key] = "none";
+  return out;
+}
+/** "HR · People" for an HR tab, the plain label otherwise. */
+export const tabTitle = (t: { label: string; group?: string }) => (t.group ? `${t.group} · ${t.label}` : t.label);
 
 /** What each level reads as on a tab (the Sales report's View / Edit are own / everyone's quotations). */
 export function levelLabel(tab: TabKey, level: AccessLevel): string {
   if (level === "none") return "No access";
   if (tab === "salesReport") return level === "view" ? "Own" : "All";
-  return level === "view" ? "View" : "Edit";
+  return level === "view" ? "View" : level === "approve" ? "Approve" : "Edit";
 }
 
 export const CUSTOM_PREFIX = "Custom · ";
 export const CUSTOM_ACCESS_ROLE_ID = "custom-access";
 
-const RANK: Record<AccessLevel, number> = { none: 0, view: 1, edit: 2 };
+const RANK: Record<AccessLevel, number> = { none: 0, view: 1, edit: 2, approve: 3 };
 export const atLeast = (l: AccessLevel | undefined | null, need: "view" | "edit") => RANK[l ?? "none"] >= RANK[need];
 
 export function noAccess(): TabAccessMap {
@@ -111,9 +137,9 @@ export function jobsSubmenus(map: TabAccessMap | null): Array<{ key: string; lab
 /** Can the person open the jobs calendar? (No custom map: as before.) */
 export const calendarAllowed = (map: TabAccessMap | null) => !map || atLeast(map.calendar, "view");
 
-/** "Sales edit, Orders view" for a map (the Roles list). */
-export function accessSummary(map: TabAccessMap): string {
-  const parts = ACCESS_TABS.filter((t) => map[t.key] !== "none").map((t) => `${t.label} ${levelLabel(t.key, map[t.key]).toLowerCase()}`);
+/** "Sales edit, Orders view" for a map (the Roles list). hr = false leaves the HR rows out (orgs without HR). */
+export function accessSummary(map: TabAccessMap, hr = true): string {
+  const parts = ACCESS_TABS.filter((t) => map[t.key] !== "none" && (hr || !isHrTab(t.key))).map((t) => `${tabTitle(t)} ${levelLabel(t.key, map[t.key]).toLowerCase()}`);
   return parts.length ? parts.join(", ") : "No access";
 }
 

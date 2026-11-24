@@ -31,7 +31,7 @@ export default function FieldGate({
     );
   }
   if (!fieldAreas?.includes(area)) notFound();
-  if (error || !me) return <Alert severity="error">{error?.message || "Field is not available"}</Alert>;
+  if (error || !me) return <Alert severity="error">{error?.message || "HR is not available"}</Alert>;
   if (!fieldAtLeast(me.access.levels[area], "view")) notFound();
   return (
     <MainCard>

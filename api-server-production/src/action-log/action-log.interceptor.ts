@@ -71,6 +71,12 @@ const VIEW_POST_RE =
   /^\/(documents(\/paginated|\/stats)?|assets|inventories(\/by-status|\/by-ids)?|customers(\/lookup)?|suppliers|projects|documentTemplates|users\/list|payments\/summary|statements\/(soa|supplier-soa)|posting-preview|documentTemplates\/variants\/[^/]+\/design-preview|trade-generated\/preview|trade-clients\/customers\/[0-9a-f-]{36}\/formats\/[A-Z_]+\/(preview|layout-preview)|trade-clients\/customers\/[0-9a-f-]{36}\/(process|due-rules)\/preview|email-inbox\/[0-9a-f-]{36}\/preview|email-inbox\/placements|email-inbox\/shipment-facts|payables\/match-payment|field\/jobs\/import\/preview)$/;
 
 // Path verb segment → semantic action (checked against the LAST static segment).
+/** HR (/field/*) only: leave type restored, leave entered by the office, the day's plan sent to the crew,
+ *  a day or week of jobs copied, several timesheets approved at once, a job's QR code renewed. */
+const FIELD_VERB_ACTIONS: Record<string, string> = {
+  restore: 'RESTORE', record: 'CREATE', notify: 'SEND', 'copy-day': 'DUPLICATE', 'copy-week': 'DUPLICATE', 'approve-bulk': 'APPROVE', qr: 'UPDATE',
+};
+
 const VERB_ACTIONS: Record<string, string> = {
   'confirm-do': 'CONFIRM', 'confirm-invoice': 'CONFIRM', 'confirm-pr': 'CONFIRM',
   'bulk-complete-do': 'CONFIRM', approve: 'APPROVE', reject: 'REJECT', submit: 'SUBMIT',
@@ -358,6 +364,8 @@ export class ActionLogInterceptor implements NestInterceptor {
       if (segments[0] === 'workers-teams' && s === 'siteclock-sync') return method === 'POST' ? 'SYNC' : METHOD_ACTION[method] || 'UNKNOWN';
       // GST switch (WCT group, 2026-11-24): POST /gst-switch/:id/move moves an order to the sister company.
       if (segments[0] === 'gst-switch' && s === 'move' && method === 'POST') return 'GST_MOVE';
+      // HR (the Field module, 2026-11-24): verbs read only on /field/* so no other module's rows change.
+      if (segments[0] === 'field' && FIELD_VERB_ACTIONS[s]) return FIELD_VERB_ACTIONS[s];
       if (VERB_ACTIONS[s]) return VERB_ACTIONS[s];
       break;
     }

@@ -25,7 +25,7 @@ type Job = {
 };
 
 export default function FieldPlanPage() {
-  return <FieldGate area="jobs" title="Plan">{(me) => <Plan me={me} />}</FieldGate>;
+  return <FieldGate area="jobs" title="Job plan">{(me) => <Plan me={me} />}</FieldGate>;
 }
 
 function Plan({ me }: { me: FieldMe }) {
@@ -95,7 +95,7 @@ function Plan({ me }: { me: FieldMe }) {
           {row.original.jobNumber && <Typography variant="caption" color="text.secondary">#{row.original.jobNumber}</Typography>}
           {row.original.cancelled && <Chip size="small" label="Cancelled" />}
           {row.original.source !== "aims" && <Chip size="small" variant="outlined" label="From SiteClock" />}
-          {!row.original.settingsSaved && row.original.deliveryId && <Chip size="small" color="warning" variant="outlined" label="Field not set" />}
+          {!row.original.settingsSaved && row.original.deliveryId && <Chip size="small" color="warning" variant="outlined" label="Clocking not set" />}
         </Stack>
       ),
     },

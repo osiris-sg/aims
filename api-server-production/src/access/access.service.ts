@@ -14,6 +14,7 @@ import {
   readTabAccess,
   tabChanges,
   type TabAccessMap,
+  tabTitle,
 } from './tab-access';
 
 /** Roles that may manage roles and custom access (with the platform admin). */
@@ -22,7 +23,7 @@ const RESERVED = new Set([...ROLE_PRESETS.map((p) => p.name), 'superadmin', 'osi
 
 /** "Sales edit, Orders view" — a custom role's one-line summary (its description after the prefix). */
 export function accessSummary(map: TabAccessMap): string {
-  const parts = ACCESS_TABS.filter((t) => map[t.key] !== 'none').map((t) => `${t.label} ${map[t.key]}`);
+  const parts = ACCESS_TABS.filter((t) => map[t.key] !== 'none').map((t) => `${tabTitle(t)} ${map[t.key]}`);
   return parts.length ? parts.join(', ') : 'No access';
 }
 
@@ -68,7 +69,7 @@ export class AccessService {
     return {
       enabled,
       canManage: enabled ? await this.canManage(organizationId, actor) : false,
-      tabs: ACCESS_TABS.map((t) => ({ key: t.key, label: t.label, levels: t.levels })),
+      tabs: ACCESS_TABS.map((t) => ({ key: t.key, label: t.label, group: t.group ?? null, levels: t.levels })),
       presets: ROLE_PRESETS.filter((p) => PRESET_TAB_ACCESS[p.name]).map((p) => ({ name: p.name, label: p.label, tabs: PRESET_TAB_ACCESS[p.name] })),
     };
   }

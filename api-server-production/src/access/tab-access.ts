@@ -19,8 +19,10 @@
  */
 import { matchesPattern } from '../roles/role-presets';
 
-export type AccessLevel = 'none' | 'view' | 'edit';
+/** 'approve' exists only on the HR tabs (it also grants edit); every other tab stops at Edit. */
+export type AccessLevel = 'none' | 'view' | 'edit' | 'approve';
 export const ACCESS_LEVELS: AccessLevel[] = ['none', 'view', 'edit'];
+const ALL_LEVELS: AccessLevel[] = ['none', 'view', 'edit', 'approve'];
 
 export type TabKey =
   | 'dashboard'
@@ -34,13 +36,23 @@ export type TabKey =
   | 'orgSettings'
   | 'reports'
   | 'salesReport'
-  | 'calendar';
+  | 'calendar'
+  // HR (the Field module, 2026-11-24): one tab per area, see HR_TABS below.
+  | 'hrPeople'
+  | 'hrJobs'
+  | 'hrPunches'
+  | 'hrTimesheets'
+  | 'hrLeave'
+  | 'hrPayroll'
+  | 'hrReports';
 
 export type TabAccessMap = Record<TabKey, AccessLevel>;
 
 export interface AccessTab {
   key: TabKey;
   label: string;
+  /** Heading the tab sits under in the grid (the HR tabs). */
+  group?: string;
   /** The levels this tab offers (a read-only screen has no Edit). */
   levels: AccessLevel[];
   /** Nav modules the tab opens at View or above. */
@@ -145,7 +157,20 @@ export const ACCESS_TABS: AccessTab[] = [
     view: ['dashboard:read', 'maintenance-reports:read', 'documents:read', 'documents:read-*', ...CUSTOMER_READ],
     edit: ['documents:create-basic', 'customers:create-by-name'],
   },
+  // HR (SiteClock's office side, src/field). These tabs carry no permissions, modules or path rules:
+  // /field/* is checked by FieldAreaGuard, which reads the level straight from the map
+  // (field-context.service.ts). Appended last so the tabs above are untouched.
+  { key: 'hrPeople', label: 'People', levels: ['none', 'view', 'edit'], group: 'HR', modules: [], view: [], edit: [] },
+  { key: 'hrJobs', label: 'Job plan', levels: ['none', 'view', 'edit'], group: 'HR', modules: [], view: [], edit: [] },
+  { key: 'hrPunches', label: 'Clock-ins', levels: ['none', 'view', 'approve'], group: 'HR', modules: [], view: [], edit: [] },
+  { key: 'hrTimesheets', label: 'Timesheets', levels: ['none', 'view', 'edit', 'approve'], group: 'HR', modules: [], view: [], edit: [] },
+  { key: 'hrLeave', label: 'Leave', levels: ['none', 'view', 'approve'], group: 'HR', modules: [], view: [], edit: [] },
+  { key: 'hrPayroll', label: 'Payroll', levels: ['none', 'view', 'edit'], group: 'HR', modules: [], view: [], edit: [] },
+  { key: 'hrReports', label: 'Reports', levels: ['none', 'view'], group: 'HR', modules: [], view: [], edit: [] },
 ];
+
+/** "HR · People" for an HR tab, the plain label otherwise (messages, the Activity Log). */
+export const tabTitle = (t: AccessTab) => (t.group ? `${t.group} · ${t.label}` : t.label);
 
 export const TAB_KEYS: TabKey[] = ACCESS_TABS.map((t) => t.key);
 const TAB = new Map<TabKey, AccessTab>(ACCESS_TABS.map((t) => [t.key, t]));
@@ -156,7 +181,7 @@ export const NEVER_GRANTED = ['permissions:*', 'roles:create', 'roles:update', '
 
 export const ORG_SETTINGS_EDIT_NEEDS_ADMIN = 'Only an Admin can have Org Settings edit';
 
-export const rank = (l: AccessLevel | undefined | null) => (l === 'edit' ? 2 : l === 'view' ? 1 : 0);
+export const rank = (l: AccessLevel | undefined | null) => (l === 'approve' ? 3 : l === 'edit' ? 2 : l === 'view' ? 1 : 0);
 const atLeast = (l: AccessLevel | undefined, need: 'view' | 'edit') => rank(l) >= rank(need);
 
 export const noAccess = (): TabAccessMap => Object.fromEntries(TAB_KEYS.map((k) => [k, 'none'])) as TabAccessMap;
@@ -171,7 +196,7 @@ export function normalizeTabAccess(raw: unknown, opts: { allowOrgSettingsEdit?: 
   const out = noAccess();
   for (const t of ACCESS_TABS) {
     const v = String(src[t.key] ?? 'none') as AccessLevel;
-    if (!ACCESS_LEVELS.includes(v)) throw new Error(`${t.label}: "${v}" is not No access, View or Edit`);
+    if (!ALL_LEVELS.includes(v)) throw new Error(`${tabTitle(t)}: "${v}" is not No access, View or Edit`);
     out[t.key] = t.levels.includes(v) ? v : t.levels[t.levels.length - 1];
   }
   if (out.orgSettings === 'edit' && !opts.allowOrgSettingsEdit) throw new Error(ORG_SETTINGS_EDIT_NEEDS_ADMIN);
@@ -201,7 +226,7 @@ export function patternsFor(map: TabAccessMap): string[] {
   const out = new Set<string>();
   for (const t of ACCESS_TABS) {
     if (atLeast(map[t.key], 'view')) t.view.forEach((p) => out.add(p));
-    if (map[t.key] === 'edit') t.edit.forEach((p) => out.add(p));
+    if (atLeast(map[t.key], 'edit')) t.edit.forEach((p) => out.add(p));
   }
   return [...out];
 }
@@ -225,7 +250,7 @@ export function modulesFor(map: TabAccessMap): string[] {
   const out = new Set<string>();
   for (const t of ACCESS_TABS) {
     if (atLeast(map[t.key], 'view')) t.modules.forEach((m) => out.add(m));
-    if (map[t.key] === 'edit') (t.editModules ?? []).forEach((m) => out.add(m));
+    if (atLeast(map[t.key], 'edit')) (t.editModules ?? []).forEach((m) => out.add(m));
   }
   return [...out];
 }
@@ -242,7 +267,7 @@ export function tabChanges(before: TabAccessMap | null, after: TabAccessMap | nu
   for (const t of ACCESS_TABS) {
     const a = before ? before[t.key] : 'none';
     const b = after ? after[t.key] : 'none';
-    if (a !== b) out[t.label] = `${a} -> ${b}`;
+    if (a !== b) out[tabTitle(t)] = `${a} -> ${b}`;
   }
   return out;
 }
@@ -354,13 +379,15 @@ const preset = (m: Partial<TabAccessMap>): TabAccessMap => ({ ...noAccess(), ...
  * Reports view, Calendar; Accounting = Orders view, Accounting edit; Operations = Orders view,
  * Jobs + Service Reports + Calendar edit; Viewer = view all, no Accounting edit; the rest is the
  * presets' existing access). Admin, superadmin and field-tech are not path-checked.
+ * HR columns (2026-11-24): Operations and Accounting as the Field module's FIELD_PRESETS, Viewer
+ * view on every HR tab except Payroll (pay is its own row: only Admin and Accounting hold it), Sales none.
  */
 export const PRESET_TAB_ACCESS: Record<string, TabAccessMap> = {
   Admin: fullAccess(),
   Sales: preset({ dashboard: 'view', sales: 'edit', orders: 'edit', jobs: 'edit', serviceReports: 'view', assets: 'view', inventory: 'view', orgSettings: 'view', salesReport: 'view', calendar: 'edit' }),
-  Accounting: preset({ dashboard: 'view', sales: 'edit', orders: 'view', assets: 'view', accounting: 'edit', orgSettings: 'view', salesReport: 'edit', calendar: 'view' }),
-  Operations: preset({ dashboard: 'view', orders: 'view', jobs: 'edit', serviceReports: 'edit', assets: 'edit', inventory: 'view', orgSettings: 'view', calendar: 'edit' }),
-  Viewer: preset({ dashboard: 'view', sales: 'view', orders: 'view', jobs: 'view', serviceReports: 'view', assets: 'view', inventory: 'view', accounting: 'view', orgSettings: 'view', reports: 'view', salesReport: 'edit', calendar: 'view' }),
+  Accounting: preset({ dashboard: 'view', sales: 'edit', orders: 'view', assets: 'view', accounting: 'edit', orgSettings: 'view', salesReport: 'edit', calendar: 'view', hrPeople: 'view', hrTimesheets: 'view', hrPayroll: 'edit', hrReports: 'view' }),
+  Operations: preset({ dashboard: 'view', orders: 'view', jobs: 'edit', serviceReports: 'edit', assets: 'edit', inventory: 'view', orgSettings: 'view', calendar: 'edit', hrPeople: 'view', hrJobs: 'edit', hrPunches: 'approve', hrTimesheets: 'approve', hrLeave: 'approve', hrReports: 'view' }),
+  Viewer: preset({ dashboard: 'view', sales: 'view', orders: 'view', jobs: 'view', serviceReports: 'view', assets: 'view', inventory: 'view', accounting: 'view', orgSettings: 'view', reports: 'view', salesReport: 'edit', calendar: 'view', hrPeople: 'view', hrJobs: 'view', hrPunches: 'view', hrTimesheets: 'view', hrLeave: 'view', hrReports: 'view' }),
 };
 
 /** Roles that are never narrowed by a tab map (platform / owner / field app). */

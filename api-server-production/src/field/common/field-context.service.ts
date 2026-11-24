@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
-import { computeFieldAccess, type FieldAccess } from './field-access';
+import { computeFieldAccess, grantFromTabMap, type FieldAccess } from './field-access';
+import { accessFlags, resolveCustomAccess } from '../../access/custom-access';
 import { FIELD_AREAS, fieldAreaOn, type FieldArea } from './field-flags';
 import { todayIn } from './time';
 
@@ -50,19 +51,32 @@ export class FieldContextService {
     const on = area === 'any' ? FIELD_AREAS.some((a) => fieldAreaOn(features, a)) : fieldAreaOn(features, area);
     if (!on) throw new NotFoundException();
     const userId: string = req.user?.id ?? '';
-    const roles: Array<{ role: { name: string } }> = await this.db.userRole.findMany({
+    const roles: Array<{ role: { id: string; name: string } }> = await this.db.userRole.findMany({
       where: { userId, organizationId, isActive: true },
-      select: { role: { select: { name: true } } },
+      select: { role: { select: { id: true, name: true } } },
     });
+    // Custom access orgs: the HR tabs of the person's tab map decide (null = roles by name, as before).
+    const osiris = req.isOsirisAdmin === true;
+    const flags = osiris ? { custom: false, presets: false } : await accessFlags(this.db, organizationId);
+    const resolved = osiris
+      ? null
+      : await resolveCustomAccess(
+          this.db,
+          organizationId,
+          userId,
+          roles.filter((r) => r.role).map((r) => ({ id: r.role.id, name: r.role.name })),
+        );
     const worker = userId ? await this.db.worker.findFirst({ where: { organizationId, userId, active: true }, select: { id: true, name: true } }) : null;
     const timezone = await this.timezone(organizationId);
     const [supervisedSiteIds, supervisedWorkerIds] = worker
       ? await Promise.all([this.supervisedSiteIds(organizationId, worker.id), this.supervisedWorkerIds(organizationId, worker.id, timezone)])
       : [[], []];
     const access = computeFieldAccess({
-      isOsirisAdmin: req.isOsirisAdmin === true,
+      isOsirisAdmin: osiris,
       roleNames: roles.map((r) => r.role?.name ?? ''),
       supervises: supervisedSiteIds.length > 0 || supervisedWorkerIds.length > 0,
+      grant: resolved ? grantFromTabMap(resolved.map) : null,
+      customAccessOrg: flags.custom,
     });
     // Same naming as the Activity Log (action-log.interceptor resolveActor).
     const u: any = req.user || {};

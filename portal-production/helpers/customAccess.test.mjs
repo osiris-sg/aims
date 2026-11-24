@@ -28,7 +28,7 @@ test("the tab list matches the API's ACCESS_TABS (same keys, same order, same le
   const keys = [...block.matchAll(/key: '([a-zA-Z]+)'/g)].map((m) => m[1]);
   assert.deepEqual(keys, ACCESS_TABS.map((t) => t.key));
   const viewOnly = [...block.matchAll(/key: '([a-zA-Z]+)', label: '[^']+', levels: \['none', 'view'\]/g)].map((m) => m[1]);
-  assert.deepEqual(viewOnly, ACCESS_TABS.filter((t) => !t.levels.includes("edit")).map((t) => t.key));
+  assert.deepEqual(viewOnly, ACCESS_TABS.filter((t) => t.levels.join() === "none,view").map((t) => t.key));
 });
 
 test("custom only when EVERY role carries a map; union across roles", () => {

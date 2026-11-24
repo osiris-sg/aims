@@ -19,11 +19,12 @@ const PRESETS: Array<{ name: string; levels: Record<string, string>; note?: stri
   { name: "Admin", levels: Object.fromEntries(FIELD_AREAS.map((a) => [a, "approve"])) },
   { name: "Operations", levels: { people: "view", jobs: "edit", punches: "approve", timesheets: "approve", leave: "approve", payroll: "none", reports: "view" } },
   { name: "Accounting", levels: { people: "view", jobs: "none", punches: "none", timesheets: "view", leave: "none", payroll: "edit", reports: "view" } },
+  { name: "Viewer", levels: Object.fromEntries(FIELD_AREAS.map((a) => [a, a === "payroll" ? "none" : "view"])) },
   { name: "Supervisor", levels: { people: "view", jobs: "view", punches: "approve", timesheets: "edit", leave: "approve", payroll: "none", reports: "view" }, note: "own sites and teams" },
 ];
 
 export default function FieldSettingsPage() {
-  return <FieldGate area="people" title="Field settings">{(me) => <Settings me={me} />}</FieldGate>;
+  return <FieldGate area="people" title="HR settings">{(me) => <Settings me={me} />}</FieldGate>;
 }
 
 function Settings({ me }: { me: FieldMe }) {

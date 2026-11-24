@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { FIELD_AREAS, FIELD_AREA_FLAGS, fieldAreasOn, fieldNavModule, fieldPagesFor } from "./fieldModule.ts";
+import * as fieldModuleAll from "./fieldModule.ts";
 import { filterWorkers, inviteState, ruleBadges, siteFormErrors, workerPatch } from "./fieldPeople.ts";
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
@@ -23,17 +24,17 @@ test("flags: nothing without enableFieldModule; an area needs both flags; every 
   for (const [area, flag] of Object.entries(FIELD_AREA_FLAGS)) assert.match(apiFlags, new RegExp(`${area}: '${flag}'`));
 });
 
-test("nav: the Field group only when an area is on and the person may view a page in it", () => {
+test("nav: the HR group only when an area is on and the person may view a page in it", () => {
   assert.equal(fieldNavModule([], allOn("approve")), null);
   assert.equal(fieldNavModule(["people"], null), null);
   assert.equal(fieldNavModule(["people"], allOn("none")), null);
   const nav = fieldNavModule(["people"], allOn("view"));
-  assert.equal(nav.displayName, "Field");
-  assert.deepEqual(nav.config.subMenus.map((s) => s.label), ["Workers", "Teams", "Sites", "Invites", "Field settings"]);
+  assert.equal(nav.displayName, "HR");
+  assert.deepEqual(nav.config.subMenus.map((s) => s.label), ["Workers", "Teams", "Sites", "Invites", "HR settings"]);
   assert.equal(fieldPagesFor(["payroll"], allOn("approve")).length, 1);
-  assert.deepEqual(fieldPagesFor(["jobs"], allOn("view")).map((p) => p.label), ["Plan", "Working hours"]);
-  assert.deepEqual(fieldPagesFor(["reports"], allOn("view")).map((p) => p.label), ["Overview", "Reports", "Rules", "Audit log"]);
-  assert.equal(fieldNavModule(["reports", "people"], allOn("view")).config.route, "/portal/field/overview");
+  assert.deepEqual(fieldPagesFor(["jobs"], allOn("view")).map((p) => p.label), ["Job plan", "Working hours"]);
+  assert.deepEqual(fieldPagesFor(["reports"], allOn("view")).map((p) => p.label), ["Overview", "Reports", "Rules", "Terms", "Audit log"]);
+  assert.equal(fieldNavModule(["reports", "people"], allOn("view")).config.route, "/portal/hr/overview");
   const nm = read("components/TopNav/useNavModules.ts");
   assert.match(nm, /fieldNavModule\(fieldAreas \?\? \[\], fieldMe\?\.access\)/);
 });
@@ -67,8 +68,8 @@ test("sites: SiteClock's ranges; invites: state", () => {
 });
 
 test("UI copy: no em-dashes, no helper text, no subtitles in the Field pages", () => {
-  for (const f of ["workers", "teams", "sites", "invites", "settings", "plan", "working-hours", "clock-ins", "timesheets", "leave", "payroll"]) {
-    const src = read(`app/portal/field/${f}/page.tsx`).replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const f of ["workers", "teams", "sites", "invites", "settings", "plan", "working-hours", "clock-ins", "timesheets", "leave", "payroll", "live-site", "shared-workers", "terms"]) {
+    const src = read(`app/portal/hr/${f}/page.tsx`).replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
     assert.ok(!src.includes("—"), f);
     assert.ok(!/helperText=/.test(src), f);
     assert.ok(!/subTitle=/.test(src), f);
@@ -116,4 +117,19 @@ test("phase 6 helpers: money, cents, profile body and form", async () => {
   const b = profileBody({ payType: "DAILY", dailyRateOverride: "100", workDaysPerWeek: "6", restDays: [6, 7], premiumMode: "OT_RATE", weekdayOt: true, otRateOverride: "" });
   assert.deepEqual([b.dailyRateCentsOverride, b.otRateCentsOverride, b.basicMonthlyCents, b.restDays.length], [10000, null, 0, 2]);
   assert.equal(profileForm({ basicMonthlyCents: 65000 }).basicMonthly, "650");
+});
+
+test("HR (2026-11-24): every SiteClock office tab has a page; the mobile menu and old links follow", () => {
+  const { FIELD_PAGES } = fieldModuleAll;
+  // SiteClock web sidebar (web/src/lib/permissions.ts COMPANY_TABS @62b7d9d) -> the HR page that holds it.
+  const siteclock = { Overview: "overview", "Live Site": "live-site", Flagged: "clock-ins", Timesheets: "timesheets", Sites: "sites", Workers: "workers", Teams: "teams", Payroll: "payroll", Jobs: "plan", "Shared workers": "shared-workers", "Working hours": "working-hours", Rules: "rules", Terms: "terms", Leave: "leave", Reports: "reports" };
+  const keys = FIELD_PAGES.map((p) => p.key);
+  for (const [tab, key] of Object.entries(siteclock)) assert.ok(keys.includes(key), `${tab} -> ${key}`);
+  for (const p of FIELD_PAGES) {
+    assert.ok(p.path.startsWith("/portal/hr/"), p.path);
+    assert.ok(read(`app/portal/hr/${p.key}/page.tsx`).includes("FieldGate"), p.key);
+  }
+  assert.equal(FIELD_PAGES[0].key, "overview");
+  assert.match(read("components/Sidebar/DynamicSidebarContent.tsx"), /fieldNavModule\(fieldAreas \?\? \[\], fieldMe\?\.access\)/);
+  assert.match(read("next.config.mjs"), /source: "\/portal\/field\/:path\*", destination: "\/portal\/hr\/:path\*"/);
 });

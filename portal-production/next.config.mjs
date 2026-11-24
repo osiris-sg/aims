@@ -29,6 +29,9 @@ const nextConfig = {
   },
   async redirects() {
     return [
+      // HR (2026-11-24): the Field pages moved to /portal/hr; old links keep working.
+      { source: "/portal/field", destination: "/portal/hr/overview", permanent: false },
+      { source: "/portal/field/:path*", destination: "/portal/hr/:path*", permanent: false },
       // Round Z (2026-10-22): the Sales dashboard is the portal home; the old URLs keep working (query kept:
       // /portal/shipments/dashboard?view=emails → /portal?view=emails).
       {
