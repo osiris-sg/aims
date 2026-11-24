@@ -627,6 +627,9 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
     const orderNo = first(di('orderNo'), data?.orderNo);
     // Remarks + company stamp on the left, the customer's signature at the right on the same line (2026-11-25).
     const doRemarks = first(data?.remarks, di('remarks'));
+    // A DO with no date of its own prints its created day in the org's time zone, never blank (UAT 2026-11-25).
+    const createdAt = data?.createdAt ?? data?.config?.createdAt;
+    const doDate = di('date') ? paperDate(di('date')) : createdAt ? paperDateIn(createdAt, resolveTimeZone(data?.config?.timeZone ?? data?.timeZone)) : '';
     const doSignRow =
       doRemarks || stamp || proof.signature
         ? `<div class="dosign"><div class="l">${doRemarks ? `<div class="remarks"><b>Remarks:</b>${richContent(doRemarks, 'font-size:10.5px;line-height:1.5;')}</div>` : ''}${stamp}</div><div class="r">${proof.signature}</div></div>`
@@ -639,7 +642,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
         <span>Delivery Order No</span><span>${escapeHtml(docNumber)}</span>
         <span>Quotation Number</span><span>${escapeHtml(quotationNo)}</span>${orderNo ? `
         <span>Order No</span><span>${escapeHtml(orderNo)}</span>` : ''}
-        <span>Date</span><span>${escapeHtml(paperDate(di('date')))}</span>
+        <span>Date</span><span>${escapeHtml(doDate)}</span>
       </div>
     </div>
     <div class="doboxes">

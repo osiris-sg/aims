@@ -69,7 +69,8 @@ import { loadSubjectAccounts, subjectPostingLines } from './subject-type-account
 /** A quotation's Subject as stored (flat, or under documentInfo on older rows; WCT orders). */
 const quoteSubjectOf = (qc: any): string => String(qc?.subject ?? qc?.documentInfo?.subject ?? '').trim();
 import { quotationLinesForJob } from '../deliveries/quotation-to-delivery';
-import { orgTodayFor } from '../common/org-today';
+import { orgToday, orgTimeZoneFor, orgTodayFor } from '../common/org-today';
+import { DO_DATE_FLAG, ownDocDate, withDoDate } from './do-date';
 import { insertWithLockedNumber } from '../document-numbering/locked-number';
 import { signBucketUrlsInHtml } from '../common/storage-sign';
 
@@ -3772,6 +3773,10 @@ export class DocumentsService {
     config: any,
     projectId?: string,
   ) {
+    // WCT group (do-date.ts, UAT 2026-11-25): a new DO without a date ("Add DO" on an order) is dated today in the org's time zone.
+    if (!ownDocDate(config) && (await isOrgFeatureEnabled(this.prisma as any, organizationId, DO_DATE_FLAG).catch(() => false))) {
+      config = withDoDate(config, await orgTodayFor(this.prisma as any, organizationId));
+    }
     const issue = async () =>
       (await this.documentNumbering.issueNumberLocked(organizationId, 'DELIVERY_ORDER', (config as any)?.numberFormatId ?? null)) ??
       (await this.generateSequentialDocumentName(organizationId, 'DELIVERY_ORDER', templateId, config, new Date()));
@@ -5546,6 +5551,8 @@ export class DocumentsService {
       }
       // WCT group: each row's status in the WCT set (the chip shows it).
       const wctToday = sgToday();
+      // WCT group: a document with no date of its own lists its created day in the org's time zone, not UTC (do-date.ts).
+      const wctListTz = wctOn ? await orgTimeZoneFor(this.prisma as any, organizationId).catch(() => 'Asia/Singapore') : null;
       const wctCredits = wctOn ? await this.wctInvoiceCredits(organizationId, rows.filter((d: any) => wctFamilyOf(d.type) === 'INVOICE').map((d: any) => d.id)) : new Map<string, number>();
 
       const docs = rows.map((doc: any) => {
@@ -5577,7 +5584,7 @@ export class DocumentsService {
           status: doc.status,
           createdAt: doc.createdAt,
           // The document's own date (YYYY-MM-DD; the created date when it has none).
-          issueDate: documentIssueDate(config, doc.createdAt),
+          issueDate: documentIssueDate(config, doc.createdAt, wctListTz),
           // The project column + its resolved name (null when unset) so the
           // schedule dialog's extract can fill the project from real quotations.
           projectId: doc.projectId ?? null,
@@ -9462,6 +9469,10 @@ export class DocumentsService {
       company: org,
       maintenanceReports: Array.isArray(reports) ? reports : [],
       photoBaseUrl: `https://${bucket}.s3.${region}.amazonaws.com/`,
+      // A DO with no date prints its created day (do-date.ts; the WCT DO layout reads it).
+      ...(['DELIVERY_ORDER', 'DO'].includes(String(doc.type).toUpperCase()) && !ownDocDate(data)
+        ? { createdAt: (await this.prisma.document.findFirst({ where: { id: doc.id, organizationId }, select: { createdAt: true } }).catch(() => null))?.createdAt ?? null }
+        : {}),
     };
     const html = this.pdfGeneratorService.generateInvoiceHtml(renderData);
     return html ? { html, pdfOptions: pdfOptionsFor(doc.type, renderData) } : null;
@@ -9668,6 +9679,7 @@ export class DocumentsService {
           config: p.config,
           isQuotation: p.isQuotation,
           dueDate: p.dueDate,
+          createdAt: (p.document as any).createdAt ?? null,
         };
         const html = this.pdfGeneratorService.generateInvoiceHtml(renderData);
         const pdfBuffer = await this.pdfGeneratorService.generatePdfFromHtml(html, pdfOptionsFor(p.document.type, renderData));
@@ -10033,6 +10045,8 @@ export class DocumentsService {
       items,
       config,
       isQuotation,
+      // The WCT DO print's date when the DO has none (do-date.ts): its created day in the org's time zone.
+      createdAt: (document as any).createdAt ?? null,
     });
     return { html: await signBucketUrlsInHtml(html), name: document.name, type: document.type };
   }
@@ -10178,7 +10192,7 @@ export function counterpartyKind(config: any): 'CUSTOMER' | 'SUPPLIER' | null {
  * config.date / issueDate / invoiceDate (imports, trade invoices), else the
  * created date. DD/MM/YYYY values are turned round.
  */
-export function documentIssueDate(config: any, createdAt: Date): string {
+export function documentIssueDate(config: any, createdAt: Date, timeZone?: string | null): string {
   const raw = [config?.documentInfo?.date, config?.date, config?.issueDate, config?.invoiceDate].find((v) => typeof v === 'string' && v.trim());
   if (raw) {
     const v = String(raw).trim();
@@ -10187,5 +10201,6 @@ export function documentIssueDate(config: any, createdAt: Date): string {
     const dmy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v);
     if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
   }
-  return createdAt.toISOString().slice(0, 10);
+  // timeZone (WCT group, 2026-11-25): the created day in the org's time zone; without it, the UTC day as before.
+  return timeZone ? orgToday(timeZone, createdAt) : createdAt.toISOString().slice(0, 10);
 }
