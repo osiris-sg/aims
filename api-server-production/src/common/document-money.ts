@@ -120,17 +120,46 @@ export function creditNoteMoneyAfterApplied(config: any, applied: number): any |
  * An invoice saved with NO totals posted Dr 0 against Cr <lines> in the posting
  * review (guru 2026-10-27, WCT INV202610-0002). The discount (a WCT order's
  * first invoice carrying its quotation's discount) is capped at gross, as in the editor.
- * adjust.lineDiscounts: the WCT group only (LINE_DISCOUNT_FLAG); see amountOf.
+ * adjust.lineDiscounts: the WCT group only (LINE_DISCOUNT_FLAG); see amountOf. It also rounds the WCT way
+ * (wctTotalsFromNet: GST half up once, Nett = net + GST); every other org keeps the formula below.
  */
 /** The org flag that prices a line after its own discount in computeDocumentTotals (the WCT group). */
 export const LINE_DISCOUNT_FLAG = 'enableWctDocNav';
+
+/**
+ * Money to the cent, half up, float-safe (WCT group, 2026-11-25 UAT): 1491.50 x 9% is 134.23499999999999 in binary,
+ * which Math.round(n * 100) or toFixed(2) take DOWN to 134.23; the cents are rounded from a 15-digit reading, so
+ * 134.235 -> 134.24. Half away from zero for a negative amount. The portal's helpers/moneyRound.ts is the same.
+ */
+export function roundCents(n: number): number {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v === 0) return 0;
+  const cents = Math.round(Number((Math.abs(v) * 100).toPrecision(15)));
+  return cents === 0 ? 0 : (v < 0 ? -cents : cents) / 100;
+}
+
+/**
+ * The WCT group's totals from the net (after every discount): GST rounded ONCE on the net, Nett = net + GST
+ * (tax inclusive: GST backed out of the net once, subtotal = net - GST). Editor, stored totals, print, order rows and
+ * split parts all use this, so they agree to the cent.
+ */
+export function wctTotalsFromNet(net: number, gstPercent: number, absorb: boolean): { subTotal: number; gstAmount: number; nettTotal: number } {
+  const n = roundCents(net);
+  const g = Number(gstPercent) || 0;
+  if (absorb && g > 0) {
+    const gstAmount = roundCents((n * g) / (100 + g));
+    return { subTotal: roundCents(n - gstAmount), gstAmount, nettTotal: n };
+  }
+  const gstAmount = roundCents((n * g) / 100);
+  return { subTotal: n, gstAmount, nettTotal: roundCents(n + gstAmount) };
+}
 
 export function computeDocumentTotals(
   lines: Array<{ amount?: any; quantity?: any; unitPrice?: any; discount?: any; discountType?: any }>,
   tax: { gstPercent?: any; taxApplicable?: any; absorbTax?: any },
   adjust: { discountAmount?: any; lineDiscounts?: boolean } = {},
 ): { grossTotal: number; subTotal: number; gstAmount: number; nettTotal: number; gstPercent: number; taxApplicable: 'Y' | 'N'; absorbTax: 'Y' | 'N'; discountAmount?: number } {
-  const R = (n: number) => Math.round(n * 100) / 100;
+  const R = adjust?.lineDiscounts ? roundCents : (n: number) => Math.round(n * 100) / 100;
   const amountOf = (l: any) => {
     const a = Number(l?.amount);
     if (isFinite(a) && a !== 0) return a;
@@ -150,6 +179,11 @@ export function computeDocumentTotals(
   const d = Number(adjust?.discountAmount);
   const discountAmount = R(isFinite(d) && d > 0 ? Math.min(d, Math.max(0, grossTotal)) : 0);
   const net = grossTotal - discountAmount;
+  // WCT group (lineDiscounts, 2026-11-25 UAT): GST rounded half up once on the net, Nett = net + GST.
+  if (adjust?.lineDiscounts) {
+    const w = wctTotalsFromNet(net, g, absorb);
+    return { grossTotal, ...w, gstPercent: g, taxApplicable: applicable ? 'Y' : 'N', absorbTax: absorb ? 'Y' : 'N', ...(discountAmount > 0 ? { discountAmount } : {}) };
+  }
   let gstAmount: number, nettTotal: number, subTotal: number;
   if (absorb && g > 0) {
     gstAmount = (net * g) / (100 + g);

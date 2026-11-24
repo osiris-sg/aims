@@ -31,7 +31,7 @@
  */
 import { resolveTimeZone } from '../../org-today';
 import { DocumentDesign } from './design';
-import { amountPaidOf, outstandingOf } from '../../document-money';
+import { amountPaidOf, outstandingOf, roundCents, wctTotalsFromNet } from '../../document-money';
 import { billToText, decodeHtmlEntities as decodeEntities, escapeHtml, makeDi, money, printableSalesman, richContent } from './shared';
 import { erpStoredTotalsOf, moneySignature, type ErpStoredTotals } from '../../erp-import';
 import { BCAIR_DOC } from './wct-brand';
@@ -340,11 +340,10 @@ function totalsOf(di: (k: string, d?: any) => any, items: any[]) {
       : di('discountType') === 'amount'
       ? Math.min(discountPercent, Math.max(0, subtotal))
       : subtotal * (discountPercent / 100);
-  const net = subtotal - discountAmount;
-  const gstAmount = isAbsorbTax && gstPercent > 0 ? (net * gstPercent) / (100 + gstPercent) : net * (gstPercent / 100);
-  const total = isAbsorbTax ? net : net + gstAmount;
-  const displayNet = isAbsorbTax ? net - gstAmount : net;
-  return { currency, gstPercent, gstAmount, discountAmount, displayNet, total };
+  // One rounding rule with the editor and the stored totals (document-money.ts wctTotalsFromNet, 2026-11-25 UAT):
+  // GST half up once on the net, Total = net + GST, so the printed GST and Total always add up.
+  const w = wctTotalsFromNet(roundCents(subtotal) - roundCents(discountAmount), gstPercent, isAbsorbTax);
+  return { currency, gstPercent, gstAmount: w.gstAmount, discountAmount: roundCents(discountAmount), displayNet: w.subTotal, total: w.nettTotal };
 }
 
 /** The $ a line's own discount takes off qty x price (% or $, capped at the line); 0 without one. */
@@ -628,6 +627,9 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
     const orderNo = first(di('orderNo'), data?.orderNo);
     // Remarks + company stamp on the left, the customer's signature at the right on the same line (2026-11-25).
     const doRemarks = first(data?.remarks, di('remarks'));
+    // A DO with no date of its own prints its created day in the org's time zone, never blank (UAT 2026-11-25).
+    const createdAt = data?.createdAt ?? data?.config?.createdAt;
+    const doDate = di('date') ? paperDate(di('date')) : createdAt ? paperDateIn(createdAt, resolveTimeZone(data?.config?.timeZone ?? data?.timeZone)) : '';
     const doSignRow =
       doRemarks || stamp || proof.signature
         ? `<div class="dosign"><div class="l">${doRemarks ? `<div class="remarks"><b>Remarks:</b>${richContent(doRemarks, 'font-size:10.5px;line-height:1.5;')}</div>` : ''}${stamp}</div><div class="r">${proof.signature}</div></div>`
@@ -640,7 +642,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
         <span>Delivery Order No</span><span>${escapeHtml(docNumber)}</span>
         <span>Quotation Number</span><span>${escapeHtml(quotationNo)}</span>${orderNo ? `
         <span>Order No</span><span>${escapeHtml(orderNo)}</span>` : ''}
-        <span>Date</span><span>${escapeHtml(paperDate(di('date')))}</span>
+        <span>Date</span><span>${escapeHtml(doDate)}</span>
       </div>
     </div>
     <div class="doboxes">

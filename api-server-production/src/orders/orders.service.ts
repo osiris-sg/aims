@@ -9,6 +9,8 @@ import {
   SupplierReconciliationData,
 } from '../document-extraction/document-extraction.service';
 import { invoiceSplitOf, withSplitPartIds } from '../documents/invoice-split';
+import { doDateOrCreated } from '../documents/do-date';
+import { orgTimeZoneFor } from '../common/org-today';
 import { AuditService } from '../common/audit.service';
 import { cancelBlockingInvoice, voidedWithOrderConfig } from './order-cancel';
 import { MARKED_COMPLETE, ensureOrderNumberFormat, invoiceRowsWithSplitParts, isWctOrdersEnabled, issueOrderNumberInTx, linkedDoEntriesOf, linkedDoIdsOf, liveInvoiceIds, nativeCompletionOf, orderInvoiceIdsOf, refreshOrderStatus, remainderInvoiceIdsOf, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
@@ -1452,6 +1454,7 @@ export class OrdersService {
       const v = linkedEntries.get(id)?.orderInvoiceId;
       return v && liveLinked.has(v) ? v : null;
     };
+    const doTz = await orgTimeZoneFor(this.prisma as any, organizationId).catch(() => 'Asia/Singapore');
     const allDos = [...docs, ...ownDos.filter((d: any) => !jobDocIds.has(d.id))].sort((a: any, b: any) => +new Date(a.createdAt) - +new Date(b.createdAt));
     const deliveryOrders = allDos
       .filter((d: any) => d.config?.cancelled !== true)
@@ -1465,7 +1468,8 @@ export class OrdersService {
           status: d.status,
           templateId: d.documentTemplateId,
           tag: doStatusTag({ status: d.status, config: c }),
-          date: c.date ?? c.documentInfo?.date ?? null,
+          // UAT 2026-11-25: a DO with no date shows its created day in the org's time zone (do-date.ts), not blank.
+          date: doDateOrCreated(c, d.createdAt, doTz),
           completed,
           awaitingSignature: !completed && c.awaitingSignature === true,
           // 2026-11-23: the signed / stamped DO uploaded on completion (Complete DO, Upload signed DO): the FILE column opens it.
