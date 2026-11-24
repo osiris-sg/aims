@@ -7,7 +7,11 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request, withActiveOrg } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
-import StatusChip from "@/components/StatusChip";
+import StatusChip, { statusChipView } from "@/components/StatusChip";
+import { listExportModel, type ListExportColumn } from "@/helpers/listExport";
+import { exportReportCsv, exportReportPdf } from "@/app/portal/accounting/_lib/report-export";
+import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
+import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import { wctStatusOptionsFor } from "@/helpers/wctStatuses";
 import { flowStatusOptions } from "@/helpers/wctStatusFlow";
 import {
@@ -379,6 +383,44 @@ export default function DocumentListView({
       toast.error(e?.message || "Download failed");
     } finally {
       setBulkDownloading(false);
+    }
+  };
+  // WCT group Invoices list (enableWctDocNav, 2026-11-24): the ticked rows as CSV, or a printable A4 list (the
+  // report print rule: Print opens a generated PDF with the print dialog, never the raw screen).
+  const listExportOn = !!isWctDocNavEnabled && showPaidDue;
+  const exportModel = () => {
+    const cols: Array<ListExportColumn<any>> = [
+      { header: `${documentLabel} #`, text: (r) => r.name || "" },
+      ...(showOrderColumn ? [{ header: "Order", text: (r: any) => r.linkedOrder?.orderNumber || "" }] : []),
+      { header: twoSidedList ? "Customer / Supplier" : "Customer", text: (r) => (r.associated_customer && r.associated_customer !== "N/A" ? r.associated_customer : "") },
+      showSubject
+        ? { header: "Subject", text: (r) => subjectCell(r)?.text ?? "" }
+        : { header: "Remarks", text: (r) => { const c: any = r.config || {}; return c?.documentInfo?.referenceNo || c?.referenceNo || c?.remarks || c?.reference || c?.xeroReference || ""; } },
+      ...(showCovers ? [{ header: "Covers", text: (r: any) => String(r.config?.tradeCovers || "") }] : []),
+      { header: "Amount", text: () => "", money: (r) => docGrossTotal(r.config) },
+      ...(showPaidDue
+        ? [
+            { header: "Paid", text: () => "", money: (r: any) => docPaidToDate(r.config) },
+            { header: "Due", text: () => "", money: (r: any) => docAmountDue(r.config) },
+          ]
+        : []),
+      { header: dateHeader, text: (r) => moment(r.issueDate || r.createdAt).format("DD/MM/YYYY") },
+      { header: "Status", text: (r) => statusChipView(r.status, r, !!isWctStatusFlowEnabled).label },
+    ];
+    return listExportModel({ title: pluralLabel || `${documentLabel}s`, orgName: organization?.name || "", rows: bulk.selectedRows, columns: cols });
+  };
+  const bulkExportCsv = () => {
+    try {
+      exportReportCsv(exportModel());
+    } catch (e: any) {
+      toast.error(e?.message || "Export failed");
+    }
+  };
+  const bulkPrintList = async () => {
+    try {
+      await exportReportPdf({ ...exportModel(), landscape: true }, { print: true });
+    } catch (e: any) {
+      toast.error(e?.message || "Print failed");
     }
   };
   const bulkDelete = async () => {
@@ -873,6 +915,12 @@ export default function DocumentListView({
             tooltip: bulk.count > 1 ? "Download the selected documents as one ZIP of PDFs" : "Download this document's PDF",
             onClick: () => void bulkDownload(),
           },
+          ...(listExportOn
+            ? [
+                { key: "export-csv", label: "Export CSV", icon: <FileDownloadOutlinedIcon />, tooltip: "The selected rows as a CSV file", onClick: () => bulkExportCsv() },
+                { key: "print-list", label: "Print list", icon: <PrintOutlinedIcon />, tooltip: "Print the selected rows as a list", onClick: () => void bulkPrintList() },
+              ]
+            : []),
           {
             key: "void",
             label: bulkVoidable.length > 0 && bulkVoidable.length < bulk.count ? `Void ${bulkVoidable.length}` : "Void",

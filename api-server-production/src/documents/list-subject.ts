@@ -86,3 +86,19 @@ export function subjectSearchQuery(organizationId: string, documentTypes: string
       AND ${Prisma.raw(shownSubjectSql('d'))} ILIKE ${like} ESCAPE '\\'
     LIMIT 5000`;
 }
+
+/** The invoice types whose lists search the PO Number (WCT group, 2026-11-24). */
+const PO_SEARCH_TYPES = ['INVOICE', 'TI', 'TI2', 'TAX_INVOICE'];
+export const poSearchOn = (subjectOn: boolean, documentTypes: string[] | undefined): boolean =>
+  subjectOn && Array.isArray(documentTypes) && documentTypes.length > 0 && documentTypes.some((t) => PO_SEARCH_TYPES.includes(String(t).toUpperCase()));
+
+/**
+ * The invoices whose PO Number (documentInfo.poNo, or a flat poNo) matches: read straight from the config, so no
+ * data migration is needed (WCT group Invoices list search; enableWctDocNav).
+ */
+export function poNumberSearchQuery(organizationId: string, documentTypes: string[], like: string): Prisma.Sql {
+  return Prisma.sql`SELECT d.id::text AS id FROM "Document" d
+    WHERE d."organizationId" = ${organizationId} AND d.type::text = ANY(${documentTypes})
+      AND (d.config #>> '{documentInfo,poNo}' ILIKE ${like} ESCAPE '\\' OR d.config ->> 'poNo' ILIKE ${like} ESCAPE '\\')
+    LIMIT 5000`;
+}

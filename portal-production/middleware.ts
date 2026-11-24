@@ -23,6 +23,8 @@ const isPublicRoute = createRouteMatcher([
   "/set-password(.*)",
   // Deploy check: the commit this deployment was built from (no data).
   "/api/version",
+  // Org-checked file links: the route checks the Clerk session itself (401 without one).
+  "/api/f/(.*)",
   // Fixture previews (round P): the page itself 404s unless PREVIEW_FIXTURES=1.
   "/preview(.*)",
   "/guest(.*)",

@@ -32,6 +32,7 @@ import {
   splitBaseOf,
   splitPartNumber,
   SplitPlan,
+  storedSplitRows,
   SplitPlanError,
 } from './invoice-split';
 
@@ -118,7 +119,7 @@ export async function splitInvoice(prisma: any, organizationId: string, document
   first.invoiceSplit = {
     ...first.invoiceSplit,
     partIds: ids,
-    plan: { mode: plan.mode, parts: plan.parts.map(Number), ...(plan.mode === 'deposit' ? { deposit: plan.deposit ?? null } : {}) },
+    plan: { mode: plan.mode, parts: storedSplitRows(plan.parts), ...(plan.mode === 'deposit' ? { deposit: plan.deposit ?? null } : {}) },
     contractValue: planned.contractValue,
     restore: restoreSnapshotOf(cfg),
     at: new Date().toISOString(),

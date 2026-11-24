@@ -95,7 +95,7 @@ import CleanDocumentPreview, { quoteTermsTextOf } from "./CleanDocumentPreview";
 import ServerDocumentPreview, { type ServerDocumentPreviewHandle } from "./ServerDocumentPreview";
 import { orderDocLine } from "@/helpers/wctOrders";
 import { markQuotationConfirmed } from "@/helpers/orderCreatedNote";
-import { LINK_DOC_FIELD, linkDocOn, pageKindOf as linkPageKindOf, remarksSplitOn, withLinkDocFields } from "@/helpers/linkDoc";
+import { LINK_DOC_FIELD, linkDocOn, pageKindOf as linkPageKindOf, remarksSplitOn, withInvoicePoField, withLinkDocFields } from "@/helpers/linkDoc";
 import { DocChainPanel, LinkDocumentField } from "./LinkDocument";
 import { signedByDefault, withRackingUom } from "@/helpers/rackingQuote";
 import { resolveDesign as resolveTemplateDesign } from "@/app/portal/documents/design";
@@ -6633,6 +6633,9 @@ export default function TabbedDocumentCreator({
                       // Link Document (WCT group, 2026-11-22): the Reference row becomes Link Document (WCT group: the
                       // Reference row itself is dropped, 2026-11-24; helpers/linkDoc.ts). Untouched for every other org.
                       if (tab.tabId === "general") fields = withLinkDocFields(fields, { page: linkPage, linkOn, remarksSplit });
+                      // WCT group (enableWctDocNav, 2026-11-24): an optional "PO Number" on the invoice header, stored in
+                      // documentInfo.poNo (the key QO / DO already use), found by the Invoices list search, not printed.
+                      if (tab.tabId === "general") fields = withInvoicePoField(fields, { page: linkPage, remarksSplit });
                       return fields;
                     })()}
                     formData={formData}

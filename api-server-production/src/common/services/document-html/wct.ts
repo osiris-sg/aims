@@ -612,9 +612,11 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   );
   // Hidden only for orgs with enableQuotationTotalsToggle (data.quotationTotalsToggle, 2026-11-14).
   const showTotals = data?.quotationTotalsToggle !== true || ((data?.showTotals ?? data?.documentInfo?.showTotals) ?? true) !== false;
-  // WCT invoice per order: the order and the DOs the invoice covers. Only an order invoice carries them.
-  const orderNo = isInvoice ? first(di('orderNo'), data?.orderNo) : '';
-  const doNos = Array.isArray(data?.deliveryOrderNos) ? data.deliveryOrderNos.filter(Boolean).join(', ') : '';
+  // The DOs the invoice covers (2026-11-24: "DO No" replaces "Order No"). The server resolves them
+  // (documents/invoice-do-nos.ts: the order's DOs billed by it, its source DO, directly linked DOs) as
+  // data.invoiceDoNos; without it, the invoice's own list. No DO: the line is left out.
+  const doList: unknown[] = Array.isArray(data?.invoiceDoNos) ? data.invoiceDoNos : Array.isArray(data?.deliveryOrderNos) ? data.deliveryOrderNos : [];
+  const doNos = isInvoice ? [...new Set(doList.map((x) => String(x ?? '').trim()).filter(Boolean))].join(', ') : '';
 
   const header = `
   <div class="title">${escapeHtml(design.titleText || (isInvoice ? (bc ? BCAIR_DOC.invoiceTitle : 'TAX INVOICE') : 'QUOTATION'))}</div>
@@ -623,8 +625,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
     <div class="kv">
       <span class="k">Date</span><span>${escapeHtml(paperDate(di('date')))}</span>
       ${isInvoice && revision ? `<span class="k">Invoice Rev</span><span>${escapeHtml(revision)}</span>` : ''}
-      ${isInvoice && orderNo ? `<span class="k">Order No</span><span>${escapeHtml(orderNo)}</span>` : ''}
-      ${isInvoice && orderNo && doNos ? `<span class="k">DO No</span><span>${escapeHtml(doNos)}</span>` : ''}
+      ${doNos ? `<span class="k">DO No</span><span>${escapeHtml(doNos)}</span>` : ''}
       ${!isInvoice && di('validityPeriod') ? `<span class="k">Validity</span><span>${escapeHtml(di('validityPeriod'))}</span>` : ''}
       ${di('paymentTerms') && isInvoice ? `<span class="k">Terms</span><span>${escapeHtml(di('paymentTerms'))}</span>` : ''}
     </div>

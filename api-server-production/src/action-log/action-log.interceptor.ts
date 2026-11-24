@@ -27,6 +27,7 @@ const SKIP_PATHS = [
   '/lock/heartbeat', // document presence heartbeat (useDocumentLock)
   '/documents/preview-html', // editor's live server-rendered preview (debounced on every keystroke)
   '/location-ping', // field app GPS batches
+  '/files/sign', // presigned links for every image on a page (the record that shows them is logged)
   '/admin/dashboard', // polled stats
   '/handoff/status', // rider's 5 s poll while a trip is with a driver
   // The WhatsApp post worker's background traffic (delivery group posts). Its

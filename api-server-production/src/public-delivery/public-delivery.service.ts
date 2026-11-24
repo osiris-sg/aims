@@ -4,6 +4,7 @@ import {
   BadRequestException,
   HttpException,
   HttpStatus,
+  Optional,
 } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
 import { PublicDocumentService } from '../public-document/public-document.service';
@@ -11,6 +12,7 @@ import { DeliveryDirection, DeliveryStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
 import { UploadsService } from '../uploads/uploads.service';
 import { allowedMime } from '../common/storage-keys';
+import { FilesService } from '../files/files.service';
 import { MaintenanceReportsService } from '../maintenance-reports/maintenance-reports.service';
 import { DeliveriesService } from '../deliveries/deliveries.service';
 import { minPhotosForAssetClass } from '../common/asset-class';
@@ -75,6 +77,7 @@ export class PublicDeliveryService {
     private readonly maintenanceReportsService: MaintenanceReportsService,
     private readonly deliveriesService: DeliveriesService,
     private readonly publicDocuments: PublicDocumentService,
+    @Optional() private readonly files?: FilesService,
   ) {}
 
   /**
@@ -302,7 +305,7 @@ export class PublicDeliveryService {
     if (!/^image\//.test(allowedMime(file.mimetype, file.originalname) ?? '') || file.mimetype === 'image/svg+xml') {
       throw new BadRequestException('Only photos can be uploaded');
     }
-    const Key = await this.uploadsService.uploadOrgFile({ file, organizationId: link!.document.organizationId, folderHint: 'delivery-pod' });
+    const Key = await this.uploadsService.uploadOrgFile({ file, organizationId: link!.document.organizationId, folderHint: 'delivery-pod', source: 'public-delivery' });
     return { Key };
   }
 
@@ -334,6 +337,7 @@ export class PublicDeliveryService {
       return this.getRunView(token); // already delivered — idempotent
     }
     const clean = Array.isArray(photos) ? photos.filter((p) => typeof p === 'string' && p.trim()) : [];
+    await this.files?.assertOwnKeys(organizationId, clean); // only this org's files
 
     if (item.inventoryId) {
       const unit = await this.prisma.inventory.findFirst({
@@ -420,6 +424,7 @@ export class PublicDeliveryService {
     if (!link) this.assertActionable(state);
     this.assertActionable(state);
     if (!body?.signature) throw new BadRequestException('signature is required');
+    if (Array.isArray(body.installPhotos)) await this.files?.assertOwnKeys(link!.document.organizationId, body.installPhotos);
     // DRIVER link: sign for the trip (partial sign-off allowed), stamped with the
     // vehicle, then hand back a VIEW-ONLY DO link for printing. finalizeRun ends
     // the trip's hand-off, which revokes this link.

@@ -1,3 +1,4 @@
+import { invoiceDoNumbers, isInvoiceDocType } from './invoice-do-nos';
 import { IMPORTED_ORDER_USE_CREATE_INVOICE, importedMarkerOf, importedOrderDraftInvoice, importedStatusFrom, isImportedOrder, isImportedOrdersEnabled, loadImportedOrderInputs, refreshImportedOrderStatus } from '../orders/imported-orders';
 import { remainingForOrder } from '../orders/imported-remaining';
 import { docCustomerIdOf } from '../orders/imported-order-links';
@@ -58,7 +59,7 @@ import { QUOTATION_REVISION_FLAG, nextRevision } from './quotation-revision';
 import { SOFT_DELETE_DRAFTS_FLAG, SOFT_DELETED_TYPE, WCT_STATUSES_FLAG, isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, LINE_GL_ACCOUNTS_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { linkedDocIdsForNumber, wantsLinkedSearch } from '../orders/linked-number-search';
-import { SUBJECT_LIST_FLAG, listSubjectOf, pageSubjectsQuery, subjectListOn, subjectSearchQuery, subjectSortQuery } from './list-subject';
+import { SUBJECT_LIST_FLAG, listSubjectOf, pageSubjectsQuery, poNumberSearchQuery, poSearchOn, subjectListOn, subjectSearchQuery, subjectSortQuery } from './list-subject';
 import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceReference, planOrderInvoice, quoteDiscountAmount, splitJobLines } from '../orders/order-billing';
 import { loadSubjectAccounts, subjectPostingLines } from './subject-type-account';
 
@@ -5374,6 +5375,10 @@ export class DocumentsService {
         const subjectSearch: Promise<Array<{ id: string }>> = subjectOn
           ? (this.prisma.$queryRaw(subjectSearchQuery(organizationId, opts.documentTypes!, like)) as Promise<Array<{ id: string }>>).then((r) => r, () => [])
           : Promise.resolve([]);
+        // WCT group Invoices list (2026-11-24): the PO Number is searched too (read from the config, no migration).
+        const poSearch: Promise<Array<{ id: string }>> = poSearchOn(subjectOn, opts.documentTypes)
+          ? (this.prisma.$queryRaw(poNumberSearchQuery(organizationId, opts.documentTypes!, like)) as Promise<Array<{ id: string }>>).then((r) => r, () => [])
+          : Promise.resolve([]);
         const hits: Array<{ id: string }> = (await this.listKeysReady(organizationId))
           ? await this.prisma.$queryRaw`
           SELECT d.id FROM "Document" d
@@ -5416,6 +5421,8 @@ export class DocumentsService {
         if (hits.length) or.push({ id: { in: hits.map((h) => h.id) } });
         const subjectHits = await subjectSearch;
         if (subjectHits.length) or.push({ id: { in: subjectHits.map((h) => h.id) } });
+        const poHits = await poSearch;
+        if (poHits.length) or.push({ id: { in: poHits.map((h) => h.id) } });
         // WCT group (enableWctOrders, 2026-11-23): a number also finds the documents linked to it (order, its
         // quotation, DOs, invoices; orders/linked-number-search.ts). The list's type filter keeps its own type.
         if (wantsLinkedSearch(term) && (await isWctOrdersEnabled(this.prisma as any, organizationId))) {
@@ -9305,6 +9312,19 @@ export class DocumentsService {
    * link passes its sanitised copy); `reports` are the DO's field reports —
    * the renderer draws the customer's sign-off and the proof photos from them.
    */
+  /**
+   * WCT invoice print "DO No" (2026-11-24): the DO numbers an invoice covers (documents/invoice-do-nos.ts), as
+   * render data. Any other type: nothing added. Never fails a print.
+   */
+  async invoiceDoNosFor(type: string, documentId: string | null | undefined, organizationId: string, config: any): Promise<{ invoiceDoNos?: string[] }> {
+    if (!isInvoiceDocType(type)) return {};
+    try {
+      return { invoiceDoNos: await invoiceDoNumbers(this.prisma, organizationId, documentId ?? null, config || {}) };
+    } catch {
+      return {};
+    }
+  }
+
   /** Document.revisionNumber (0 = original, n = "Create Revision" n), or null. */
   async revisionNumberOf(documentId: string, organizationId: string): Promise<number | null> {
     const row = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { revisionNumber: true } }).catch(() => null);
@@ -9328,6 +9348,7 @@ export class DocumentsService {
     const renderData = {
       documentType: doc.type,
       ...(await this.withSalesPersonName(data || {})),
+      ...(await this.invoiceDoNosFor(doc.type, doc.id, organizationId, data)),
       name: doc.name ?? data?.name,
       revisionNumber: doc.revisionNumber ?? null,
       design: styled.design,
@@ -9526,6 +9547,7 @@ export class DocumentsService {
           // legacy generic layout for types not ported yet).
           documentType: p.document.type,
           ...(await this.withSalesPersonName(p.config || {})),
+          ...(await this.invoiceDoNosFor(p.document.type, p.document.id, p.document.organizationId, p.config)),
           design: styled.design,
           logoUrl: styled.logoUrl,
       stampUrl: styled.stampUrl,
@@ -9893,6 +9915,7 @@ export class DocumentsService {
       documentType: document.type,
       lang: lang === 'zh' ? 'zh' : 'en',
       ...(await this.withSalesPersonName(config)),
+      ...(await this.invoiceDoNosFor(document.type, document.id, organizationId, config)),
       ...(renderFlags || {}),
       design: styled.design,
       logoUrl: styled.logoUrl,
