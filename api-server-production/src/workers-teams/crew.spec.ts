@@ -13,9 +13,9 @@ describe('job crew picks', () => {
   });
 
   it('the text: picks first, then the free text (existing free text stays as it was)', () => {
-    expect(crewText({ crew: [{ kind: 'team', id: 't1', name: 'Team A' }, { kind: 'worker', id: 'w1', name: 'Guru' }], team: null })).toBe('Team A + Guru');
-    expect(crewText({ crew: [{ kind: 'team', id: 't1', name: 'Team A' }], team: 'Ali (lorry)' })).toBe('Team A + Ali (lorry)');
-    expect(crewText({ crew: [], team: 'Team B + Ah Seng' })).toBe('Team B + Ah Seng');
+    expect(crewText({ crew: [{ kind: 'team', id: 't1', name: 'Team A' }, { kind: 'worker', id: 'w1', name: 'Guru' }], team: null })).toBe('Team A, Guru'); // written out, comma separated (2026-11-24)
+    expect(crewText({ crew: [{ kind: 'team', id: 't1', name: 'Team A' }], team: 'Ali (lorry)' })).toBe('Team A, Ali (lorry)');
+    expect(crewText({ crew: [], team: 'Team B + Ah Seng' })).toBe('Team B, Ah Seng');
     expect(crewText({ crew: [], team: null })).toBeNull();
   });
 
