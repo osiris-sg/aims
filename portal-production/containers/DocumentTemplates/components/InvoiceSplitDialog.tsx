@@ -35,7 +35,7 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import CloseIcon from "@mui/icons-material/Close";
 import { request } from "@/helpers/request";
-import { fmtMoney, previewSplit, type SplitMode, type SplitPlan } from "@/helpers/invoiceSplit";
+import { fmtMoney, previewSplit, splitLeft, type SplitMode, type SplitPlan, type SplitRow } from "@/helpers/invoiceSplit";
 
 const n = (v: string) => (v.trim() === "" ? NaN : Number(v));
 const money = (v: number) => v.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -57,21 +57,25 @@ export default function InvoiceSplitDialog({
 }) {
   const { getToken } = useAuth();
   const [mode, setMode] = useState<SplitMode>("rate");
-  const [rates, setRates] = useState<string[]>(["100"]);
+  // Each row is a % or a $ amount, chosen per row (2026-11-24).
+  type Row = { kind: "percent" | "amount"; value: string };
+  const [rates, setRates] = useState<Row[]>([{ kind: "percent", value: "100" }]);
   const [depKind, setDepKind] = useState<"percent" | "amount">("percent");
   const [dep, setDep] = useState("");
-  const [rest, setRest] = useState<string[]>(["100"]);
+  const [rest, setRest] = useState<Row[]>([{ kind: "percent", value: "100" }]);
+  const rowPlan = (r: Row): SplitRow => (r.kind === "amount" ? { amount: n(r.value) } : n(r.value));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const plan: SplitPlan = useMemo(
     () =>
       mode === "rate"
-        ? { mode, parts: rates.map(n) }
-        : { mode, parts: rest.map(n), deposit: depKind === "percent" ? { percent: dep.trim() === "" ? null : Number(dep) } : { amount: dep.trim() === "" ? null : Number(dep) } },
+        ? { mode, parts: rates.map(rowPlan) }
+        : { mode, parts: rest.map(rowPlan), deposit: depKind === "percent" ? { percent: dep.trim() === "" ? null : Number(dep) } : { amount: dep.trim() === "" ? null : Number(dep) } },
     [mode, rates, rest, dep, depKind],
   );
   const preview = useMemo(() => previewSplit(config, plan, baseNumber), [config, plan, baseNumber]);
+  const left = useMemo(() => splitLeft(preview.contractValue, plan), [preview.contractValue, plan]);
 
   const rows = mode === "rate" ? rates : rest;
   const setRows = mode === "rate" ? setRates : setRest;
@@ -133,12 +137,26 @@ export default function InvoiceSplitDialog({
               <Typography variant="body2" sx={{ width: 150, fontVariantNumeric: "tabular-nums" }}>
                 {baseNumber}-{partNo(i)}
               </Typography>
+              <Select
+                size="small"
+                value={r.kind}
+                onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, kind: e.target.value as Row["kind"] } : x)))}
+                inputProps={{ "aria-label": `Rate or amount of ${baseNumber}-${partNo(i)}` }}
+                sx={{ width: 90 }}
+              >
+                <MenuItem value="percent">%</MenuItem>
+                <MenuItem value="amount">$</MenuItem>
+              </Select>
               <TextField
                 size="small"
-                value={r}
-                onChange={(e) => setRows(rows.map((x, j) => (j === i ? e.target.value.replace(/[^\d.]/g, "") : x)))}
-                inputProps={{ inputMode: "decimal", "aria-label": `Rate of ${baseNumber}-${partNo(i)}` }}
-                InputProps={{ endAdornment: <InputAdornment position="end">{mode === "deposit" ? "% of remainder" : "%"}</InputAdornment> }}
+                value={r.value}
+                onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, value: e.target.value.replace(/[^\d.]/g, "") } : x)))}
+                inputProps={{ inputMode: "decimal", "aria-label": `${r.kind === "amount" ? "Amount" : "Rate"} of ${baseNumber}-${partNo(i)}` }}
+                InputProps={
+                  r.kind === "amount"
+                    ? { startAdornment: <InputAdornment position="start">$</InputAdornment> }
+                    : { endAdornment: <InputAdornment position="end">{mode === "deposit" ? "% of remainder" : "%"}</InputAdornment> }
+                }
                 sx={{ width: mode === "deposit" ? 230 : 160 }}
               />
               {rows.length > 1 && (
@@ -148,11 +166,15 @@ export default function InvoiceSplitDialog({
               )}
             </Stack>
           ))}
-          <Box>
-            <Button size="small" startIcon={<AddIcon />} onClick={() => setRows([...rows, ""])} disabled={rows.length + (mode === "deposit" ? 1 : 0) >= 20}>
+          <Stack direction="row" alignItems="center" spacing={2}>
+            <Button size="small" startIcon={<AddIcon />} onClick={() => setRows([...rows, { kind: rows[rows.length - 1]?.kind ?? "percent", value: "" }])} disabled={rows.length + (mode === "deposit" ? 1 : 0) >= 20}>
               Add invoice
             </Button>
-          </Box>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="body2" data-testid="split-left" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, color: Math.abs(left) < 0.005 ? "success.main" : left < 0 ? "error.main" : "warning.main" }}>
+              {left < -0.004 ? `Over ${fmtMoney(-left)}` : `Left ${fmtMoney(Math.max(0, left))}`}
+            </Typography>
+          </Stack>
         </Stack>
 
         {preview.error ? (

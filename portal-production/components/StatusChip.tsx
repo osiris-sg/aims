@@ -42,7 +42,13 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export default function StatusChip({ status, doc }: { status?: string | null; doc?: { status?: string | null; config?: any; type?: string | null; documentType?: string | null; wctStatus?: string | null; erpQuoteStatus?: string | null } | null }) {
+type ChipDoc = { status?: string | null; config?: any; type?: string | null; documentType?: string | null; wctStatus?: string | null; erpQuoteStatus?: string | null };
+
+/**
+ * The chip's label and colour (pure; the chip below and the list exports read the same words). `flowOn` =
+ * enableWctStatusFlow for the org being viewed.
+ */
+export function statusChipView(status: string | null | undefined, doc: ChipDoc | null | undefined, flowOn: boolean) {
   // WCT imported quotation (helpers/docStatus.ts): its status comes from the ERP. List rows carry the type as
   // documentType; it is read for this rule only, so every other chip derives exactly as before. A list row carries
   // the server's reading (erpQuoteStatus, round 35: the 6-month cut on the server's Singapore date).
@@ -55,9 +61,8 @@ export default function StatusChip({ status, doc }: { status?: string | null; do
   // delivery orders read Pending / Accepted / Draft… (helpers/wctStatusFlow.ts) and this wins over the
   // enableWctStatuses set. What the old ERP says about an imported quotation still stands: Expired / Cancelled
   // stay, and one the ERP has open reads Pending.
-  const { isWctStatusFlowEnabled } = useOrganizationFeatures();
   const erpFact = erpQuote === "expired" || erpQuote === "cancelled";
-  const flow = isWctStatusFlowEnabled && doc && !erpFact ? flowDocStatus({ ...doc, type: doc.type ?? doc.documentType, status: erpQuote === "unconfirmed" ? "unconfirmed" : status ?? doc.status }) : null;
+  const flow = flowOn && doc && !erpFact ? flowDocStatus({ ...doc, type: doc.type ?? doc.documentType, status: erpQuote === "unconfirmed" ? "unconfirmed" : status ?? doc.status }) : null;
   const label =
     flow?.label ||
     (wct
@@ -67,11 +72,18 @@ export default function StatusChip({ status, doc }: { status?: string | null; do
           .split("_")
           .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
           .join(" "));
+  const color = flow?.color || (wct ? wctStatusColor(wct) : STATUS_COLOR[s] || "default");
+  return { s, label, color, erpQuote, wct, flow };
+}
+
+export default function StatusChip({ status, doc }: { status?: string | null; doc?: ChipDoc | null }) {
+  const { isWctStatusFlowEnabled } = useOrganizationFeatures();
+  const { s, label, color, wct } = statusChipView(status, doc, !!isWctStatusFlowEnabled);
   const chip = (
     <Chip
       size="small"
       variant="outlined"
-      color={flow?.color || (wct ? wctStatusColor(wct) : STATUS_COLOR[s] || "default")}
+      color={color}
       data-testid="status-chip"
       label={label}
       // Long statuses ("Delivered Installed") WRAP to a second line instead of

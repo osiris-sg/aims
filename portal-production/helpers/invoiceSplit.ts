@@ -4,10 +4,12 @@
 // writes); helpers/invoiceSplit.test.mjs runs the same fixtures as the API spec.
 
 export type SplitMode = "rate" | "deposit";
+/** A row: a % (plain number) or, chosen per row, a fixed $ amount ({ amount }). 2026-11-24. */
+export type SplitRow = number | { percent?: number | null; amount?: number | null };
 export interface SplitPlan {
   mode: SplitMode;
-  /** rate: each part's %; deposit: the remainder rows' % of the remainder. */
-  parts: number[];
+  /** rate: each part's % or $; deposit: the remainder rows' % of the remainder or $. */
+  parts: SplitRow[];
   deposit?: { percent?: number | null; amount?: number | null } | null;
 }
 
@@ -67,6 +69,35 @@ export function splitBaseOf(config: any): { contractValue: number; tax: Tax; quo
   return { contractValue: R2(t.grossTotal - t.discountAmount), tax, quotationNo, original: t };
 }
 
+/** A row as { kind, value }: a plain number (or { percent }) is a %, { amount } a $ amount. NaN = not filled in. */
+export function splitRowOf(r: SplitRow): { kind: "percent" | "amount"; value: number } {
+  if (r !== null && typeof r === "object") {
+    if ("amount" in r && r.percent === undefined) return { kind: "amount", value: num(r.amount) ?? NaN };
+    return { kind: "percent", value: num(r.percent) ?? NaN };
+  }
+  return { kind: "percent", value: num(r) ?? NaN };
+}
+
+/** What is still to place (contract value minus the deposit and every filled-in row); negative = over. */
+export function splitLeft(contractValue: number, plan: SplitPlan): number {
+  const base = R2(Number(contractValue) || 0);
+  let of = base;
+  let used = 0;
+  if (plan.mode === "deposit") {
+    const pct = num(plan.deposit?.percent);
+    const amt = num(plan.deposit?.amount);
+    const dep = pct !== null ? R2((base * pct) / 100) : amt !== null ? R2(amt) : 0;
+    used += dep;
+    of = R2(base - dep);
+  }
+  for (const r of plan.parts) {
+    const x = splitRowOf(r);
+    if (!Number.isFinite(x.value)) continue;
+    used += x.kind === "amount" ? R2(x.value) : (of * x.value) / 100;
+  }
+  return R2(base - used);
+}
+
 export interface SplitPreviewPart {
   label: string;
   description: string;
@@ -80,14 +111,30 @@ export interface SplitPreviewPart {
 export function previewSplit(config: any, plan: SplitPlan, baseNumber: string): { parts: SplitPreviewPart[]; error: string | null; contractValue: number } {
   const { contractValue, tax, quotationNo, original } = splitBaseOf(config);
   const base = contractValue;
-  const rows = plan.parts.map(Number);
+  const rows = plan.parts.map(splitRowOf);
   const fail = (error: string) => ({ parts: [], error, contractValue });
   if (!(base > 0)) return fail("This invoice has no amount to split.");
-  if (rows.some((p) => !Number.isFinite(p) || p <= 0)) return fail("Every part needs a rate above 0%.");
-  const sum = rows.reduce((s, p) => s + p, 0);
-  const share = (of: number) => {
-    const out = rows.map((p) => R2((of * p) / 100));
-    out[out.length - 1] = R2(of - out.slice(0, -1).reduce((s, a) => s + a, 0));
+  const allPct = rows.every((r) => r.kind === "percent");
+  if (rows.some((r) => !Number.isFinite(r.value) || r.value <= 0)) return fail(allPct ? "Every part needs a rate above 0%." : "Every part needs a rate or an amount above 0.");
+  // The rows' amounts out of `of`; all %: total 100%; any $: add up to `of` to the cent; the last % row takes the cents.
+  const share = (of: number, remainder: boolean): number[] | string => {
+    if (allPct) {
+      const sum = rows.reduce((s, r) => s + r.value, 0);
+      if (Math.abs(sum - 100) > 0.001) return `The ${remainder ? "remainder rates" : "rates"} must total 100% (now ${fmtPct(sum)}%).`;
+    } else {
+      const exact = rows.reduce((s, r) => s + (r.kind === "amount" ? R2(r.value) : (of * r.value) / 100), 0);
+      const left = R2(of - exact);
+      if (Math.abs(of - exact) > 0.005) {
+        const target = remainder ? `the remainder ${fmtMoney(of)}` : `the contract value ${fmtMoney(of)}`;
+        return `The invoices must add up to ${target} (${left > 0 ? `${fmtMoney(left)} left` : `${fmtMoney(-left)} over`}).`;
+      }
+    }
+    const out = rows.map((r) => (r.kind === "amount" ? R2(r.value) : R2((of * r.value) / 100)));
+    let k = -1;
+    rows.forEach((r, i) => {
+      if (r.kind === "percent") k = i;
+    });
+    if (k >= 0) out[k] = R2(of - out.reduce((s, a, i) => (i === k ? s : s + a), 0));
     return out;
   };
   const ref = quotationNo ? `, ref ${quotationNo}` : "";
@@ -96,12 +143,12 @@ export function previewSplit(config: any, plan: SplitPlan, baseNumber: string): 
   let texts: string[];
   if (plan.mode === "rate") {
     if (rows.length < 2) return fail("Add at least one more invoice to split.");
-    if (Math.abs(sum - 100) > 0.001) return fail(`The rates must total 100% (now ${fmtPct(sum)}%).`);
-    amounts = share(base);
-    texts = rows.map((p, i) => `${i === rows.length - 1 ? "Final payment" : paymentLabel(i + 1)} (${fmtPct(p)}%) ${of}`);
+    const a = share(base, false);
+    if (typeof a === "string") return fail(a);
+    amounts = a;
+    texts = rows.map((r, i) => `${i === rows.length - 1 ? "Final payment" : paymentLabel(i + 1)} (${r.kind === "amount" ? fmtMoney(r.value) : `${fmtPct(r.value)}%`}) ${of}`);
   } else {
     if (rows.length < 1) return fail("Add at least one invoice for the remainder.");
-    if (Math.abs(sum - 100) > 0.001) return fail(`The remainder rates must total 100% (now ${fmtPct(sum)}%).`);
     const pct = num(plan.deposit?.percent);
     const amt = num(plan.deposit?.amount);
     let dep: number;
@@ -113,12 +160,14 @@ export function previewSplit(config: any, plan: SplitPlan, baseNumber: string): 
       dep = R2(amt);
     } else return fail("Enter the deposit.");
     const rem = R2(base - dep);
-    amounts = [dep, ...share(rem)];
+    const a = share(rem, true);
+    if (typeof a === "string") return fail(a);
+    amounts = [dep, ...a];
     const bal = fmtMoney(rem);
     texts = [
       pct !== null ? `Deposit (${fmtPct(pct)}%) ${of}` : `Deposit (${fmtMoney(dep)}) ${of}`,
       ...rows.map((q, j) => {
-        const s = rows.length === 1 && Math.abs(q - 100) < 0.001 ? `balance ${bal}` : `${fmtPct(q)}% of balance ${bal}`;
+        const s = q.kind === "amount" ? `${fmtMoney(q.value)} of balance ${bal}` : rows.length === 1 && Math.abs(q.value - 100) < 0.001 ? `balance ${bal}` : `${fmtPct(q.value)}% of balance ${bal}`;
         return `${j === rows.length - 1 ? "Final payment" : paymentLabel(j + 2)} (${s}) ${of}`;
       }),
     ];

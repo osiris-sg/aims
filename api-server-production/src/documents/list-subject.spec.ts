@@ -128,3 +128,18 @@ describe('document list: Subject column (WCT group)', () => {
     expect(sqlTexts(queryRaw).some((t) => t.includes('sourceDocumentId') || t.includes('AS own'))).toBe(false);
   });
 });
+
+describe('Invoices list: PO Number search (WCT group, 2026-11-24)', () => {
+  it('flag on, invoice list: the search reads documentInfo.poNo', async () => {
+    const { svc, queryRaw } = listSvc(true);
+    await svc.getDocumentsPaginated('org', { documentTypes: ['INVOICE'], search: 'PO-123' });
+    expect(sqlTexts(queryRaw).some((t) => t.includes('{documentInfo,poNo}'))).toBe(true);
+  });
+  it('flag off, or a DO / quotation / credit note list: no PO SQL', async () => {
+    for (const [flag, types] of [[false, ['INVOICE']], [true, ['DELIVERY_ORDER']], [true, ['QUOTATION']], [true, ['CREDIT_NOTE']]] as const) {
+      const { svc, queryRaw } = listSvc(flag);
+      await svc.getDocumentsPaginated('org', { documentTypes: [...types], search: 'PO-123' });
+      expect(sqlTexts(queryRaw).some((t) => t.includes('poNo'))).toBe(false);
+    }
+  });
+});

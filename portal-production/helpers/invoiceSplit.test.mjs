@@ -111,3 +111,29 @@ test("a split part keeps its stored totals in the editor while its line is uncha
   assert.equal(storedTotalsFor(erpStoredTotalsOf(part), [{ amount: 40, quantity: 1, unitPrice: 40 }]), null);
   assert.equal(erpStoredTotalsOf({ items, subTotal: 33.34, gstAmount: 2.99, nettTotal: 36.33 }), null); // any other invoice: unchanged
 });
+
+// 2026-11-24: each row by % or $ (same fixtures as the API's "split rows by amount ($) or %").
+import { splitLeft } from "./invoiceSplit.ts";
+test("rows by $ or %: mixed rows add up to the contract value", () => {
+  const p = previewSplit(CFG, { mode: "rate", parts: [{ amount: 3000 }, 70] }, B);
+  assert.equal(p.error, null);
+  assert.deepEqual(p.parts.map((x) => [x.subTotal, x.gstAmount, x.total]), [[3000, 270, 3270], [7000, 630, 7630]]);
+  assert.equal(p.parts[0].description, "First payment ($3,000.00) of contract value $10,000.00, ref QO202611-0030");
+});
+test("rows by $: left / over messages, same as the API", () => {
+  assert.equal(previewSplit(CFG, { mode: "rate", parts: [{ amount: 3000 }, { amount: 6000 }] }, B).error, "The invoices must add up to the contract value $10,000.00 ($1,000.00 left).");
+  assert.equal(previewSplit(CFG, { mode: "rate", parts: [{ amount: 3000 }, 80] }, B).error, "The invoices must add up to the contract value $10,000.00 ($1,000.00 over).");
+  assert.equal(previewSplit(CFG, { mode: "deposit", deposit: { amount: 1000 }, parts: [{ amount: 8000 }] }, B).error, "The invoices must add up to the remainder $9,000.00 ($1,000.00 left).");
+});
+test("deposit + rate keeps working; remainder rows by $", () => {
+  const p = previewSplit(CFG, { mode: "deposit", deposit: { amount: 1000 }, parts: [{ amount: 4000 }, { amount: 5000 }] }, B);
+  assert.equal(p.error, null);
+  assert.deepEqual(p.parts.map((x) => x.subTotal), [1000, 4000, 5000]);
+  assert.equal(p.parts[1].description, "Second payment ($4,000.00 of balance $9,000.00) of contract value $10,000.00, ref QO202611-0030");
+});
+test("what is left to place", () => {
+  assert.equal(splitLeft(10000, { mode: "rate", parts: [{ amount: 3000 }, 50] }), 2000);
+  assert.equal(splitLeft(10000, { mode: "rate", parts: [{ amount: 3000 }, NaN] }), 7000);
+  assert.equal(splitLeft(10000, { mode: "rate", parts: [{ amount: 12000 }] }), -2000);
+  assert.equal(splitLeft(10000, { mode: "deposit", deposit: { percent: 10 }, parts: [50] }), 4500);
+});

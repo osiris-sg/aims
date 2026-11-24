@@ -14,6 +14,8 @@ import {
   splitAmounts,
   splitLineTexts,
   splitSentSummary,
+  splitLeft,
+  storedSplitRows,
   withSplitPartIds,
 } from './invoice-split';
 import { orderLinksAfter, splitInvoice, undoInvoiceSplit } from './invoice-split-ops';
@@ -68,6 +70,57 @@ describe('split amounts', () => {
     expect(() => splitAmounts(10000, { mode: 'deposit', deposit: { percent: 10, amount: 5 }, parts: [100] })).toThrow('not both');
     expect(() => splitAmounts(0, { mode: 'rate', parts: [50, 50] })).toThrow('no amount');
     expect(() => splitAmounts(0.01, { mode: 'rate', parts: [10, 90] })).toThrow('Invoice -1 comes to $0.00');
+  });
+});
+
+describe('split rows by amount ($) or % (per row, 2026-11-24)', () => {
+  it('rate mode: $ rows and % rows mixed, adding up to the contract value', () => {
+    expect(splitAmounts(10000, { mode: 'rate', parts: [{ amount: 3000 }, 70] }).amounts).toEqual([3000, 7000]);
+    expect(splitAmounts(10000, { mode: 'rate', parts: [{ amount: 2500 }, { amount: 7500 }] }).amounts).toEqual([2500, 7500]);
+    expect(splitAmounts(10000, { mode: 'rate', parts: [{ percent: 30 }, { amount: 7000 }] }).amounts).toEqual([3000, 7000]);
+  });
+  it('the last % row takes the rounding cents; a typed $ amount is never changed', () => {
+    expect(splitAmounts(100, { mode: 'rate', parts: [33.33, { amount: 33.33 }, 33.34] }).amounts).toEqual([33.33, 33.33, 33.34]);
+    const a = splitAmounts(999.99, { mode: 'rate', parts: [{ amount: 333.33 }, 33.33335, 33.33335] }).amounts;
+    expect(a[0]).toBe(333.33);
+    expect(Math.round(a.reduce((s, x) => s + x, 0) * 100) / 100).toBe(999.99);
+  });
+  it('refuses $ rows that do not add up, saying what is left or over', () => {
+    expect(() => splitAmounts(10000, { mode: 'rate', parts: [{ amount: 3000 }, { amount: 6000 }] })).toThrow('must add up to the contract value $10,000.00 ($1,000.00 left)');
+    expect(() => splitAmounts(10000, { mode: 'rate', parts: [{ amount: 3000 }, 80] })).toThrow('($1,000.00 over)');
+    expect(() => splitAmounts(10000, { mode: 'rate', parts: [{ amount: 0 }, 100] })).toThrow('a rate or an amount above 0');
+  });
+  it('deposit + rate: remainder rows by $ or %', () => {
+    expect(splitAmounts(10000, { mode: 'deposit', deposit: { percent: 30 }, parts: [{ amount: 2000 }, 5000 / 70] })).toEqual({ amounts: [3000, 2000, 5000], deposit: 3000, remainder: 7000 });
+    expect(() => splitAmounts(10000, { mode: 'deposit', deposit: { amount: 1000 }, parts: [{ amount: 8000 }] })).toThrow('must add up to the remainder $9,000.00 ($1,000.00 left)');
+    // all % keeps its old message
+    expect(() => splitAmounts(10000, { mode: 'deposit', deposit: { amount: 1000 }, parts: [50] })).toThrow('remainder rates must total 100% (now 50%)');
+  });
+  it('line texts: a $ row reads its amount', () => {
+    expect(splitLineTexts({ mode: 'rate', parts: [{ amount: 3000 }, 70] }, 10000, 'QO1')).toEqual([
+      'First payment ($3,000.00) of contract value $10,000.00, ref QO1',
+      'Final payment (70%) of contract value $10,000.00, ref QO1',
+    ]);
+    expect(splitLineTexts({ mode: 'deposit', deposit: { amount: 1000 }, parts: [{ amount: 4000 }, { amount: 5000 }] }, 10000, null)).toEqual([
+      'Deposit ($1,000.00) of contract value $10,000.00',
+      'Second payment ($4,000.00 of balance $9,000.00) of contract value $10,000.00',
+      'Final payment ($5,000.00 of balance $9,000.00) of contract value $10,000.00',
+    ]);
+  });
+  it('what is left to place (blank rows count as 0)', () => {
+    expect(splitLeft(10000, { mode: 'rate', parts: [{ amount: 3000 }, 50] })).toBe(2000);
+    expect(splitLeft(10000, { mode: 'rate', parts: [{ amount: 3000 }, NaN] })).toBe(7000);
+    expect(splitLeft(10000, { mode: 'rate', parts: [{ amount: 12000 }] })).toBe(-2000);
+    expect(splitLeft(10000, { mode: 'deposit', deposit: { percent: 10 }, parts: [50] })).toBe(4500);
+  });
+  it('stored plan rows: % as a number (as before), $ as { amount }', () => {
+    expect(storedSplitRows([30, { amount: 7000 }, { percent: '5' }])).toEqual([30, { amount: 7000 }, 5]);
+  });
+  it('GST per part and the totals add up for a $ split', () => {
+    const p = planInvoiceSplit(QUOTE_CFG, { mode: 'rate', parts: [{ amount: 1234.56 }, 43.8272, 43.8272] as any });
+    expect(p.parts.map((x) => x.amount)).toEqual([1234.56, 4382.72, 4382.72]);
+    const sum = (k: 'nettTotal' | 'gstAmount' | 'subTotal') => Math.round(p.parts.reduce((s, x) => s + x.totals[k], 0) * 100) / 100;
+    expect([sum('subTotal'), sum('gstAmount'), sum('nettTotal')]).toEqual([10000, 900, 10900]);
   });
 });
 

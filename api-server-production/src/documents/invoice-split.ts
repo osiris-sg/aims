@@ -13,6 +13,9 @@
  *   rate     parts by % of the contract value, totalling 100%
  *   deposit  part 1 a deposit (% or a fixed amount), the remainder by %, the
  *            remainder rows totalling 100% of the remainder
+ * Since 2026-11-24 every row may instead be a fixed $ amount, chosen per row
+ * ({ amount }); then the rows must add up to the contract value (or the
+ * remainder) to the cent, and the last % row takes the rounding cents.
  * The last part takes the rounding cents, so the parts add up to the contract
  * value exactly. The contract value is what the invoice's lines carry after
  * its document discount (excl. GST, or incl. GST on a tax-inclusive invoice).
@@ -32,10 +35,15 @@ export const INVOICE_SPLIT_FLAG = 'enableInvoiceSplit';
 export const MAX_SPLIT_PARTS = 20;
 
 export type SplitMode = 'rate' | 'deposit';
+/**
+ * One row of a split (2026-11-24): a % (a plain number, as stored before) or, chosen per row, a fixed amount
+ * ({ amount }). Rate mode: of the contract value; deposit mode: of the remainder.
+ */
+export type SplitRow = number | { percent?: number | string | null; amount?: number | string | null };
 export interface SplitPlan {
   mode: SplitMode;
-  /** rate: every part's %; deposit: the remainder rows' % (of the remainder). */
-  parts: number[];
+  /** rate: every part's % or $ amount; deposit: the remainder rows' % (of the remainder) or $ amount. */
+  parts: SplitRow[];
   /** deposit mode only: a % of the contract value OR a fixed amount. */
   deposit?: { percent?: number | null; amount?: number | null } | null;
 }
@@ -97,6 +105,80 @@ export function splitBaseOf(config: any): { contractValue: number; nettTotal: nu
   return { contractValue, nettTotal: t.nettTotal, tax, quotationNo };
 }
 
+/** A row as { kind, value }: a plain number (or { percent }) is a %, { amount } a fixed $ amount. NaN = not filled in. */
+export function splitRowOf(r: SplitRow): { kind: 'percent' | 'amount'; value: number } {
+  if (r !== null && typeof r === 'object') {
+    const a = num((r as any).amount);
+    if (a !== null || ((r as any).percent === undefined && 'amount' in (r as any))) return { kind: 'amount', value: a ?? NaN };
+    const p = num((r as any).percent);
+    return { kind: 'percent', value: p ?? NaN };
+  }
+  const p = num(r);
+  return { kind: 'percent', value: p ?? NaN };
+}
+
+/** The plan's rows normalised for storage: a % stays a plain number (as before), an amount is { amount }. */
+export function storedSplitRows(rows: SplitRow[]): Array<number | { amount: number }> {
+  return (Array.isArray(rows) ? rows : []).map((r) => {
+    const x = splitRowOf(r);
+    return x.kind === 'amount' ? { amount: R2(x.value) } : x.value;
+  });
+}
+
+/**
+ * The rows' amounts out of `of` (the contract value, or the remainder after a deposit). Every row % or $; all %:
+ * they total 100% (as before); any $: they add up to `of` to the cent. The last % row takes the rounding cents (a
+ * typed $ amount is never changed). Throws SplitPlanError.
+ */
+function rowAmounts(of: number, rawRows: SplitRow[], what: { remainder: boolean }): number[] {
+  const rows = rawRows.map(splitRowOf);
+  const allPct = rows.every((r) => r.kind === 'percent');
+  if (rows.some((r) => !Number.isFinite(r.value) || r.value <= 0)) {
+    throw new SplitPlanError(allPct ? 'Every part needs a rate above 0%.' : 'Every part needs a rate or an amount above 0.');
+  }
+  if (allPct) {
+    const sum = rows.reduce((s, r) => s + r.value, 0);
+    if (Math.abs(sum - 100) > 0.001) throw new SplitPlanError(`The ${what.remainder ? 'remainder rates' : 'rates'} must total 100% (now ${fmtPct(sum)}%).`);
+  } else {
+    const exact = rows.reduce((s, r) => s + (r.kind === 'amount' ? R2(r.value) : (of * r.value) / 100), 0);
+    const left = R2(of - exact);
+    if (Math.abs(of - exact) > 0.005) {
+      const target = what.remainder ? `the remainder ${fmtMoney(of)}` : `the contract value ${fmtMoney(of)}`;
+      throw new SplitPlanError(`The invoices must add up to ${target} (${left > 0 ? `${fmtMoney(left)} left` : `${fmtMoney(-left)} over`}).`);
+    }
+  }
+  const out = rows.map((r) => (r.kind === 'amount' ? R2(r.value) : R2((of * r.value) / 100)));
+  let k = -1;
+  rows.forEach((r, i) => {
+    if (r.kind === 'percent') k = i;
+  });
+  if (k >= 0) out[k] = R2(of - out.reduce((s, a, i) => (i === k ? s : s + a), 0));
+  return out;
+}
+
+/**
+ * What is still to place: the contract value minus the deposit and every filled-in row (a % row at its share).
+ * Negative = over. For the dialog's "Left" figure; blank rows count as 0.
+ */
+export function splitLeft(contractValue: number, plan: SplitPlan): number {
+  const base = R2(Number(contractValue) || 0);
+  let of = base;
+  let used = 0;
+  if (plan?.mode === 'deposit') {
+    const pct = num(plan.deposit?.percent);
+    const amt = num(plan.deposit?.amount);
+    const dep = pct !== null ? R2((base * pct) / 100) : amt !== null ? R2(amt) : 0;
+    used += dep;
+    of = R2(base - dep);
+  }
+  for (const r of Array.isArray(plan?.parts) ? plan.parts : []) {
+    const x = splitRowOf(r);
+    if (!Number.isFinite(x.value)) continue;
+    used += x.kind === 'amount' ? R2(x.value) : (of * x.value) / 100;
+  }
+  return R2(base - used);
+}
+
 /**
  * The amount of each part (in the lines' tax basis), validated. The last part
  * (and, in deposit mode, the last remainder row) takes the rounding cents.
@@ -105,24 +187,15 @@ export function splitAmounts(contractValue: number, plan: SplitPlan): { amounts:
   const base = R2(Number(contractValue));
   if (!(base > 0)) throw new SplitPlanError('This invoice has no amount to split.');
   if (plan?.mode !== 'rate' && plan?.mode !== 'deposit') throw new SplitPlanError('Pick By rate or Deposit + rate.');
-  const rows = Array.isArray(plan.parts) ? plan.parts.map((p) => Number(p)) : [];
-  if (rows.some((p) => !Number.isFinite(p) || p <= 0)) throw new SplitPlanError('Every part needs a rate above 0%.');
-  const sum = rows.reduce((s, p) => s + p, 0);
-  const total = (of: number) => {
-    const out = rows.map((p) => R2((of * p) / 100));
-    out[out.length - 1] = R2(of - out.slice(0, -1).reduce((s, a) => s + a, 0));
-    return out;
-  };
+  const rows: SplitRow[] = Array.isArray(plan.parts) ? plan.parts : [];
   let amounts: number[];
   let deposit: number | null = null;
   let remainder: number | null = null;
   if (plan.mode === 'rate') {
     if (rows.length < 2) throw new SplitPlanError('Add at least one more invoice to split.');
-    if (Math.abs(sum - 100) > 0.001) throw new SplitPlanError(`The rates must total 100% (now ${fmtPct(sum)}%).`);
-    amounts = total(base);
+    amounts = rowAmounts(base, rows, { remainder: false });
   } else {
     if (rows.length < 1) throw new SplitPlanError('Add at least one invoice for the remainder.');
-    if (Math.abs(sum - 100) > 0.001) throw new SplitPlanError(`The remainder rates must total 100% (now ${fmtPct(sum)}%).`);
     const pct = num(plan.deposit?.percent);
     const amt = num(plan.deposit?.amount);
     if (pct !== null && amt !== null) throw new SplitPlanError('Give the deposit as a % or as an amount, not both.');
@@ -134,7 +207,7 @@ export function splitAmounts(contractValue: number, plan: SplitPlan): { amounts:
       deposit = R2(amt);
     } else throw new SplitPlanError('Enter the deposit.');
     remainder = R2(base - deposit);
-    amounts = [deposit, ...total(remainder)];
+    amounts = [deposit, ...rowAmounts(remainder, rows, { remainder: true })];
   }
   if (amounts.length > MAX_SPLIT_PARTS) throw new SplitPlanError(`At most ${MAX_SPLIT_PARTS} invoices.`);
   const zero = amounts.findIndex((a) => !(a > 0));
@@ -142,14 +215,14 @@ export function splitAmounts(contractValue: number, plan: SplitPlan): { amounts:
   return { amounts, deposit, remainder };
 }
 
-/** Each part's one line text (BC Air I003278 style). */
+/** Each part's one line text (BC Air I003278 style). A $ row reads "($3,000.00)" where a % row reads "(30%)". */
 export function splitLineTexts(plan: SplitPlan, contractValue: number, quotationNo: string | null): string[] {
   const { remainder } = splitAmounts(contractValue, plan);
   const ref = quotationNo ? `, ref ${quotationNo}` : '';
   const of = `of contract value ${fmtMoney(contractValue)}${ref}`;
-  const rows = plan.parts.map(Number);
+  const rows = plan.parts.map(splitRowOf);
   if (plan.mode === 'rate') {
-    return rows.map((p, i) => `${i === rows.length - 1 ? 'Final payment' : paymentLabel(i + 1)} (${fmtPct(p)}%) ${of}`);
+    return rows.map((r, i) => `${i === rows.length - 1 ? 'Final payment' : paymentLabel(i + 1)} (${r.kind === 'amount' ? fmtMoney(r.value) : `${fmtPct(r.value)}%`}) ${of}`);
   }
   const pct = num(plan.deposit?.percent);
   const dep = pct !== null ? `Deposit (${fmtPct(pct)}%) ${of}` : `Deposit (${fmtMoney(R2(Number(plan.deposit?.amount)))}) ${of}`;
@@ -158,7 +231,12 @@ export function splitLineTexts(plan: SplitPlan, contractValue: number, quotation
     dep,
     ...rows.map((q, j) => {
       const last = j === rows.length - 1;
-      const share = rows.length === 1 && Math.abs(q - 100) < 0.001 ? `balance ${bal}` : `${fmtPct(q)}% of balance ${bal}`;
+      const share =
+        q.kind === 'amount'
+          ? `${fmtMoney(q.value)} of balance ${bal}`
+          : rows.length === 1 && Math.abs(q.value - 100) < 0.001
+          ? `balance ${bal}`
+          : `${fmtPct(q.value)}% of balance ${bal}`;
       return `${last ? 'Final payment' : paymentLabel(j + 2)} (${share}) ${of}`;
     }),
   ];
