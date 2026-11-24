@@ -25,6 +25,16 @@ const SCRIPT = 'system:wct-group-test-cleanup';
 
 type Want = { id: string; org: string; name: string; type?: string };
 const RK = '5c700000-0000-4000-8000-5c7000000002';
+const WITH_YOSHINOYA = process.argv.includes('--with-yoshinoya');
+// Payments allowed only on these (owner: void the payment's journal and the invoice's journal, then delete).
+const PAYMENT_OK = new Set(['INV202611-0026', 'OR-000003']);
+// Test customers deleted once nothing links to them (owner 25 Nov); WCT (S) "TEST Client" stays as THE throwaway customer.
+const CUSTOMER_LIST: Array<[string, string | null, string]> = [
+  [BC, 'CT313', 'TEST Client'], ['5c700000-0000-4000-8000-5c7000000002', 'CT009', 'TEST Client'],
+  [WCT, 'CT038', 'test_technicianapp'], [WCT, 'CS424', '辣不辣 (Spicy Not Spicy)'],
+];
+// Hidden (active = false), never deleted: it syncs from SiteClock (owner 25 Nov).
+const HIDE_WORKERS: Array<[string, string]> = [[WCT, 'Elroy']];
 const YMM = '5c700000-0000-4000-8000-5c7000000003';
 // [org, number, why]
 const DOC_LIST: Array<[string, string, string]> = [
@@ -33,18 +43,30 @@ const DOC_LIST: Array<[string, string, string]> = [
   [WCT, 'DO202611029', 'TEST Client'], [WCT, 'DO202611030', 'TEST Client'], [WCT, 'INV202611-0022', 'TEST Client'], [WCT, 'INV202611-0023', 'TEST Client'],
   [WCT, 'QO202611-0060', 'TEST Client, batch 1125'], [WCT, 'QO202611-0061', 'TEST Client, batch 1125'], [WCT, 'DO202611043', 'TEST Client, batch 1125'],
   [WCT, 'DO202611044', 'TEST Client, batch 1125'], [WCT, 'INV202611-0037', 'TEST Client, batch 1125'],
+  [WCT, 'QO202611-0063', 'TEST Client, Complete job re-run'], [WCT, 'QO202611-0064', 'TEST Client, Complete job re-run'],
+  [WCT, 'DO202611046', 'TEST Client, Complete job re-run (signed)'], [WCT, 'DO202611047', 'TEST Client, Complete job re-run (empty)'], [WCT, 'DO202611048', 'TEST Client, Complete job re-run (confirmed)'],
   // Owner's tests on Xiao Noodles (the customer stays)
   [WCT, 'QO202611-0059', 'owner test (Xiao Noodles), subject "Test Subject"'], [WCT, 'DO202611042', 'owner test (Xiao Noodles), "Test Loc"'],
   [WCT, 'INV202611-0036-1', 'owner test (Xiao Noodles)'], [WCT, 'INV202611-0036-2', 'owner test (Xiao Noodles)'], [WCT, 'INV202611-0036-3', 'owner test (Xiao Noodles)'],
-  // Subject "test subject" on Yoshinoya (the customer stays) and the DO made from it
-  [WCT, 'QO202611-0022', 'subject "test subject" (Yoshinoya)'], [WCT, 'DO202611019', 'DO of QO202611-0022 (Yoshinoya)'],
+  // 辣不辣 (Spicy Not Spicy): the owner's test customer, whole set (owner 25 Nov)
+  [WCT, 'QO202611-004', '辣不辣 test set'], [WCT, 'QO202611-0041', '辣不辣 test set, gibberish subject'], [WCT, 'DO202611034', '辣不辣 test set'],
+  [WCT, 'INV202611-0026', '辣不辣 test set (paid: payment journal + invoice journal voided)'],
+  [WCT, 'OR-000003', 'receipt of INV202611-0026 only (辣不辣 test set; its journal voided)'],
+  // Empty, no customer (owner 25 Nov)
+  ...['QO202611-0031', 'QO202611-0036', 'QO202611-0040', 'QO202611-0044', 'QO202611-0045', 'QO202611-0046', 'QO202611-0047', 'QO202611-0048', 'QO202611-0049', 'QO202611-0058',
+      'INV202611-0017', 'INV202611-0018', 'INV202611-0025', 'INV202611-0028', 'INV202611-0031', 'DO202611026'].map((n): [string, string, string] => [WCT, n, 'empty, no customer']),
+  [WCT, 'INV202611-0021', 'gibberish subject "hbughughu" (Hood Systems; customer stays)'], [WCT, 'QO202611-0056', 'empty test quotation (M1 Limited; customer stays)'],
+  // Subject "test subject" on Yoshinoya (the customer stays) and the DO made from it: only with --with-yoshinoya (owner to decide)
+  ...(WITH_YOSHINOYA ? ([[WCT, 'QO202611-0022', 'subject "test subject" (Yoshinoya)'], [WCT, 'DO202611019', 'DO of QO202611-0022 (Yoshinoya)']] as Array<[string, string, string]>) : []),
   // BC Air
   [BC, 'QO1202611-001', 'owner test, empty BC Air quotation'], [BC, 'QOB202611-0001', 'numbering check, empty'], [BC, 'QOB202611-0002', 'Non-GST check, empty'],
   [BC, 'QOB202611-0003', 'TEST Client, GST move'], [BC, 'DOB202611001', 'TEST Client, GST move'], [BC, 'INVB202611-0001-1', 'TEST Client, GST move'], [BC, 'INVB202611-0001-2', 'TEST Client, GST move'],
 ];
 const ORDER_LIST: Array<[string, string, string]> = [
   [WCT, 'ORD202611-017', 'TEST Client'], [WCT, 'ORD202611-018', 'TEST Client'], [WCT, 'ORDW202611-010', 'owner test (Xiao Noodles)'],
-  [WCT, 'ORDW202611-011', 'TEST Client, batch 1125'], [WCT, 'ORDW202611-012', 'TEST Client, batch 1125'], [WCT, 'ORD202611-005', 'order of QO202611-0022 "test subject"'],
+  [WCT, 'ORDW202611-011', 'TEST Client, batch 1125'], [WCT, 'ORDW202611-012', 'TEST Client, batch 1125'], [WCT, 'ORDW202611-014', 'TEST Client, Complete job re-run'], [WCT, 'ORDW202611-015', 'TEST Client, Complete job re-run'],
+  [WCT, 'ORDW202611-001', '辣不辣 test set'], [WCT, 'ORDW202611-002', '辣不辣 test set'], [WCT, 'ORDW202611-003', 'empty, no customer'], [WCT, 'ORD202611-014', 'empty, no customer (from QO202611-0031; INV202611-0017, DO202611026)'],
+  ...(WITH_YOSHINOYA ? ([[WCT, 'ORD202611-005', 'order of QO202611-0022 "test subject"']] as Array<[string, string, string]>) : []),
   [BC, 'ORDB202611-004', 'TEST Client, GST move'],
 ];
 // Jobs listed on their own (jobs on the listed orders / documents are found automatically). [org, number, why]
@@ -53,7 +75,7 @@ const JOB_LIST: Array<[string, number, string]> = [
   [WCT, 21, 'M1 Shop test job, "Elroy" test worker, "+2PT"'], [WCT, 22, 'M1 Shop test job, "Elroy" test worker, "+2PT"'],
 ];
 const NOTE_LIST: Array<[string, string, string]> = [
-  [WCT, 'TEST cal 1125, delete', 'title'], [WCT, 'Hello Title', 'staff "TEST STAFF", remarks "Test remarks"'],
+  [WCT, 'TEST cal 1125, delete', 'title'], [WCT, 'Hello Title', 'staff "TEST STAFF", remarks "Test remarks"'], [WCT, 'Site', 'test note, 4 Nov (owner)'],
 ];
 // The BC Air TEST Client made by the GST move test (deleted last, only when nothing else uses it).
 const NEW_CUSTOMER = { id: '882fe945-a170-4a3f-9cf8-bb539ac563b0', org: BC, code: 'CT313' };
@@ -155,14 +177,42 @@ function collectStrings(v: any, out: string[] = []): string[] {
       if (d && d.org !== j.org) throw new Error(`Refusing: journal ${j.journalNumber} is in another company than ${d.name}`);
     }
     const liveJournals = journals.filter((j) => j.status !== 'VOID');
-    const custUse = await q(
-      `select 'Document' t, count(*)::int n from "Document" where ("listCustomerId" = $1 or config->>'customerId' = $1 or config#>>'{customer,id}' = $1) and not (id = any($2::uuid[]))
-       union all select 'Order', count(*)::int from "Order" where "customerId"::text = $1 and not (id = any($3::uuid[]))
-       union all select 'Delivery', count(*)::int from "Delivery" where "customerId"::text = $1 and not (id::text = any($4))`,
-      [NEW_CUSTOMER.id, docIds, orderIds, jobIds],
-    );
-    const custBusy = custUse.filter((r) => r.n > 0);
-    const deleteCustomer = custBusy.length === 0;
+    const custRows: any[] = [];
+    for (const [org, code, name] of CUSTOMER_LIST) {
+      const rows = await q(`select id, "organizationId" org, name, "customerCode" code from "Customer" where "organizationId" = $1 and name = $2 and coalesce("customerCode",'') = $3`, [org, name, code ?? '']);
+      if (rows.length === 1) custRows.push(rows[0]);
+      else console.log(`  (customer ${ORG_NAME[org]} ${code} "${name}": found ${rows.length}, skipped)`);
+    }
+    const custKeep: Array<{ c: any; why: string }> = [];
+    const custDelete: any[] = [];
+    for (const cu of custRows) {
+      const use = await q(
+        `select 'Document' t, count(*)::int n from "Document" where ("listCustomerId"::text = $1 or config->>'customerId' = $1 or config#>>'{customer,id}' = $1) and not (id = any($2::uuid[]))
+         union all select 'Order', count(*)::int from "Order" where "customerId"::text = $1 and not (id = any($3::uuid[]))
+         union all select 'Delivery', count(*)::int from "Delivery" where "customerId"::text = $1 and not (id::text = any($4))
+         union all select 'Payment', count(*)::int from "Payment" where "customerId"::text = $1 and not (id::text = any($5))`,
+        [cu.id, docIds, orderIds, jobIds, payIds],
+      );
+      const busy = use.filter((x) => x.n > 0);
+      if (busy.length) custKeep.push({ c: cu, why: busy.map((x) => `${x.t} ${x.n}`).join(', ') });
+      else custDelete.push(cu);
+    }
+    const workerRows: any[] = [];
+    for (const [org, name] of HIDE_WORKERS) workerRows.push(...(await q(`select id, "organizationId" org, name, active from "Worker" where "organizationId" = $1 and name = $2`, [org, name])));
+    // DO202611026 / any listed DO: no stock moved (no unit on its lines, no deduction stamp).
+    const stockDos = await q(`select d.name from "Document" d where d.id = any($1::uuid[]) and d.type::text = 'DELIVERY_ORDER' and (d.config ? 'deductedAt' or exists (select 1 from "DeliveryItem" i where i."documentId" = d.id and i."inventoryId" is not null))`, [docIds]);
+    if (stockDos.length) throw new Error(`Refusing: stock moved on ${stockDos.map((x) => x.name).join(', ')}`);
+    // Ledger effect of the voids: every account the voided journals touch, balance before vs after (posted only).
+    const voidIds = liveJournals.map((j) => j.id);
+    const effect = voidIds.length
+      ? await q(`select a.id, a.code, a.name, j."organizationId" org, sum(l.debit - l.credit)::numeric(14,2) net from "JournalEntryLine" l join "JournalEntry" j on j.id = l."journalEntryId" join "ChartOfAccount" a on a.id = l."accountId"
+          where j.id::text = any($1) group by a.id, a.code, a.name, j."organizationId" order by a.code`, [voidIds])
+      : [];
+    for (const e of effect) {
+      const b = await q(`select coalesce(sum(l.debit - l.credit),0)::numeric(14,2) bal from "JournalEntryLine" l join "JournalEntry" j on j.id = l."journalEntryId" where j."organizationId" = $1 and j.status::text = 'POSTED' and l."accountId" = $2`, [e.org, e.id]);
+      e.before = Number(b[0].bal);
+      e.after = Math.round((e.before - Number(e.net)) * 100) / 100;
+    }
 
     // ── full sweep: nothing else may point at what goes ──────────────────
     const deleting = new Map<string, Set<string>>([
@@ -171,7 +221,9 @@ function collectStrings(v: any, out: string[] = []): string[] {
       ['CalendarNote', new Set(noteIds)], ['DeliveryGroupPost', new Set(posts.map((x) => x.id))], ['JobPhoto', new Set(jobPhotos.map((x) => x.id))], ['Payment', new Set(payIds)], ['Transaction', new Set(txns.map((x) => x.id))],
     ]);
     const targetIds = [...docIds, ...orderIds, ...jobIds, ...itemIds, ...msrIds, ...payIds, ...noteIds];
-    if (payments.length) throw new Error(`Refusing: payments / allocations on these: ${payments.map((p) => docs.find((d) => d.id === p.documentId)?.name).join(', ')}`);
+    const badPay = payments.filter((p) => !PAYMENT_OK.has(docs.find((d) => d.id === p.documentId)?.name));
+    if (badPay.length) throw new Error(`Refusing: payments / allocations on these: ${badPay.map((p) => docs.find((d) => d.id === p.documentId)?.name).join(', ')}`);
+    if (payments.some((p) => p.receiptId && !docIds.includes(p.receiptId))) throw new Error('Refusing: a payment belongs to a receipt that is not listed');
     const cols = await q(
       `select table_name t, column_name col, udt_name u from information_schema.columns
         where table_schema = 'public' and (column_name ilike '%id' or column_name ilike '%ids')
@@ -243,11 +295,19 @@ function collectStrings(v: any, out: string[] = []): string[] {
     for (const n of noteRows) console.log(`  Note      ${orgName(n.org).padEnd(7)} ${n.type} "${n.title}" | ${n.why}`);
     console.log(`  With them: job lines ${items.length}, proof / service report rows ${msrs.length}, job field values ${cfvs.length}, group posts ${posts.length}, job photos ${jobPhotos.length}, notifications ${notes.length}`);
     for (const r0 of storedRows) console.log(`  StoredFile                ${r0.key}`);
-    console.log(deleteCustomer ? `  Customer                  ${NEW_CUSTOMER.id}  BC Air ${CUSTOMER_NAME} ${NEW_CUSTOMER.code} (made by the move)` : `KEEP BC Air ${CUSTOMER_NAME} ${NEW_CUSTOMER.code}: still used by ${custBusy.map((r) => `${r.t} ${r.n}`).join(', ')}`);
+    for (const cu of custDelete) console.log(`  Customer  ${orgName(cu.org).padEnd(7)} ${cu.code ?? ''} "${cu.name}" (test customer, nothing else links to it)`);
+    for (const k of custKeep) console.log(`  KEEP customer ${orgName(k.c.org)} ${k.c.code ?? ''} "${k.c.name}": still linked (${k.why})`);
+    for (const w of workerRows) console.log(`  HIDE worker ${orgName(w.org)} "${w.name}" (active ${w.active} -> false; not deleted, syncs from SiteClock)`);
+    if (payments.length) for (const p of payments) console.log(`  Payment   ${p.paymentMethod} ${Number(p.amount).toFixed(2)} on ${docs.find((d) => d.id === p.documentId)?.name} (its journal voided, the row deleted: the app has no void state for a payment)`);
+    if (effect.length) {
+      console.log('Ledger effect of the voids (balance = debit - credit, posted journals):');
+      for (const e of effect) console.log(`  ${orgName(e.org)} ${e.code} ${e.name}: before ${e.before.toFixed(2)}, after ${e.after.toFixed(2)} (change ${(-Number(e.net)).toFixed(2)})`);
+    }
+    console.log(WITH_YOSHINOYA ? 'Yoshinoya test set INCLUDED (--with-yoshinoya).' : 'Yoshinoya QO202611-0022 / DO202611019 / ORD202611-005 / job #6: NOT included (owner to decide; --with-yoshinoya adds them).');
     console.log(`S3 objects to delete (bucket ${bucket}): ${s3Plan.length}`);
     for (const k of s3Plan) console.log(`  ${k}${listed.has(k) ? '' : '  (referenced, NOT found in S3)'}`);
     if (kept.length) console.log(`S3 keys referenced but shared (logo / stamp), KEPT: ${kept.length}`);
-    console.log(`CHECKS: live journals to void ${liveJournals.length}, payments 0, unlisted documents / jobs hanging off them 0, other rows pointing at them 0. Customers kept (only CT313 goes).`);
+    console.log(`CHECKS: live journals to void ${liveJournals.length}, payments ${payments.length} (only on ${[...PAYMENT_OK].join(', ')}), stock moved on listed DOs 0, unlisted documents / jobs hanging off them 0, other rows pointing at them 0.`);
     const counters = async () => q(`select "organizationId", "documentType", "nextSerial" from "DocumentNumberFormat" where "organizationId" = any($1) order by 1, 2, id`, [[WCT, BC, RK, YMM]]);
     const before = await counters();
 
@@ -277,10 +337,11 @@ function collectStrings(v: any, out: string[] = []): string[] {
     if (storedRows.length) await c.query(`delete from "StoredFile" where key = any($1)`, [storedRows.map((x: any) => x.key)]);
     await c.query(`delete from "Order" where id::text = any($1)`, [orderIds]);
     await c.query(`delete from "Document" where id::text = any($1)`, [docIds]);
-    if (deleteCustomer) {
-      await c.query(`delete from "CustomerBalance" where "customerId" = $1`, [NEW_CUSTOMER.id]);
-      await c.query(`delete from "Customer" where id = $1 and "organizationId" = $2`, [NEW_CUSTOMER.id, NEW_CUSTOMER.org]);
+    for (const cu of custDelete) {
+      await c.query(`delete from "CustomerBalance" where "customerId" = $1`, [cu.id]).catch(() => undefined);
+      await c.query(`delete from "Customer" where id = $1 and "organizationId" = $2`, [cu.id, cu.org]);
     }
+    for (const w of workerRows) await c.query(`update "Worker" set active = false, "updatedAt" = now() where id = $1`, [w.id]);
     const log = (org: string, resource: string, id: string, note: string) =>
       c.query(
         `insert into "ActionLog" (id, "actorType", "actorId", "actorName", "organizationId", channel, action, resource, "resourceId", details, status, "createdAt")
@@ -291,7 +352,12 @@ function collectStrings(v: any, out: string[] = []): string[] {
     for (const o of orders) await log(o.org, 'orders', o.id, `TEST throwaway order ${o.orderNumber} deleted (number kept as a gap)`);
     for (const j of jobs) await log(j.org, 'deliveries', j.id, `TEST throwaway job #${j.deliveryNumber} deleted`);
     for (const j of liveJournals) await log(j.org, 'journal', j.id, `TEST throwaway journal ${j.journalNumber} voided`);
-    if (deleteCustomer) await log(BC, 'customers', NEW_CUSTOMER.id, `TEST throwaway customer ${NEW_CUSTOMER.code} deleted`);
+    for (const cu of custDelete) await log(cu.org, 'customers', cu.id, `TEST customer ${cu.code ?? ''} "${cu.name}" deleted`);
+    for (const w of workerRows) await c.query(
+        `insert into "ActionLog" (id, "actorType", "actorId", "actorName", "organizationId", channel, action, resource, "resourceId", details, status, "createdAt")
+         values ($1, 'SYSTEM', $2, 'System creation', $3, 'script', 'UPDATE', 'workers', $4, $5, 'SUCCESS', $6)`,
+        [randomUUID(), SCRIPT, w.org, w.id, JSON.stringify({ note: `test worker "${w.name}" hidden (active false)` }), now],
+      );
     for (const n of noteRows) await log(n.org, 'calendar-notes', n.id, `TEST note "${n.title}" deleted`);
     const after = await counters();
     if (JSON.stringify(after) !== JSON.stringify(before)) throw new Error('A numbering counter moved: rolled back');
