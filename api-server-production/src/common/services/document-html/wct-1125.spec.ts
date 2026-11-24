@@ -58,6 +58,14 @@ describe('WCT print 25 Nov: DO signature bottom right, on the Remarks line', () 
     expect(row).toContain('Mr Lee &nbsp;·&nbsp; 25/11/2026');
     expect(h).not.toContain('Received by:');
   });
+  it('the editor preview / stored PDF: the server-added signature (wctDoSignature), dated in Singapore', () => {
+    const h = renderWctBody('do', base({ remarks: 'R1', wctDoSignature: { signature: SIG, signedByName: 'Lim', signedAt: '2026-11-24T17:30:00Z' } }), {}, design);
+    expect(h).toContain(`<div class="r"><div class="sig"><img src="${SIG}"`);
+    expect(h).toContain('Lim &nbsp;·&nbsp; 25/11/2026');
+    expect(h).not.toContain('PROOF OF DELIVERY');
+    // Not a png / jpeg data URL: ignored.
+    expect(renderWctBody('do', base({ wctDoSignature: { signature: 'javascript:x' } }), {}, design)).not.toContain('class="sig"');
+  });
   it('unsigned: the right column is blank', () => {
     const h = renderWctBody('do', base({ remarks: 'R1' }), {}, design);
     expect(h).toContain('<div class="r"></div>');

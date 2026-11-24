@@ -9359,12 +9359,32 @@ export class DocumentsService {
   async invoiceDoNosFor(type: string, documentId: string | null | undefined, organizationId: string, config: any): Promise<{ invoiceDoNos?: string[]; quotationSubject?: string }> {
     // WCT print (2026-11-25): a DO / invoice with no Subject of its own prints its quotation's (wct.ts jobBoxes).
     const subject = await this.quotationSubjectFor(type, organizationId, config);
-    const extra = subject ? { quotationSubject: subject } : {};
+    const sig = await this.doSignatureFor(type, documentId, organizationId);
+    const extra = { ...(subject ? { quotationSubject: subject } : {}), ...(sig ? { wctDoSignature: sig } : {}) };
     if (!isInvoiceDocType(type)) return extra;
     try {
       return { ...extra, invoiceDoNos: await invoiceDoNumbers(this.prisma, organizationId, documentId ?? null, config || {}) };
     } catch {
       return extra;
+    }
+  }
+
+  /**
+   * A DO's latest customer signature (DO_ACK / DO_INSTALL proof row with a drawn signature: the sign link, the
+   * office, the field app), for the WCT print's bottom-right signature (2026-11-25). Only the WCT layout reads it
+   * (wct.ts doProof); photos are not passed. Null for any other type or none signed. Never fails a print.
+   */
+  async doSignatureFor(type: string, documentId: string | null | undefined, organizationId: string): Promise<{ signature: string; signedByName: string | null; signedAt: Date | null } | null> {
+    try {
+      if (!documentId || !['DELIVERY_ORDER', 'DO'].includes(String(type || '').toUpperCase())) return null;
+      const row: any = await this.prisma.maintenanceServiceReport.findFirst({
+        where: { organizationId, documentId, kind: { in: ['DO_ACK', 'DO_INSTALL'] }, signature: { not: null } },
+        orderBy: [{ signedAt: 'desc' }, { createdAt: 'desc' }],
+        select: { signature: true, signedByName: true, signedAt: true },
+      });
+      return row?.signature ? { signature: row.signature, signedByName: row.signedByName ?? null, signedAt: row.signedAt ?? null } : null;
+    } catch {
+      return null;
     }
   }
 

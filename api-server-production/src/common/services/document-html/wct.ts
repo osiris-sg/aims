@@ -522,6 +522,10 @@ const SIG_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
  */
 function doProof(data: any): { received: string; appendix: string; signature: string } {
   const reports: any[] = Array.isArray(data?.maintenanceReports) ? data.maintenanceReports : [];
+  // The editor preview and the stored PDF carry no field reports: the server adds the DO's latest customer signature
+  // as data.wctDoSignature (documents.service invoiceDoNosFor, 2026-11-25) so it prints there too.
+  const extra = data?.wctDoSignature;
+  if (!reports.length && extra && typeof extra.signature === 'string' && SIG_RE.test(extra.signature)) reports.push({ kind: 'DO_ACK', ...extra, photos: [] });
   if (!reports.length) return { received: '', appendix: '', signature: '' };
   const base = String(data?.photoBaseUrl || 'https://aims-osiris.s3.ap-southeast-1.amazonaws.com/');
   const at = (r: any) => new Date(r?.signedAt ?? r?.createdAt ?? 0).getTime() || 0;
@@ -529,7 +533,8 @@ function doProof(data: any): { received: string; appendix: string; signature: st
   const latest = signed.length ? signed.reduce((best, r) => (at(r) >= at(best) ? r : best)) : null;
   const start = reports.find((r) => r.kind === 'DO_START');
   const tech = first(start?.technicianName, reports.find((r) => r.technicianName)?.technicianName);
-  const signedDate = latest ? first(latest.signedDateText, latest.signedAt ? paperDate(latest.signedAt) : '') : '';
+  // The signed date as the org reads it (Singapore by default), never the server's UTC day (2026-11-25).
+  const signedDate = latest ? first(latest.signedDateText, latest.signedAt ? paperDateIn(latest.signedAt, resolveTimeZone(data?.config?.timeZone ?? data?.timeZone)) : '') : '';
   const received =
     latest || tech
       ? `<div class="rcv">
