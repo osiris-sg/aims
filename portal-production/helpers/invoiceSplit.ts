@@ -3,6 +3,8 @@
 // src/documents/invoice-split.ts (the server re-checks and is the one that
 // writes); helpers/invoiceSplit.test.mjs runs the same fixtures as the API spec.
 
+import { roundCents, wctTotalsFromNet } from "./moneyRound";
+
 export type SplitMode = "rate" | "deposit";
 /** A row: a % (plain number) or, chosen per row, a fixed $ amount ({ amount }). 2026-11-24. */
 export type SplitRow = number | { percent?: number | null; amount?: number | null };
@@ -13,7 +15,7 @@ export interface SplitPlan {
   deposit?: { percent?: number | null; amount?: number | null } | null;
 }
 
-const R2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+const R2 = roundCents;
 const num = (v: unknown): number | null => {
   if (v === undefined || v === null || v === "") return null;
   const n = Number(v);
@@ -39,7 +41,11 @@ export function totalsOf(lines: Array<{ amount?: unknown; quantity?: unknown; un
     const a = Number(l?.amount);
     if (Number.isFinite(a) && a !== 0) return a;
     const q = Number(l?.quantity), u = Number(l?.unitPrice);
-    return Number.isFinite(q) && Number.isFinite(u) ? q * u : 0;
+    const gross = Number.isFinite(q) && Number.isFinite(u) ? q * u : 0;
+    // As the API (lineDiscounts): a line with its own discount is priced after it (a 100% line counts 0).
+    const dl = Number(l?.discount);
+    if (Number.isFinite(dl) && dl > 0) return l?.discountType === "amount" ? Math.max(0, gross - dl) : gross * (1 - Math.min(dl, 100) / 100);
+    return gross;
   };
   const grossTotal = R2(lines.reduce((s, l) => s + amountOf(l), 0));
   const applicable = !(tax?.taxApplicable === "N" || tax?.taxApplicable === false);
@@ -47,11 +53,10 @@ export function totalsOf(lines: Array<{ amount?: unknown; quantity?: unknown; un
   const raw = Number(tax?.gstPercent);
   const g = !applicable ? 0 : Number.isFinite(raw) && raw >= 0 ? raw : 9;
   const d = R2(discountAmount > 0 ? Math.min(discountAmount, Math.max(0, grossTotal)) : 0);
-  const net = grossTotal - d;
-  const gst = absorb && g > 0 ? (net * g) / (100 + g) : (net * g) / 100;
-  const nett = absorb && g > 0 ? net : net + gst;
-  const sub = absorb && g > 0 ? net - gst : net;
-  return { grossTotal, discountAmount: d, subTotal: R2(sub), gstAmount: R2(gst), nettTotal: R2(nett) };
+  // The WCT group's rounding (split is WCT-only; the API's lineDiscounts mode, 2026-11-25 UAT): GST half up once
+  // on the net, Nett = net + GST.
+  const w = wctTotalsFromNet(grossTotal - d, g, absorb && g > 0);
+  return { grossTotal, discountAmount: d, subTotal: w.subTotal, gstAmount: w.gstAmount, nettTotal: w.nettTotal };
 }
 
 /** What a split divides (the invoice's lines after its discount) and the quotation it bills. */

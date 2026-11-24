@@ -28,7 +28,7 @@
  *   part 1 also: partIds (all parts, in order), plan, contractValue, restore
  *                (the original's items / totals / number, for Undo split), at, by
  */
-import { computeDocumentTotals } from '../common/document-money';
+import { computeDocumentTotals, roundCents } from '../common/document-money';
 import { moneySignature } from '../common/erp-import';
 
 export const INVOICE_SPLIT_FLAG = 'enableInvoiceSplit';
@@ -297,11 +297,13 @@ export function planInvoiceSplit(config: any, plan: SplitPlan, opts: { lineDisco
     tax,
     { discountAmount: num(c.discountAmount) ?? num(di.discountAmount) ?? 0, lineDiscounts: opts.lineDiscounts },
   );
-  const totals = amounts.map((amount) => computeDocumentTotals([{ amount }], tax));
+  // WCT group (lineDiscounts): every part rounds the WCT way too (document-money.ts wctTotalsFromNet, 2026-11-25 UAT).
+  const totals = amounts.map((amount) => computeDocumentTotals([{ amount }], tax, { lineDiscounts: opts.lineDiscounts }));
   // The last part takes the leftover subtotal / GST / total cents.
   const last = totals[totals.length - 1];
   const before = totals.slice(0, -1);
-  const left = (k: 'subTotal' | 'gstAmount' | 'nettTotal') => R2(original[k] - before.reduce((s, t) => s + t[k], 0));
+  const R = opts.lineDiscounts ? roundCents : R2;
+  const left = (k: 'subTotal' | 'gstAmount' | 'nettTotal') => R(original[k] - before.reduce((s, t) => s + t[k], 0));
   totals[totals.length - 1] = { ...last, subTotal: left('subTotal'), gstAmount: left('gstAmount'), nettTotal: left('nettTotal') };
   const lt = totals[totals.length - 1];
   if (lt.gstAmount < 0 || lt.subTotal <= 0 || lt.nettTotal <= 0) throw new SplitPlanError(`Invoice -${totals.length} comes to too little after rounding. Use a larger rate for it.`);
@@ -326,6 +328,31 @@ export function planInvoiceSplit(config: any, plan: SplitPlan, opts: { lineDisco
     quotationNo,
     parts: amounts.map((amount, i) => ({ part: i + 1, amount, description: texts[i], totals: totals[i], glAllocation: alloc[i] })),
   };
+}
+
+/**
+ * A split group's parts re-taxed TOGETHER (WCT group, 2026-11-25 UAT), e.g. by a GST switch: each part's GST is
+ * worked out from its own net, and the last part takes what is left of the GST on the parts' combined net, so the
+ * parts' GST still adds up to the unsplit invoice's GST to the cent (re-taxing each part on its own can lose the
+ * last part's leftover cent). `configs` in part order; WCT rounding (document-money.ts wctTotalsFromNet).
+ */
+export function retaxedSplitTotals(
+  configs: any[],
+  tax: { gstPercent?: any; taxApplicable?: any; absorbTax?: any },
+): Array<ReturnType<typeof computeDocumentTotals>> {
+  const list = Array.isArray(configs) ? configs : [];
+  const each = list.map((c) => {
+    const di = c?.documentInfo || {};
+    const items = (Array.isArray(c?.items) ? c.items : []).filter((l: any) => !isDisplayRow(l));
+    return computeDocumentTotals(items, tax, { discountAmount: num(c?.discountAmount) ?? num(di.discountAmount) ?? 0, lineDiscounts: true });
+  });
+  if (each.length < 2) return each;
+  const netOf = (t: ReturnType<typeof computeDocumentTotals>) => roundCents(t.grossTotal - (t.discountAmount ?? 0));
+  const whole = computeDocumentTotals([{ amount: roundCents(each.reduce((s, t) => s + netOf(t), 0)) }], tax, { lineDiscounts: true });
+  const before = each.slice(0, -1);
+  const left = (k: 'subTotal' | 'gstAmount' | 'nettTotal') => roundCents(whole[k] - before.reduce((s, t) => s + t[k], 0));
+  const last = each[each.length - 1];
+  return [...before, { ...last, subTotal: left('subTotal'), gstAmount: left('gstAmount'), nettTotal: left('nettTotal') }];
 }
 
 /**

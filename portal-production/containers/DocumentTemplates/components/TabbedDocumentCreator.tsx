@@ -150,6 +150,7 @@ import SignLinkDialog from "@/app/portal/sales/quotations/id/_components/SignLin
 import SendForSignatureButton from "@/app/portal/sales/quotations/id/_components/SendForSignatureButton";
 import DoOrderToolbar, { DoAttachSignedDialog, DoConfirmButton } from "@/components/delivery/DoOrderToolbar";
 import { withDocumentDiscountField, withLineDiscountColumn, wctDiscountsOn, lineDiscountsTotal } from "@/helpers/wctDiscount";
+import { roundCents, wctTotalsFromNet } from "@/helpers/moneyRound";
 import DoSignLinkDialog, { doSignCustomerOf } from "@/components/delivery/DoSignLinkDialog";
 import { editorTitleBar, isNarrowSnoCell, lineColumnWidth } from "@/helpers/wctDocUi";
 import { doOrderIdOf } from "@/helpers/doOrder";
@@ -3304,6 +3305,29 @@ export default function TabbedDocumentCreator({
       : grossTotal * (discountValue / 100);
     const subTotalAfterDiscount = grossTotal - discountAmount;
 
+    // WCT group (enableWctDocNav, 2026-11-25 UAT): one rounding rule with the server, the print and split parts
+    // (helpers/moneyRound.ts): GST half up once on the discounted subtotal, Nett = subtotal + GST. toFixed(2) took
+    // 1491.50 x 9% = 134.235 down to 134.23 while the print and the invoice said 1,625.74.
+    if (isWctDocNavEnabled && !isProjectPO) {
+      const g2 = roundCents(grossTotal);
+      const d2 = roundCents(discountAmount);
+      const w = wctTotalsFromNet(g2 - d2, gstPercent, isAbsorbTax && gstPercent > 0);
+      setFormDataState((prev: any) => ({
+        ...prev,
+        documentInfo: {
+          ...prev.documentInfo,
+          grossTotal: g2,
+          discountAmount: d2,
+          pointsRedeemed: r2(poPointsRedeemed),
+          pointsDeducted: r2(poPointsRedeemed),
+          subTotal: w.subTotal,
+          gstAmount: w.gstAmount,
+          nettTotal: roundCents(w.nettTotal - poPointsRedeemed),
+        },
+      }));
+      return;
+    }
+
     let gstAmount: number;
     let nettTotal: number;
 
@@ -3336,7 +3360,7 @@ export default function TabbedDocumentCreator({
         nettTotal: r2(nettTotal),
       },
     }));
-  }, [subtotal, items, isFcuCuVariant, isProjectQuote, isNettRoundDownEnabled, poPointsRedeemed, (formData?.documentInfo as any)?.discountPercent, (formData?.documentInfo as any)?.discountType, (formData?.documentInfo as any)?.discountedPriceOverride, (formData?.documentInfo as any)?.gstPercent, formData?.documentInfo?.taxApplicable, formData?.documentInfo?.absorbTax, isTaxApplicable, isAbsorbTax, existingData?.erpStoredTotals]);
+  }, [subtotal, items, isFcuCuVariant, isProjectQuote, isNettRoundDownEnabled, poPointsRedeemed, (formData?.documentInfo as any)?.discountPercent, (formData?.documentInfo as any)?.discountType, (formData?.documentInfo as any)?.discountedPriceOverride, (formData?.documentInfo as any)?.gstPercent, formData?.documentInfo?.taxApplicable, formData?.documentInfo?.absorbTax, isTaxApplicable, isAbsorbTax, existingData?.erpStoredTotals, isWctDocNavEnabled]);
 
   // Project PO: when the top Discount % changes, cascade it into every item's
   // discount (applied once at item level — the document-level discount is then
