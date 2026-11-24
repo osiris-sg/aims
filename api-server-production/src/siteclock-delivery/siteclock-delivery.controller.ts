@@ -2,7 +2,6 @@ import { BadRequestException, Body, Controller, Get, NotFoundException, Param, P
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
-import { randomBytes } from 'crypto';
 import { Public } from '../decorators/public.decorator';
 import { PrismaService } from '../common/prisma.service';
 import { IdempotencyInterceptor } from '../common/idempotency/idempotency.interceptor';
@@ -446,13 +445,11 @@ export class SiteClockDeliveryController {
   @Post('uploads/image')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_IMAGE_BYTES, files: 1 } }), IdempotencyInterceptor)
   @ApiOperation({ summary: 'Store a photo (multipart file + folder) and return its key, as POST /uploads/image does for SiteJobs.' })
-  async uploadImage(@UploadedFile() file: Express.Multer.File, @Body() body: { folder?: string }, @Query('folder') folderQ?: string) {
+  async uploadImage(@Req() req: WorkerReq, @UploadedFile() file: Express.Multer.File, @Body() body: { folder?: string }, @Query('folder') folderQ?: string) {
     if (!file?.buffer?.length) throw new BadRequestException('No file uploaded');
     const folder = String(body?.folder ?? folderQ ?? '').trim();
     if (!UPLOAD_FOLDERS.has(folder)) throw new BadRequestException(`folder must be one of ${[...UPLOAD_FOLDERS].join(', ')}`);
-    const ext = IMAGE_EXT[file.mimetype];
-    if (!ext) throw new BadRequestException('Only JPEG, PNG, WebP or HEIC photos');
-    const key = `${folder}/${randomBytes(4).toString('hex')}.${ext}`;
-    return { Key: await this.uploads.uploadFileInChunks({ file, key }) };
+    if (!IMAGE_EXT[file.mimetype]) throw new BadRequestException('Only JPEG, PNG, WebP or HEIC photos');
+    return { Key: await this.uploads.uploadOrgFile({ file, organizationId: this.org(req), folderHint: folder }) };
   }
 }

@@ -1,6 +1,7 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { S3Client, CreateMultipartUploadCommand, CompletedPart, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand } from '@aws-sdk/client-s3';
 import { ConfigService } from '@nestjs/config';
+import { allowedMime, buildOrgKey, bytesMatchMime, contentDispositionFor, folderFromHint } from '../common/storage-keys';
 @Injectable()
 export class UploadsService {
   private s3Client: S3Client;
@@ -13,6 +14,21 @@ export class UploadsService {
       },
     });
   }
+  /**
+   * A user upload: the SERVER builds the key (`org/<orgId>/<folder>/<uuid>.<ext>`)
+   * from the caller's org, an allow-listed folder and an allow-listed type.
+   * `folderHint` is the client's old folder/key, only mapped onto the allow-list.
+   */
+  async uploadOrgFile({ file, organizationId, folderHint, hintIsKey }: { file: Express.Multer.File; organizationId: string; folderHint?: unknown; hintIsKey?: boolean }): Promise<string> {
+    if (!file?.buffer?.length) throw new BadRequestException('No file uploaded');
+    const mime = allowedMime(file.mimetype, file.originalname);
+    if (!mime) throw new BadRequestException('That file type cannot be uploaded. Use an image, a PDF or an Office document.');
+    if (!bytesMatchMime(file.buffer, mime)) throw new BadRequestException('The file does not match its type');
+    const key = buildOrgKey(organizationId, folderFromHint(folderHint, { isKey: hintIsKey }), mime);
+    return this.uploadFileInChunks({ file: { ...file, mimetype: mime } as Express.Multer.File, key });
+  }
+
+  /** Low level: store bytes under a key the SERVER built. Never pass a client-chosen key. */
   async uploadFileInChunks({ file, key }: { file: Express.Multer.File; key: string }): Promise<string> {
     const bucketName = this.configService.get<string>('AWS.RESOURCE_BUCKET');
     const fileKey = key;
@@ -21,7 +37,9 @@ export class UploadsService {
     const createCommand = new CreateMultipartUploadCommand({
       Bucket: bucketName,
       Key: fileKey,
-      ContentType: file.mimetype,
+      ContentType: file.mimetype || 'application/octet-stream',
+      // Anything that is not an image/PDF downloads instead of opening (no HTML hosting).
+      ContentDisposition: contentDispositionFor(file.mimetype),
     });
     const createResponse = await this.s3Client.send(createCommand);
     try {

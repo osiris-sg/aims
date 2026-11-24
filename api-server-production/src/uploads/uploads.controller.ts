@@ -1,8 +1,9 @@
-import { Controller, Post, UseInterceptors, UploadedFile, Body } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UploadsService } from './uploads.service';
 import { IdempotencyInterceptor } from 'src/common/idempotency/idempotency.interceptor';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
+import { UserOrganization } from 'src/auth/decorators/user-organization.decorator';
 
 @Controller('uploads')
 export class UploadsController {
@@ -12,11 +13,22 @@ export class UploadsController {
   @Permissions('uploads:upload-image')
   // Idempotency-Key: a resent photo upload stores once (the file counts towards "the same request").
   @UseInterceptors(FileInterceptor('file'), IdempotencyInterceptor)
-  async uploadImage(@UploadedFile() file: Express.Multer.File, @Body() { key }: { key: string }) {
-    if (!file) {
-      throw new Error('No file uploaded');
-    }
-    const Key = await this.uploadsService.uploadFileInChunks({ file, key });
+  // The server builds the key (org/<orgId>/<folder>/<uuid>.<ext>): the client's
+  // `key` / `folder` only picks the folder from the allow-list, never the path.
+  async uploadImage(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { key?: string; folder?: string },
+    @UserOrganization() org: { id: string } | null,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    if (!org?.id) throw new ForbiddenException('No organisation');
+    const hasFolder = typeof body?.folder === 'string' && body.folder.trim();
+    const Key = await this.uploadsService.uploadOrgFile({
+      file,
+      organizationId: org.id,
+      folderHint: hasFolder ? body.folder : body?.key,
+      hintIsKey: !hasFolder,
+    });
     return { Key };
   }
 }

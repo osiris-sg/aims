@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { isOrgFolderKey } from '../common/storage-keys';
 
 /**
  * UPLOADED SERVICE REPORTS + THE PHOTOS ATTACHMENT (2026-11-12).
@@ -31,7 +32,7 @@ export const reportFileFolder = (organizationId: string) => `maintenance-reports
 export function cleanReportFile(body: any, organizationId: string): ReportFile {
   const key = typeof body?.fileKey === 'string' ? body.fileKey.trim() : '';
   if (!key || key.startsWith('data:')) throw new BadRequestException('Upload the file first');
-  if (!key.startsWith(reportFileFolder(organizationId)) || key.includes('..')) {
+  if (!isOrgFolderKey(key, organizationId, 'maintenance-reports')) {
     throw new BadRequestException('That file was not uploaded for this organisation');
   }
   const mimeType = typeof body?.mimeType === 'string' ? body.mimeType.trim().toLowerCase() : '';

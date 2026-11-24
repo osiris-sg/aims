@@ -253,7 +253,7 @@ export class ServiceReportSignService {
       // reads serviceData.clientSignatureKey draws it exactly as an on-site one.
       const clientKey = await this.uploads.uploadFileInChunks({
         file: { buffer: png, mimetype: 'image/png' } as Express.Multer.File,
-        key: `${SIGNATURE_FOLDER}/${randomUUID()}.png`,
+        key: `org/${link.organizationId}/${SIGNATURE_FOLDER}/${randomUUID()}.png`,
       });
       const rows = await this.loadReports(link);
       const results: { reportNumber: number | null; ok: boolean; error?: string }[] = [];

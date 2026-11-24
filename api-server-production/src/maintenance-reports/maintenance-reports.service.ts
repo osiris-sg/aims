@@ -24,6 +24,7 @@ import { isWctOrdersEnabled, refreshOrderStatus } from '../orders/wct-orders';
 import { isManualOrderFlow } from '../orders/manual-order-flow';
 import { isOrgFeatureEnabled, NO_AUTO_CUSTOMER_EMAILS_FLAG } from '../common/org-features';
 import { OrdersService } from '../orders/orders.service';
+import { isOrgFolderKey } from '../common/storage-keys';
 
 /** Org fields every renderer may need: name/logo for the stock sheets, the rest for the WCT letterhead + footer. */
 /** Most reports one bulk download may carry (POST /maintenance-reports/bulk-pdf). */
@@ -654,12 +655,13 @@ export class MaintenanceReportsService {
 
   /** A draft from the page: known keys only; photos must be report photos (maintenance-reports/...). */
   private cleanWctDraft(v: unknown, organizationId: string): WctDraft {
-    void organizationId;
     if (!v || typeof v !== 'object' || Array.isArray(v)) throw new BadRequestException('draft must be an object');
     const d = v as Record<string, any>;
     const photo = (k: unknown) => {
       if (typeof k !== 'string' || !k) return null;
-      if (!k.startsWith('maintenance-reports/') || k.includes('..') || k.length > 300) throw new BadRequestException('A photo is not a report photo');
+      // New keys: org/<this org>/maintenance-reports/...; legacy: maintenance-reports/...
+      const ok = isOrgFolderKey(k, organizationId, 'maintenance-reports') || (k.startsWith('maintenance-reports/') && !k.includes('..') && k.length <= 300);
+      if (!ok) throw new BadRequestException('A photo is not a report photo');
       return k;
     };
     const list = (a: unknown) => (Array.isArray(a) ? (a.map(photo).filter(Boolean) as string[]).slice(0, 12) : []);

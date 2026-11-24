@@ -7,6 +7,7 @@ import {
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { contentDispositionFor } from '../storage-keys';
 
 @Injectable()
 export class S3Service {
@@ -34,6 +35,8 @@ export class S3Service {
       Key: key,
       Body: body,
       ContentType: contentType,
+      // Not an image/PDF (HTML, e-mail bodies, JSON...): download, never render.
+      ContentDisposition: contentDispositionFor(contentType),
     });
 
     await this.s3Client.send(command);

@@ -10,6 +10,7 @@ import { PublicDocumentService } from '../public-document/public-document.servic
 import { DeliveryDirection, DeliveryStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
 import { UploadsService } from '../uploads/uploads.service';
+import { allowedMime } from '../common/storage-keys';
 import { MaintenanceReportsService } from '../maintenance-reports/maintenance-reports.service';
 import { DeliveriesService } from '../deliveries/deliveries.service';
 import { minPhotosForAssetClass } from '../common/asset-class';
@@ -298,8 +299,10 @@ export class PublicDeliveryService {
     const { link, state } = await this.resolveToken(token);
     if (!link) this.assertActionable(state);
     this.assertActionable(state);
-    const key = `delivery-pod/${link!.document.organizationId}/${link!.document.id}/${randomUUID()}.jpg`;
-    const Key = await this.uploadsService.uploadFileInChunks({ file, key });
+    if (!/^image\//.test(allowedMime(file.mimetype, file.originalname) ?? '') || file.mimetype === 'image/svg+xml') {
+      throw new BadRequestException('Only photos can be uploaded');
+    }
+    const Key = await this.uploadsService.uploadOrgFile({ file, organizationId: link!.document.organizationId, folderHint: 'delivery-pod' });
     return { Key };
   }
 

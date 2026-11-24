@@ -9,6 +9,7 @@ import { ActionLogService } from 'src/action-log/action-log.service';
 import { ClerkIdentityService } from 'src/clerk/clerk-identity.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { buildVehicleLogHtml } from './vehicle-log-html';
+import { isOrgFolderKey } from '../common/storage-keys';
 import {
   EXPIRY_WARN_DAYS,
   LOG_TYPE_LABEL,
@@ -492,7 +493,7 @@ export class VehiclesService {
   private cleanAttachment(v: any, organizationId: string): { key: string; fileName: string | null; mimeType: string | null } | null {
     if (!v || typeof v !== 'object' || !v.key) return null;
     const key = String(v.key).trim();
-    if (!key.startsWith(`vehicles/${organizationId}/`) || key.includes('..') || key.length > 300) throw new BadRequestException('That attachment is not a file of this organisation');
+    if (!isOrgFolderKey(key, organizationId, 'vehicles')) throw new BadRequestException('That attachment is not a file of this organisation');
     return { key, fileName: cleanText(v.fileName, 200), mimeType: cleanText(v.mimeType, 100) };
   }
 
