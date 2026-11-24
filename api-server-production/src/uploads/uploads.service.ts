@@ -1,11 +1,15 @@
-import { BadRequestException, HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { S3Client, CreateMultipartUploadCommand, CompletedPart, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand } from '@aws-sdk/client-s3';
 import { ConfigService } from '@nestjs/config';
+import { FilesService } from '../files/files.service';
 import { allowedMime, buildOrgKey, bytesMatchMime, contentDispositionFor, folderFromHint } from '../common/storage-keys';
 @Injectable()
 export class UploadsService {
   private s3Client: S3Client;
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    @Optional() private readonly files?: FilesService,
+  ) {
     this.s3Client = new S3Client({
       region: this.configService.get<string>('AWS.REGION'),
       credentials: {
@@ -19,13 +23,15 @@ export class UploadsService {
    * from the caller's org, an allow-listed folder and an allow-listed type.
    * `folderHint` is the client's old folder/key, only mapped onto the allow-list.
    */
-  async uploadOrgFile({ file, organizationId, folderHint, hintIsKey }: { file: Express.Multer.File; organizationId: string; folderHint?: unknown; hintIsKey?: boolean }): Promise<string> {
+  async uploadOrgFile({ file, organizationId, folderHint, hintIsKey, uploadedBy, source }: { file: Express.Multer.File; organizationId: string; folderHint?: unknown; hintIsKey?: boolean; uploadedBy?: string | null; source?: string }): Promise<string> {
     if (!file?.buffer?.length) throw new BadRequestException('No file uploaded');
     const mime = allowedMime(file.mimetype, file.originalname);
     if (!mime) throw new BadRequestException('That file type cannot be uploaded. Use an image, a PDF or an Office document.');
     if (!bytesMatchMime(file.buffer, mime)) throw new BadRequestException('The file does not match its type');
     const key = buildOrgKey(organizationId, folderFromHint(folderHint, { isKey: hintIsKey }), mime);
-    return this.uploadFileInChunks({ file: { ...file, mimetype: mime } as Express.Multer.File, key });
+    const stored = await this.uploadFileInChunks({ file: { ...file, mimetype: mime } as Express.Multer.File, key });
+    await this.files?.register(stored, organizationId, uploadedBy ?? null, source ?? 'upload');
+    return stored;
   }
 
   /** Low level: store bytes under a key the SERVER built. Never pass a client-chosen key. */

@@ -450,6 +450,6 @@ export class SiteClockDeliveryController {
     const folder = String(body?.folder ?? folderQ ?? '').trim();
     if (!UPLOAD_FOLDERS.has(folder)) throw new BadRequestException(`folder must be one of ${[...UPLOAD_FOLDERS].join(', ')}`);
     if (!IMAGE_EXT[file.mimetype]) throw new BadRequestException('Only JPEG, PNG, WebP or HEIC photos');
-    return { Key: await this.uploads.uploadOrgFile({ file, organizationId: this.org(req), folderHint: folder }) };
+    return { Key: await this.uploads.uploadOrgFile({ file, organizationId: this.org(req), folderHint: folder, uploadedBy: req.siteclockWorker?.userId ?? null, source: 'siteclock' }) };
   }
 }

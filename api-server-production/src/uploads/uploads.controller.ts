@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Post, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UploadsService } from './uploads.service';
 import { IdempotencyInterceptor } from 'src/common/idempotency/idempotency.interceptor';
@@ -19,6 +19,7 @@ export class UploadsController {
     @UploadedFile() file: Express.Multer.File,
     @Body() body: { key?: string; folder?: string },
     @UserOrganization() org: { id: string } | null,
+    @Req() req?: any,
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
     if (!org?.id) throw new ForbiddenException('No organisation');
@@ -28,6 +29,7 @@ export class UploadsController {
       organizationId: org.id,
       folderHint: hasFolder ? body.folder : body?.key,
       hintIsKey: !hasFolder,
+      uploadedBy: req?.user?.id ?? null,
     });
     return { Key };
   }

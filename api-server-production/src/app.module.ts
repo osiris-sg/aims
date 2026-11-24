@@ -72,6 +72,8 @@ import { FieldModule } from './field/field.module';
 import { DeliveryGroupPostsModule } from './delivery-group-posts/delivery-group-posts.module';
 import { MaintenanceSchedulesModule } from './maintenance-schedules/maintenance-schedules.module';
 import { VehiclesModule } from './vehicles/vehicles.module';
+import { FilesModule } from './files/files.module';
+import { FileOwnershipInterceptor } from './files/file-ownership.interceptor';
 import { QuotationTemplatesModule } from './quotation-templates/quotation-templates.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AskModule } from './ask/ask.module';
@@ -160,6 +162,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     DeliveryGroupPostsModule,
     MaintenanceSchedulesModule,
     VehiclesModule,
+    FilesModule,
     QuotationTemplatesModule, // quotation quick sets (enableQuotationTemplates)
     NotificationsModule,
     AskModule,
@@ -240,6 +243,11 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
       // req.userOrganization / req.apiKey are populated. Fire-and-forget.
       provide: APP_INTERCEPTOR,
       useClass: ActionLogInterceptor,
+    },
+    {
+      // Records may only reference files of their own org (security phase 1).
+      provide: APP_INTERCEPTOR,
+      useClass: FileOwnershipInterceptor,
     },
   ],
 })

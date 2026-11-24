@@ -5766,3 +5766,19 @@ model FieldAuditImport {
   @@unique([organizationId, siteclockId])
   @@index([organizationId, createdAt])
 }
+
+/// Registry of stored files (security, 2026-11-24): which org owns each S3 key.
+/// Written on every user upload; legacy keys filled by scripts/_sec-storedfile-backfill.ts.
+/// The org-checked signing endpoint (POST /files/sign) reads it.
+model StoredFile {
+  key            String   @id
+  organizationId String
+  uploadedBy     String?
+  source         String? // upload | backfill | siteclock | public-delivery | remote-sign
+  quarantined    Boolean  @default(false) // referenced by more than one org: flagged for review, readable only by those orgs
+  sharedOrgIds   String[] @default([]) // the orgs whose records reference a quarantined key
+  note           String?
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId])
+}
