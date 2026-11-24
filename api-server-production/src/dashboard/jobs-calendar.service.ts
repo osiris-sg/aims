@@ -1,4 +1,5 @@
 import { applicantView } from '../deliveries/ptw-applicants';
+import { isCalendarAddEnabled } from '../deliveries/quick-jobs';
 import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { runAsOrg } from '../common/tenancy/tenant-context';
@@ -97,6 +98,13 @@ export class JobsCalendarService {
   /** Group New job (WCT 2026-11-22): the companies a new job can go under (org-group.ts groupJobCompanies). */
   async companies(organizationId: string, userId: string | null, isAdmin: boolean) {
     const out: any = await groupJobCompanies(this.prisma, organizationId, userId, isAdmin);
+    // 2026-11-25 (YMM has the calendar but no Orders yet): a company that can't take a new job (isCalendarAddEnabled:
+    // enableWctOrders + enableJobsCalendar) is left out of the Organisation pick, so nobody hits a failed create. Its
+    // jobs still show on the group calendar. The calendar's own company always stays.
+    if (Array.isArray(out?.orgs) && out.orgs.length) {
+      const ok = await Promise.all(out.orgs.map((o: any) => (o?.id === organizationId ? true : isCalendarAddEnabled(this.prisma, o.id))));
+      out.orgs = out.orgs.filter((_: any, i: number) => ok[i]);
+    }
     // The New job form is opening: warm each listed company's quotation search in the background (2026-11-23).
     for (const o of Array.isArray(out?.orgs) ? out.orgs : []) if (o?.id) quotationIndex.warm(this.prisma, o.id);
     return out;
