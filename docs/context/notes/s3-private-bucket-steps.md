@@ -128,10 +128,10 @@ App, logged in (expect **200** after the redirect): open
 `https://app.ai-ms.io/api/f/logos/wct-logo.png` in a logged-in browser tab of a
 WCT user, then repeat pre-checks 3 and 4.
 
-### 5. After a few quiet days
-Set `FILES_STRICT=1` on the Render backend (unregistered legacy keys then open
-for platform admins only, and records may no longer reference unknown keys).
-Only after the backfill is applied; watch for "Not found" images for a day.
+### 5. FILES_STRICT: not used (owner, 2026-11-25)
+Leave `FILES_STRICT` off (0 or unset). Strict mode would only block files with no
+recorded owner; every WCT group file has one, and turning it on (24 Nov) would have
+blocked 1,106 older Biofuel / DEMO / Osiris files. Dropped from the plan.
 
 ---
 
