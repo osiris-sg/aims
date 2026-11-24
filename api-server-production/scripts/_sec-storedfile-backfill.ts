@@ -45,6 +45,8 @@ const FOLDERS = [
   'maintenance-reports', 'vehicles', 'bills', 'bank-transactions', 'payments', 'orders', 'documents', 'deliveries', 'preview',
   'misc', 'shipments', 'submit-uploads', 'leads', 'payables', 'project-costs', 'projects', 'email-ingest', 'extracted-uploads',
   'supplier-uploads', 'whatsapp', 'whatsapp-previews', 'delivery-posts', 'job-photos', 'temp-signature', 'images', 'uploads', 'organizations',
+  // 2026-11-25: folders the first run missed (Biofuel signed DOs, JP pass imports, document attachments).
+  'attachments', 'jp-pass-import', 'signed-docs',
 ];
 const KEY_RE = new RegExp(`^(?:${FOLDERS.map((f) => f.replace(/-/g, '\\-')).join('|')})/[^\\s"'<>]{3,400}$`);
 const URL_RE = new RegExp(`https?://(?:${BUCKET}\\.s3(?:[.-][a-z0-9-]+)?\\.amazonaws\\.com/|s3(?:[.-][a-z0-9-]+)?\\.amazonaws\\.com/${BUCKET}/)([^\\s"'<>?#)]+)`, 'gi');
@@ -85,7 +87,8 @@ function keysIn(text: string): string[] {
   } catch {
     walk(text, 0);
     // Keys inside free text ("see logos/x.png", a message with a key in it).
-    const inText = new RegExp(`(?:^|[\\s"'(])((?:${FOLDERS.join('|')})/[^\\s"'<>)]+\\.[A-Za-z0-9]{2,5})`, 'g');
+    // 2026-11-25: also after "{" and "," (a text[] column reads as {a,b}); the first run missed every list column.
+    const inText = new RegExp(`(?:^|[\\s"'({,])((?:${FOLDERS.join('|')})/[^\\s"'<>),}]+\\.[A-Za-z0-9]{2,5})`, 'g');
     let t: RegExpExecArray | null;
     while ((t = inText.exec(text))) if (!t[1].includes('..')) out.add(t[1]);
   }
@@ -115,7 +118,7 @@ type Ref = { table: string; id: string; org: string; updatedAt: string | null };
 
   const refs = new Map<string, Ref[]>();
   const perTable: Record<string, number> = {};
-  const pattern = `(amazonaws\\.com|(^|")(${FOLDERS.join('|')})/)`;
+  const pattern = `(amazonaws\\.com|(^|["{,])(${FOLDERS.join('|')})/)`;
   for (const [table, columns] of byTable) {
     const idCol = (await hasCol(table, 'id')) ? '"id"' : null;
     if (!idCol) continue;
