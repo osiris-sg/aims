@@ -4,10 +4,11 @@ import { FilesService } from './files.service';
 
 /**
  * Records may only reference files of their own org (security phase 1,
- * 2026-11-24). On every signed-in write (POST/PUT/PATCH) the body is scanned
- * for our bucket's keys / URLs; one that belongs to another org is refused
- * (403) before the handler runs. Platform admins and the template library
- * (cross-org by design) are exempt.
+ * 2026-11-24), or of another org the signed-in user has access to (membership +
+ * role there, the same rule as opening a file; 2026-11-25). On every signed-in
+ * write (POST/PUT/PATCH) the body is scanned for our bucket's keys / URLs; one
+ * of any other org is refused (403) before the handler runs. Platform admins and
+ * the template library (cross-org by design) are exempt.
  */
 const FOLDERS =
   'org|logos|stamps|signatures|payment-details|assets|captured-images|msr-photos|msr-annotations|inventory-bind|do-start|do-ack|do-install|do-stamped|delivery-pod|job-fields|custom-fields|maintenance-reports|vehicles|bills|bank-transactions|payments|orders|documents|deliveries|shipments|submit-uploads|leads|payables|project-costs|projects|email-ingest|extracted-uploads|supplier-uploads|whatsapp|whatsapp-previews|delivery-posts|misc';
@@ -47,6 +48,6 @@ export class FileOwnershipInterceptor implements NestInterceptor {
     if (EXEMPT.some((p) => path.startsWith(p))) return next.handle();
     const keys = candidateKeys(req.body);
     if (!keys.length) return next.handle();
-    return from(this.files.assertOwnKeys(orgId, keys)).pipe(switchMap(() => next.handle()));
+    return from(this.files.assertOwnKeys(orgId, keys, { userId: req.user?.id ?? null, activeOrgId: orgId })).pipe(switchMap(() => next.handle()));
   }
 }
