@@ -169,8 +169,8 @@ export function withLinkDocFields<F extends { fieldName: string; displayLabel?: 
 /** The quotation's own Link Document row (a field name no template uses). */
 export const LINK_DOC_FIELD = "wctLinkDocument";
 
-/** The invoice's PO Number field (documentInfo.poNo, the key QO / DO already use). */
-export const INVOICE_PO_FIELD = "documentInfo.poNo";
+/** The invoice's PO Number field: config.poNumber (flat; config.poNo is a print-visibility flag on old templates). */
+export const INVOICE_PO_FIELD = "poNumber";
 
 /**
  * WCT group (enableWctDocNav, 2026-11-24): an optional "PO Number" row on the INVOICE header (saved, searched by the
@@ -178,6 +178,6 @@ export const INVOICE_PO_FIELD = "documentInfo.poNo";
  */
 export function withInvoicePoField<F extends { fieldName: string; displayLabel?: string; fieldType?: string; required?: boolean; gridSize?: number }>(fields: F[], opts: { page: PageKind | null; remarksSplit: boolean }): F[] {
   if (!opts.remarksSplit || opts.page !== "INVOICE") return fields;
-  if (fields.some((f) => f.fieldName === INVOICE_PO_FIELD || f.fieldName === "poNo")) return fields.map((f) => (f.fieldName === INVOICE_PO_FIELD || f.fieldName === "poNo" ? { ...f, displayLabel: "PO Number" } : f));
+  if (fields.some((f) => f.fieldName === INVOICE_PO_FIELD)) return fields;
   return [...fields, { fieldName: INVOICE_PO_FIELD, displayLabel: "PO Number", fieldType: "text", required: false } as unknown as F];
 }

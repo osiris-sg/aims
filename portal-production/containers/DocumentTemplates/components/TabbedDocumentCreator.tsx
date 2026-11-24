@@ -1660,6 +1660,8 @@ export default function TabbedDocumentCreator({
     // WCT orders: a job's DO and an order invoice carry their order (and the
     // invoice the DOs it covers). Server-written, kept on save by the API, so
     // carried here like projectName above or the preview loses its Order No line.
+    // Invoice PO Number (WCT group, 2026-11-24): config.poNumber, carried only when stored (undefined = never written).
+    ...((existingData as any)?.poNumber !== undefined ? { poNumber: (existingData as any).poNumber } : {}),
     orderNo: (existingData as any)?.orderNo || "",
     deliveryOrderNos: Array.isArray((existingData as any)?.deliveryOrderNos) ? (existingData as any).deliveryOrderNos : [],
     // Items data
@@ -6648,7 +6650,7 @@ export default function TabbedDocumentCreator({
                       // Reference row itself is dropped, 2026-11-24; helpers/linkDoc.ts). Untouched for every other org.
                       if (tab.tabId === "general") fields = withLinkDocFields(fields, { page: linkPage, linkOn, remarksSplit });
                       // WCT group (enableWctDocNav, 2026-11-24): an optional "PO Number" on the invoice header, stored in
-                      // documentInfo.poNo (the key QO / DO already use), found by the Invoices list search, not printed.
+                      // config.poNumber, found by the Invoices list search, not printed.
                       if (tab.tabId === "general") fields = withInvoicePoField(fields, { page: linkPage, remarksSplit });
                       return fields;
                     })()}

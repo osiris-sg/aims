@@ -92,12 +92,12 @@ test("fields: DO / Invoice Reference becomes Link Document; WCT group: no Custom
   assert.deepEqual(ordered.map((f) => [f.fieldName, f.displayOrder, f.gridSize]), [[LINK_DOC_FIELD, 3, 12]]);
 });
 
-// 2026-11-24: PO Number on the WCT invoice header (documentInfo.poNo).
+// 2026-11-24: PO Number on the WCT invoice header (config.poNumber).
 import { withInvoicePoField } from "./linkDoc.ts";
 test("PO Number: added once on a WCT invoice only", () => {
   const f = [{ fieldName: "documentInfo.date", displayLabel: "Date" }];
   const out = withInvoicePoField(f, { page: "INVOICE", remarksSplit: true });
-  assert.deepEqual(out.map((x) => [x.fieldName, x.displayLabel]), [["documentInfo.date", "Date"], ["documentInfo.poNo", "PO Number"]]);
+  assert.deepEqual(out.map((x) => [x.fieldName, x.displayLabel]), [["documentInfo.date", "Date"], ["poNumber", "PO Number"]]);
   assert.equal(withInvoicePoField(out, { page: "INVOICE", remarksSplit: true }).length, 2);
   assert.deepEqual(withInvoicePoField(f, { page: "INVOICE", remarksSplit: false }), f);
   assert.deepEqual(withInvoicePoField(f, { page: "QUOTATION", remarksSplit: true }), f);

@@ -163,7 +163,9 @@ export function transformFormDataForBackend(
     // print and the Project row stayed blank (guru 2026-09-25).
     'projectName',
     // Quotation Category (enableQuotationCategory orgs; undefined = never written).
-    'quotationCategory'
+    'quotationCategory',
+    // Invoice PO Number (WCT group, enableWctDocNav, 2026-11-24; undefined = never written).
+    'poNumber'
   ];
 
   flatFields.forEach(field => {

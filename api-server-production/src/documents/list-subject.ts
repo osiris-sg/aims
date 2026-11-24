@@ -93,12 +93,12 @@ export const poSearchOn = (subjectOn: boolean, documentTypes: string[] | undefin
   subjectOn && Array.isArray(documentTypes) && documentTypes.length > 0 && documentTypes.some((t) => PO_SEARCH_TYPES.includes(String(t).toUpperCase()));
 
 /**
- * The invoices whose PO Number (documentInfo.poNo, or a flat poNo) matches: read straight from the config, so no
+ * The invoices whose PO Number (config.poNumber) matches: read straight from the config, so no
  * data migration is needed (WCT group Invoices list search; enableWctDocNav).
  */
 export function poNumberSearchQuery(organizationId: string, documentTypes: string[], like: string): Prisma.Sql {
   return Prisma.sql`SELECT d.id::text AS id FROM "Document" d
     WHERE d."organizationId" = ${organizationId} AND d.type::text = ANY(${documentTypes})
-      AND (d.config #>> '{documentInfo,poNo}' ILIKE ${like} ESCAPE '\\' OR d.config ->> 'poNo' ILIKE ${like} ESCAPE '\\')
+      AND d.config ->> 'poNumber' ILIKE ${like} ESCAPE '\\'
     LIMIT 5000`;
 }
