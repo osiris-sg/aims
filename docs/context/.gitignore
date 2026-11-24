@@ -1,0 +1,6 @@
+# Only markdown context lives here: logs, CSVs, images and dumps stay owner-local.
+*
+!.gitignore
+!*.md
+!*/
+!notes/*.md

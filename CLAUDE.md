@@ -16,6 +16,22 @@ This is a monorepo containing an Asset and Inventory Management System (AIMS) �
 
 **Deeper docs:** `docs-site/` (Mintlify) is the full documentation set. Root-level specs (`ACCOUNTING_ARCHITECTURE.md`, `EXTERNAL_API_AND_INGESTION_HANDOVER.md`, `EMAIL_INGESTION_PLAN.md`, `POSTING_QUEUE_AND_JSON_INGESTION_SPEC.md`, `WATER_SG_INTEGRATION.md`) cover individual subsystems. `manual/` holds the end-user manual source.
 
+## Project context (docs/context/)
+
+Shared team notes (one copy only: edit them here, never keep a private duplicate).
+- `aims-rules.md`: rules for every task in every org (org gating, prod data, release checklist, UI). Read before any task.
+- `WCT-facts.md`: WCT group org ids, scope, manual order flow, prod test customer; Racking scope. Read before WCT / Racking / BC Air / YMM work.
+- `WCT_STATE.md`: WCT group current state, decisions and open items. Read before WCT group work.
+- `Biofuel-facts.md`: Biofuel org id, business, shared DO/RDO code, WhatsApp rules. Read before Biofuel work.
+- `Biofuel_STATE.md`: Biofuel current state, decisions and open items. Read before Biofuel work.
+- `FIELD_PLAN.md`: native port plan for the AIMS Field module (replacing SiteClock). Read before Field module work.
+- `SITECLOCK.md`: SiteClock survey (API, data model, AIMS integration, watch-outs). Read before any SiteClock work.
+- `SITECLOCK_SPEC.md`: full SiteClock rebuild spec. Read the relevant section when porting a SiteClock feature.
+- `SITECLOCK_API_CONTRACT.md`: superseded `/v1` API contract, reference only. Read only for history.
+- `notes/`: one-off WCT notes that WCT_STATE.md refers to (permissions audit, SiteClock workers survey, prod slow queries).
+
+When you change a `docs/context/*.md`, commit it (explicit path) with that task and push. Pull (fetch + rebase on origin/main) before editing, to avoid clobbering a teammate's changes. Paths marked "(owner-local)" are on the owner's machine, not in the repo.
+
 ## AIMS Guide knowledge — keep it in sync (EVERY feature you ship)
 
 The ✦ "AIMS Guide" help bubble (bottom-right) was RETIRED from every org on
