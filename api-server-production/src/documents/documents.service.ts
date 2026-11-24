@@ -74,12 +74,25 @@ import { insertWithLockedNumber } from '../document-numbering/locked-number';
 import { signBucketUrlsInHtml } from '../common/storage-sign';
 
 /** Create invoice's lines as the office confirmed them in the dialog (round 19 imported, round 36 AIMS orders). */
-type EditedInvoiceLine = { description: string; quantity: number; unitPrice: number };
+// discount / discountType (2026-11-25): the quotation line's discount carried onto the invoice line (% or $ for the line).
+type EditedInvoiceLine = { description: string; quantity: number; unitPrice: number; discount?: number; discountType?: 'percent' | 'amount' };
+
+/** A line's amount after its own discount: % of qty x price, or a $ amount off the line (never below 0). */
+function lineNet(l: { quantity: number; unitPrice: number; discount?: number; discountType?: string }): number {
+  const gross = l.quantity * l.unitPrice;
+  const d = Number(l.discount) || 0;
+  if (!(d > 0)) return Math.round(gross * 100) / 100;
+  return Math.round((l.discountType === 'amount' ? Math.max(0, gross - d) : gross * (1 - Math.min(d, 100) / 100)) * 100) / 100;
+}
+const discountOf = (l: any): Pick<EditedInvoiceLine, 'discount' | 'discountType'> => {
+  const d = Number(l?.discount);
+  return Number.isFinite(d) && d > 0 ? { discount: d, discountType: l?.discountType === 'amount' ? 'amount' : 'percent' } : {};
+};
 
 /** The dialog's lines, checked: at least one, each with a description, a qty of 0 or more and a price; not all $0. Null = none sent. */
 function editedInvoiceLines(raw: unknown): EditedInvoiceLine[] | null {
   if (!Array.isArray(raw)) return null;
-  const edited = raw.map((l: any) => ({ description: String(l?.description ?? '').trim(), quantity: Number(l?.quantity), unitPrice: Number(l?.unitPrice) }));
+  const edited = raw.map((l: any) => ({ description: String(l?.description ?? '').trim(), quantity: Number(l?.quantity), unitPrice: Number(l?.unitPrice), ...discountOf(l) }));
   if (!edited.length) throw new HttpException('Give at least one line', HttpStatus.BAD_REQUEST);
   if (edited.some((l) => !l.description || !Number.isFinite(l.quantity) || l.quantity < 0 || !Number.isFinite(l.unitPrice))) throw new HttpException('Every line needs a description, a quantity of 0 or more and a unit price', HttpStatus.BAD_REQUEST);
   if (!edited.some((l) => l.quantity * l.unitPrice > 0)) throw new HttpException('Nothing to bill: every line is $0', HttpStatus.BAD_REQUEST);
@@ -90,7 +103,7 @@ function editedInvoiceLines(raw: unknown): EditedInvoiceLine[] | null {
  * Invoice items for Create invoice's lines (service lines at `rate`). Round 36: on an AIMS order a line whose description
  * is a quotation line's keeps that line's item code, unit, account and revenue tag (never a product unit: no stock link).
  */
-function remainderInvoiceItems(lines: EditedInvoiceLine[], rate: number, quoteLines: any[] = []) {
+export function remainderInvoiceItems(lines: EditedInvoiceLine[], rate: number, quoteLines: any[] = []) {
   const R2l = (n: number) => Math.round(n * 100) / 100;
   const key = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
   return lines.map((l) => {
@@ -110,7 +123,8 @@ function remainderInvoiceItems(lines: EditedInvoiceLine[], rate: number, quoteLi
       description: l.description,
       quantity: l.quantity,
       unitPrice: l.unitPrice,
-      amount: R2l(l.quantity * l.unitPrice),
+      ...discountOf(l),
+      amount: R2l(lineNet(l)),
       tax: String(rate),
     };
   });
@@ -8225,7 +8239,7 @@ export class DocumentsService {
         const allItems = [...(Array.isArray(qc.items) ? qc.items : []), ...inputs.linkedQuotations.flatMap((d: any) => (Array.isArray(d.config?.items) ? d.config.items : []))];
         const plan = remainingForOrder({ marker: m, invoiceDocs: docs, quotation: { name: qo.name, config: { ...qc, items: allItems } }, quoteTotal: st.quoteTotal, billed: st.billed });
         if (!edited && !plan.lines.some((l) => l.priced && l.amount > 0)) throw new HttpException('Nothing left to bill on this order: give the lines to bill.', HttpStatus.BAD_REQUEST);
-        const sourceLines = edited ?? plan.lines.map((l) => ({ description: l.description, quantity: l.quantity, unitPrice: l.unitPrice }));
+        const sourceLines = edited ?? plan.lines.map((l) => ({ description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, ...discountOf(l) }));
 
         // Tax: the org's current rate when the quotation charged GST; none when it did not ("(NG)" / non-GST).
         const orgRow: any = await tx.organization.findUnique({ where: { id: organizationId }, select: { taxRate: true } }).catch(() => null);
@@ -8315,7 +8329,7 @@ export class DocumentsService {
       const qo = order.sourceQuotationId ? await this.prisma.document.findFirst({ where: { id: order.sourceQuotationId, organizationId }, select: { id: true, name: true, config: true } }) : null;
       if (!qo) throw new HttpException('This order has no quotation to invoice from.', HttpStatus.BAD_REQUEST);
       const qc: any = qo.config || {};
-      const lines = edited ?? plan.invoiceLines.map((l) => ({ description: l.description, quantity: l.quantity, unitPrice: l.unitPrice }));
+      const lines = edited ?? plan.invoiceLines.map((l: any) => ({ description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, ...discountOf(l) }));
       if (!lines.some((l) => l.quantity * l.unitPrice > 0)) throw new HttpException('Nothing left to bill on this order: give the lines to bill.', HttpStatus.BAD_REQUEST);
       // Header: the order's first live DO (made from this quotation), else the quotation; as the invoice from the quotation.
       const dos = (await this.deliveriesService.orderDos(organizationId, order.id)).filter((d: any) => (d.config as any)?.cancelled !== true);

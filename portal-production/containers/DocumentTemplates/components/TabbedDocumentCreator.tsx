@@ -149,6 +149,7 @@ import QuotationSignLinkDialog from "./QuotationSignLinkDialog";
 import SignLinkDialog from "@/app/portal/sales/quotations/id/_components/SignLinkDialog";
 import SendForSignatureButton from "@/app/portal/sales/quotations/id/_components/SendForSignatureButton";
 import DoOrderToolbar, { DoAttachSignedDialog, DoConfirmButton } from "@/components/delivery/DoOrderToolbar";
+import { withDocumentDiscountField, withLineDiscountColumn, wctDiscountsOn } from "@/helpers/wctDiscount";
 import DoSignLinkDialog, { doSignCustomerOf } from "@/components/delivery/DoSignLinkDialog";
 import { editorTitleBar, isNarrowSnoCell, lineColumnWidth } from "@/helpers/wctDocUi";
 import { doOrderIdOf } from "@/helpers/doOrder";
@@ -6672,6 +6673,8 @@ export default function TabbedDocumentCreator({
                       // WCT group (enableWctDocNav, 2026-11-24): an optional "PO Number" on the invoice header, stored in
                       // config.poNumber, found by the Invoices list search, not printed.
                       if (tab.tabId === "general") fields = withInvoicePoField(fields, { page: linkPage, remarksSplit });
+                      // WCT group (2026-11-25): the document discount row (% or $) under Gross Total on quotations and invoices.
+                      fields = withDocumentDiscountField(fields, wctDiscountsOn({ wctDocNav: !!isWctDocNavEnabled, isQuotation, isInvoice: isInvoiceTypeDoc, templateMode: isTemplateEditMode }));
                       return fields;
                     })()}
                     formData={formData}
@@ -7667,7 +7670,9 @@ export default function TabbedDocumentCreator({
                                 defaultColumns.unshift("item");
                               }
                               if (isRackingQuote) withRackingUom(defaultColumns);
-                              return (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns).map((columnId: string) => {
+                              // WCT group (2026-11-25): a Discount column (% or $ per line) on quotations and invoices.
+                              const shownColumns = withLineDiscountColumn(defaultColumns, wctDiscountsOn({ wctDocNav: !!isWctDocNavEnabled, isQuotation, isInvoice: isInvoiceType, templateMode: isTemplateEditMode }));
+                              return (isTemplateEditMode ? templateWatch("tableColumnOrder") : shownColumns).map((columnId: string) => {
                                 // Skip tax column for invoices
                                 if (isInvoiceType && columnId === "tax") return null;
                                 const isVisible = isTemplateEditMode ? templateWatch(`tableHeaders.${columnId}`) : true;
@@ -7842,7 +7847,9 @@ export default function TabbedDocumentCreator({
                                   defaultColumns.unshift("item");
                                 }
                                 if (isRackingQuote) withRackingUom(defaultColumns);
-                                const renderColumns: string[] = (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns) || [];
+                                // Keep in sync with the header block: the WCT Discount column (2026-11-25).
+                                const shownColumns = withLineDiscountColumn(defaultColumns, wctDiscountsOn({ wctDocNav: !!isWctDocNavEnabled, isQuotation, isInvoice: isInvoiceType, templateMode: isTemplateEditMode }));
+                                const renderColumns: string[] = (isTemplateEditMode ? templateWatch("tableColumnOrder") : shownColumns) || [];
                                 if (item.isGroupHeader) {
                                   // colSpan must equal the REAL rendered data-column
                                   // count — the old fixed colSpan={12} exceeded the

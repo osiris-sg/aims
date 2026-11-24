@@ -87,6 +87,7 @@ const CSS = `
   table.wct-lines td.qty { text-align: center; white-space: nowrap; }
   table.wct-lines td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
   table.wct-lines td.desc p { white-space: pre-wrap; }
+  table.wct-lines td.desc .ldisc { font-size: 9.5px; font-style: italic; margin-top: 1px; }
   .wct .totals { display: flex; justify-content: flex-end; margin: 14px 0 18px; page-break-inside: avoid; break-inside: avoid; }
   .wct .totals table { border-collapse: collapse; width: auto; }
   .wct .totals td { border: none; padding: 2px 8px; font-size: 10.5px; white-space: nowrap; }
@@ -332,13 +333,33 @@ function totalsOf(di: (k: string, d?: any) => any, items: any[]) {
   const gstPercent = isTaxApplicable ? Number(di('gstPercent')) || 9 : 0;
   const isAbsorbTax = di('absorbTax') === 'Y' || di('absorbTax') === true;
   const discountPercent = Number(di('discountPercent') ?? di('discount')) || 0;
+  // The editor's Disc row is a % or a $ (documentInfo.discountType); the stored amount wins when there is one.
   const discountAmount =
-    di('discountAmount') != null && di('discountAmount') !== '' ? Number(di('discountAmount')) || 0 : subtotal * (discountPercent / 100);
+    di('discountAmount') != null && di('discountAmount') !== ''
+      ? Number(di('discountAmount')) || 0
+      : di('discountType') === 'amount'
+      ? Math.min(discountPercent, Math.max(0, subtotal))
+      : subtotal * (discountPercent / 100);
   const net = subtotal - discountAmount;
   const gstAmount = isAbsorbTax && gstPercent > 0 ? (net * gstPercent) / (100 + gstPercent) : net * (gstPercent / 100);
   const total = isAbsorbTax ? net : net + gstAmount;
   const displayNet = isAbsorbTax ? net - gstAmount : net;
   return { currency, gstPercent, gstAmount, discountAmount, displayNet, total };
+}
+
+/**
+ * A line's own discount (2026-11-25, QO / invoice): printed under its description, e.g. "Discount 10%: -$20.00" or
+ * "Discount: -$20.00" for a $ amount; the Amount column is the line after it. Nothing for a line without one.
+ */
+export function lineDiscountText(it: any, currency: string): string {
+  const d = Number(it?.discount);
+  if (!(d > 0)) return '';
+  const gross = (Number(it.quantity) || 0) * (Number(it.unitPrice) || Number(it.salePrice) || 0);
+  const isAmount = it.discountType === 'amount';
+  const off = isAmount ? Math.min(d, Math.max(0, gross)) : (gross * Math.min(d, 100)) / 100;
+  if (!(off > 0)) return '';
+  const pct = isAmount ? '' : ` ${Number(d.toFixed(2))}%`;
+  return `<div class="ldisc">Discount${pct}: -${cash(off, currency)}</div>`;
 }
 
 function linesTable(data: any, items: any[], kind: WctDocKind, currency: string, racking = false, skipTitles = false): string {
@@ -372,7 +393,7 @@ function linesTable(data: any, items: any[], kind: WctDocKind, currency: string,
       case 'no':
         return String(serial[i]);
       case 'description':
-        return descriptionText(it.description || it.name || '');
+        return descriptionText(it.description || it.name || '') + (kind === 'do' ? '' : lineDiscountText(it, currency));
       case 'quantity':
         return qtyText(it.quantity);
       case 'unitPrice':
@@ -662,8 +683,9 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   ${jobBoxes(di, data, { poNumber: isInvoice })}`;
 
   const gstRow = t.gstPercent > 0 ? `<tr><td class="l">GST ${escapeHtml(String(t.gstPercent))}%:</td><td class="v">${cash(t.gstAmount, t.currency)}</td></tr>` : '';
-  // Racking prints its discount as "$150.00", like its old quotation; everyone else keeps the brackets.
-  const discountRow = t.discountAmount > 0 ? `<tr><td class="l">Discount:</td><td class="v">${racking ? cash(t.discountAmount, t.currency) : `(${cash(t.discountAmount, t.currency)})`}</td></tr>` : '';
+  // Racking prints its discount as "$150.00", like its old quotation; everyone else "-$150.00" (2026-11-25), under
+  // Total and above GST, only when there is one.
+  const discountRow = t.discountAmount > 0 ? `<tr><td class="l">Discount:</td><td class="v">${racking ? cash(t.discountAmount, t.currency) : `-${cash(t.discountAmount, t.currency)}`}</td></tr>` : '';
   const L = BCAIR_DOC.totals;
   // Racking quotation: Total Amount, then (only when there is one) Goodwill Discount and the Final Amount.
   const rkFinal = t.discountAmount > 0 || t.gstPercent > 0;

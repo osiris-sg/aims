@@ -24,6 +24,9 @@ export interface QuoteLine {
   itemCode?: string | null;
   isGroupHeader?: boolean;
   isTagGroup?: boolean;
+  /** Line discount (2026-11-25, WCT QO / invoice): a % (default) or a $ amount for the whole line. */
+  discount?: unknown;
+  discountType?: string | null;
 }
 
 export interface RemainingLine {
@@ -37,6 +40,9 @@ export interface RemainingLine {
   priced: boolean;
   /** A "Less: INV… (date)" line (negative): an earlier invoice taken off the full quotation. */
   less?: boolean;
+  /** The quotation line's discount carried onto this line (2026-11-25): a %, or a $ amount prorated to its qty. */
+  discount?: number;
+  discountType?: 'percent' | 'amount';
 }
 
 /** An earlier invoice on the order, for its "Less:" line (gross = what it billed, GST included, credits off). */
@@ -77,6 +83,24 @@ const num = (v: unknown): number => {
 const norm = (s: unknown): string => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const isRow = (l: QuoteLine | null | undefined): l is QuoteLine => !!l && !l.isGroupHeader && !l.isTagGroup;
 const isPriced = (l: QuoteLine) => Math.abs(num(l.amount)) >= 0.005 || Math.abs(num(l.unitPrice)) >= 0.005;
+
+/**
+ * A quotation line's discount for `qty` of its units (2026-11-25): { amount after discount, the discount to carry }.
+ * % stays a %; a $ line discount is prorated to the qty (whole line = the full $). No discount: qty x unit.
+ */
+export function discountedLine(q: QuoteLine, qty: number, unit: number): { amount: number; discount?: number; discountType?: 'percent' | 'amount' } {
+  const gross = qty * unit;
+  const d = num(q.discount);
+  // Only a line priced by its unit price carries a discount (a line with only an amount is already net).
+  if (!(d > 0) || !num(q.unitPrice)) return { amount: R2(gross) };
+  if (q.discountType === 'amount') {
+    const quoted = num(q.quantity) || qty || 1;
+    const share = R2(Math.min(d, Math.abs(num(q.quantity) * unit) || d) * (qty / quoted));
+    return { amount: R2(Math.max(0, gross - share)), discount: share, discountType: 'amount' };
+  }
+  return { amount: R2(gross * (1 - Math.min(d, 100) / 100)), discount: d, discountType: 'percent' };
+}
+const withDisc = (d: { discount?: number; discountType?: 'percent' | 'amount' }) => (d.discount ? { discount: d.discount, discountType: d.discountType } : {});
 
 /** The first line of a description, for the fallback text and reports. */
 export const firstLine = (s: unknown): string => String(s ?? '').split(/\r?\n/)[0].trim();
@@ -134,7 +158,8 @@ export function remainingToBill(args: {
     const left = R2(Math.max(0, quoted - billedQty[i]));
     if (left <= 0) continue;
     const unit = num(q.unitPrice) || (quoted ? R2(num(q.amount) / quoted) : num(q.amount));
-    ordered.push({ description: String(q.description ?? ''), quantity: left, unitPrice: unit, amount: R2(left * unit), quotedQty: quoted, billedQty: R2(billedQty[i]), priced: true });
+    const dl = discountedLine(q, left, unit);
+    ordered.push({ description: String(q.description ?? ''), quantity: left, unitPrice: unit, amount: dl.amount, quotedQty: quoted, billedQty: R2(billedQty[i]), priced: true, ...withDisc(dl) });
   }
   const pricedLeft = ordered.filter((l) => l.priced);
   const net = R2(pricedLeft.reduce((t, l) => t + l.amount, 0));
@@ -147,7 +172,8 @@ export function remainingToBill(args: {
       if (!isPriced(q)) return { description: String(q.description ?? ''), quantity: num(q.quantity) || 1, unitPrice: 0, amount: 0, quotedQty: null, billedQty: null, priced: false };
       const quoted = num(q.quantity) || 1;
       const unit = num(q.unitPrice) || (num(q.quantity) ? R2(num(q.amount) / num(q.quantity)) : num(q.amount));
-      return { description: String(q.description ?? ''), quantity: quoted, unitPrice: unit, amount: R2(quoted * unit), quotedQty: quoted, billedQty: 0, priced: true };
+      const dl = discountedLine(q, quoted, unit);
+      return { description: String(q.description ?? ''), quantity: quoted, unitPrice: unit, amount: dl.amount, quotedQty: quoted, billedQty: 0, priced: true, ...withDisc(dl) };
     });
     const less: RemainingLine[] = refs.map((r) => {
       const unit = -R2(num(r.gross) / (1 + rate / 100));
@@ -263,7 +289,8 @@ export function importedInvoicePrefill(remaining: Pick<RemainingPlan, 'lines'>, 
       const priced = isPriced(q);
       const qty = num(q.quantity) || 1;
       const unit = priced ? num(q.unitPrice) || (num(q.quantity) ? R2(num(q.amount) / num(q.quantity)) : num(q.amount)) : 0;
-      return { description: String(q.description ?? ''), quantity: qty, unitPrice: unit, amount: R2(qty * unit), quotedQty: priced ? num(q.quantity) : null, billedQty: null, priced };
+      const dl = priced ? discountedLine(q, qty, unit) : { amount: 0 };
+      return { description: String(q.description ?? ''), quantity: qty, unitPrice: unit, amount: dl.amount, quotedQty: priced ? num(q.quantity) : null, billedQty: null, priced, ...withDisc(dl) };
     });
   }
   return [{ description: '', quantity: 1, unitPrice: 0, amount: 0, quotedQty: null, billedQty: null, priced: true }];
