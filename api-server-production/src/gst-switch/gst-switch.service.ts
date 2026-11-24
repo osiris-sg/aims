@@ -16,6 +16,8 @@
  *   4. order status refresh, document history and Activity Log rows in both companies.
  * Journals are never moved or deleted; the DB guard triggers stay as they are.
  */
+import { invoiceSplitOf, retaxedSplitTotals } from '../documents/invoice-split';
+import { stampDocumentMoney } from '../common/document-money';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
@@ -79,6 +81,32 @@ interface Unit {
 /** A moved report row's label: a real service report, or a DO sign-off / job start record (UAT 2026-11-25). */
 export const reportRowLabel = (kind: unknown): string =>
   kind === 'DO_ACK' || kind === 'DO_INSTALL' ? 'DO sign-off' : kind === 'DO_START' ? 'Job start record' : 'Service report';
+
+/**
+ * Moved split parts (UAT 2026-11-25): each group's parts re-taxed together; returns only the parts whose totals change.
+ * Pure: [id, config] pairs in, the re-stamped configs out.
+ */
+export function splitGroupRetax(entries: Array<[string, any]>, tax: { gstPercent: number; taxApplicable: 'Y' | 'N' }): Array<{ id: string; config: any }> {
+  const groups = new Map<string, Array<[string, any]>>();
+  for (const [id, cfg] of entries) {
+    const sp = invoiceSplitOf(cfg);
+    if (sp) groups.set(sp.groupId, [...(groups.get(sp.groupId) ?? []), [id, cfg]]);
+  }
+  const out: Array<{ id: string; config: any }> = [];
+  for (const parts of groups.values()) {
+    if (parts.length < 2) continue;
+    parts.sort((a, b) => Number(invoiceSplitOf(a[1])!.part) - Number(invoiceSplitOf(b[1])!.part));
+    const totals = retaxedSplitTotals(parts.map((p) => p[1]), { ...tax, absorbTax: 'N' });
+    parts.forEach(([id, cfg], i) => {
+      const t = totals[i];
+      if (t.gstAmount === cfg.gstAmount && t.nettTotal === cfg.nettTotal && t.subTotal === cfg.subTotal) return;
+      const sums = { subTotal: t.subTotal, gstAmount: t.gstAmount, nettTotal: t.nettTotal };
+      const next = { ...cfg, ...sums, documentInfo: { ...(cfg.documentInfo || {}), ...sums } };
+      out.push({ id, config: stampDocumentMoney(next, { gross: t.nettTotal, outstanding: t.nettTotal, paid: 0 }) });
+    });
+  }
+  return out;
+}
 
 @Injectable()
 export class GstSwitchService {
@@ -368,11 +396,18 @@ export class GstSwitchService {
             restoreConfig: (rc, base) => taxedInvoiceConfig(movedConfig(rc, ctxFor(base, String(rc?.documentNumber ?? rc?.documentInfo?.documentNumber ?? '') || null)), wantGst, rate),
           });
         // Configs of the moved documents.
+        const movedInvoiceCfg = new Map<string, any>();
         for (const d of plan.move) {
           let cfg = remap(movedConfig(d.config, ctxFor(newNames.get(d.id)!, d.name)));
           if (isInvoiceType(d.type)) cfg = keepSplit(taxedInvoiceConfig(cfg, wantGst, rate));
           else if (isQuotationType(d.type)) cfg = taxedQuotationConfig(cfg, wantGst, Number(dst.taxRate) || 9);
+          if (isInvoiceType(d.type)) movedInvoiceCfg.set(d.id, cfg);
           await tx.document.update({ where: { id: d.id }, data: { config: cfg } });
+        }
+        // UAT 2026-11-25: a split group is re-taxed together (invoice-split.ts retaxedSplitTotals), so the parts' GST
+        // still adds up to the unsplit GST; the last part takes the leftover cent.
+        for (const fixed of splitGroupRetax([...movedInvoiceCfg.entries()], { gstPercent: rate, taxApplicable: wantGst ? 'Y' : 'N' })) {
+          await tx.document.update({ where: { id: fixed.id }, data: { config: fixed.config } });
         }
         for (const r of reissued) {
           const c = credited.find((x) => x.inv.id === r.oldId)!;

@@ -620,3 +620,24 @@ describe('GST switch pop-up: moved report rows are named by kind (UAT 2026-11-25
     expect(reportRowLabel('DO_START')).toBe('Job start record');
   });
 });
+
+describe('GST switch: split parts are re-taxed together (UAT 2026-11-25)', () => {
+  const { splitGroupRetax } = require('./gst-switch.service');
+  const part = (n: number, net: number) => ({
+    invoiceSplit: { groupId: 'g1', part: n, of: 2, baseNumber: 'INV202611-0040' },
+    items: [{ description: `part ${n}`, quantity: 1, unitPrice: net, amount: net }],
+    subTotal: net, gstAmount: Math.round(net * 9) / 100, nettTotal: 0,
+  });
+  it('the parts GST adds up to the unsplit GST (134.24 on 1491.50); the last part takes the cent', () => {
+    const out = splitGroupRetax([['a', part(1, 596.6)], ['b', part(2, 894.9)]], { gstPercent: 9, taxApplicable: 'Y' });
+    const byId = Object.fromEntries(out.map((x: any) => [x.id, x.config]));
+    const gst = ['a', 'b'].map((id) => (byId[id] ?? (id === 'a' ? part(1, 596.6) : part(2, 894.9))).gstAmount);
+    expect(Math.round((gst[0] + gst[1]) * 100) / 100).toBe(134.24);
+    expect(byId.b.gstAmount).toBe(80.55);
+    expect(byId.b.nettTotal).toBe(975.45);
+  });
+  it('non-GST: every part GST 0', () => {
+    const out = splitGroupRetax([['a', { ...part(1, 596.6), gstAmount: 53.69 }], ['b', { ...part(2, 894.9), gstAmount: 80.55 }]], { gstPercent: 9, taxApplicable: 'N' });
+    for (const x of out) expect(x.config.gstAmount).toBe(0);
+  });
+});
