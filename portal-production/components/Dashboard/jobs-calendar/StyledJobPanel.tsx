@@ -7,8 +7,8 @@
 // Another company's job (group calendar) is read only here: a member opens it in one click (the tab switches to that
 // company), a non member gets no link.
 
+import { newTabHref, newTabProps } from "@/helpers/newTab";
 import React, { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Radio, RadioGroup, Stack, TextField, Typography, useMediaQuery } from "@mui/material";
 import JobDayPreview, { JobSplitContent, SlotHintsAlert, SPLIT_PAPER_SX } from "./JobDayPreview";
 import CrewPicker from "./CrewPicker";
@@ -87,20 +87,17 @@ function StatusChip({ status }: { status: string }) {
   return <Chip size="small" label={status} sx={{ height: 20, fontSize: "0.7rem", bgcolor: alpha(c, 0.12), color: "text.primary", border: `1px solid ${alpha(c, 0.45)}` }} />;
 }
 
-/** Another company's link: one click switches this tab to that company and opens the job there. */
-function DocLink({ doc, onCross }: { doc: PanelDoc; onCross?: (href: string) => void }) {
+/**
+ * A document link (2026-11-25): opens in a new tab, in the document's company (another company's job) or this tab's
+ * company, so the calendar stays where it was.
+ */
+function DocLink({ doc, orgId }: { doc: PanelDoc; orgId?: string | null }) {
   const num = <Box component="span" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{doc.number}</Box>;
   if (!doc.href) return num;
-  if (onCross)
-    return (
-      <a href={doc.href} style={{ color: "inherit" }} onClick={(ev) => { ev.preventDefault(); onCross(doc.href!); }}>
-        {num}
-      </a>
-    );
   return (
-    <Link href={doc.href} style={{ color: "inherit" }}>
+    <a href={newTabHref(doc.href, orgId)} {...newTabProps} style={{ color: "inherit" }} data-testid="panel-doc-link">
       {num}
-    </Link>
+    </a>
   );
 }
 
@@ -138,7 +135,6 @@ export default function StyledJobPanel({
   // The record a postponed job left on its old date is a record only: no edits, no actions (2026-11-24).
   const editable = !!actions && canEditOnCalendar(e) && !e.recordOnly;
   const cross = crossOrgOpen(e);
-  const openCross = cross ? (href: string) => onCrossOpen(cross.orgId, href) : undefined;
   const customer = customerOf(e);
   const remarks = e.remarks && e.remarks.trim().toLowerCase() !== (e.subject ?? "").trim().toLowerCase() ? e.remarks : null;
 
@@ -378,7 +374,7 @@ export default function StyledJobPanel({
           g.docs.length === 1 ? (
             <Row key={g.docs[0].key} label={g.label}>
               <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
-                <DocLink doc={g.docs[0]} onCross={openCross} />
+                <DocLink doc={g.docs[0]} orgId={cross?.orgId} />
                 <StatusChip status={g.docs[0].status} />
               </Stack>
             </Row>
@@ -388,7 +384,7 @@ export default function StyledJobPanel({
               <Box sx={{ lineHeight: 1.7, display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 0.5, minWidth: 0 }} data-testid="panel-doc-list">
                 {(openGroups.includes(g.label) ? g.docs : g.docs.slice(0, PANEL_DOC_LIMIT)).map((d, i, shown) => (
                   <Box component="span" key={d.key} sx={{ whiteSpace: "nowrap", display: "inline-block" }}>
-                    <DocLink doc={d} onCross={openCross} />
+                    <DocLink doc={d} orgId={cross?.orgId} />
                     {d.status && (
                       <Box component="span" sx={{ fontSize: "0.7rem", color: "text.secondary", ml: 0.5 }}>
                         {d.status}

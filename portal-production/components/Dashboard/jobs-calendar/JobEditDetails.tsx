@@ -10,6 +10,7 @@ import { Accordion, AccordionDetails, AccordionSummary, Box, Chip, Stack, Table,
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { toast } from "react-toastify";
 import VerificationPanel from "@/components/delivery/VerificationPanel";
+import { newTabHref, newTabProps } from "@/helpers/newTab";
 
 const imgSrc = (k: string) => fileSrc(k);
 const when = (iso: string | null | undefined) => (iso ? new Intl.DateTimeFormat("en-SG", { timeZone: "Asia/Singapore", day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(iso)) : "");
@@ -19,7 +20,8 @@ const KIND_LABEL: Record<string, string> = { DO_ACK: "Customer sign-off", DO_INS
 export interface JobEditRun {
   id: string;
   status: string;
-  items: Array<{ id: string; quantity: number; description: string | null; asset: { name: string } | null; inventory: { sku: string } | null; document: { name: string | null; status: string } | null }>;
+  items: Array<{ id: string; quantity: number; description: string | null; asset: { name: string } | null; inventory: { sku: string } | null; document: { id?: string; name: string | null; status: string } | null }>;
+  order?: { id: string; orderNumber: string | null } | null;
   reports: Array<{ id: string; kind: string; status: string; photos: string[]; signature: string | null; signedByName: string | null; signedAt: string | null; technicianName: string | null; createdAt: string }>;
   document?: { machineLocation?: string | null } | null;
   verification?: any;
@@ -41,6 +43,7 @@ export default function JobEditDetails({
   const [location, setLocation] = useState(run.document?.machineLocation ?? "");
   useEffect(() => setLocation(run.document?.machineLocation ?? ""), [run.id, run.document?.machineLocation]);
   const proof = run.reports.filter((r) => r.kind !== "SERVICE");
+  const services = run.reports.filter((r) => r.kind === "SERVICE");
   const blurLocation = async () => {
     if ((run.document?.machineLocation ?? "") === location.trim()) return;
     const r = await saveLocation(location.trim());
@@ -49,6 +52,21 @@ export default function JobEditDetails({
 
   return (
     <Stack spacing={1.5} data-tour="job-edit-details">
+      {/* Links open in a new tab (2026-11-25): the order and the job's service report(s); the DOs are in Items. */}
+      {(run.order?.id || services.length > 0) && (
+        <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap data-testid="job-edit-links">
+          {run.order?.id && (
+            <a href={newTabHref(`/portal/orders/${run.order.id}`)} {...newTabProps} style={{ fontWeight: 600 }}>
+              {`Order ${run.order.orderNumber ?? ""}`.trim()}
+            </a>
+          )}
+          {services.map((r, n) => (
+            <a key={r.id} href={newTabHref(`/portal/maintenance-reports/${r.id}`)} {...newTabProps} style={{ fontWeight: 600 }}>
+              {services.length > 1 ? `Service report ${n + 1}` : "Service report"}
+            </a>
+          ))}
+        </Stack>
+      )}
       {createdBy && (
         <TextField label="Created by" size="small" fullWidth value={createdBy} InputProps={{ readOnly: true }} disabled />
       )}
@@ -83,7 +101,15 @@ export default function JobEditDetails({
                     {i.inventory?.sku ? ` (S/No ${i.inventory.sku})` : ""}
                   </TableCell>
                   <TableCell align="right">{i.quantity}</TableCell>
-                  <TableCell>{i.document?.name ?? ""}</TableCell>
+                  <TableCell>
+                    {i.document?.id && i.document.name ? (
+                      <a href={newTabHref(`/portal/documents/open/${i.document.id}`)} {...newTabProps} style={{ color: "inherit", fontWeight: 600 }}>
+                        {i.document.name}
+                      </a>
+                    ) : (
+                      i.document?.name ?? ""
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
