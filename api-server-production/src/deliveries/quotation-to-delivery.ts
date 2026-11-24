@@ -431,6 +431,7 @@ export async function applyQuotationLinkToDoConfig(
   sourceQuotationId: string,
   cfg: Record<string, any>,
   logger?: { warn: (m: string) => void },
+  opts: { subject?: boolean } = {},
 ): Promise<Record<string, any>> {
   try {
     const qo = await prisma.document.findFirst({
@@ -444,6 +445,15 @@ export async function applyQuotationLinkToDoConfig(
     cfg.sourceDocumentType = 'QUOTATION';
     cfg.sourceDocumentNumber = qo.name ?? '';
     cfg.quotationNo = qo.name ?? '';
+    // A new DO takes the quotation's Subject (code type + text, e.g. "AA+CD - Test Subject") when it has none of its
+    // own (2026-11-25; enableQuotationSubject orgs = the WCT group). Mint only: a regen never overwrites an edit.
+    if (opts.subject && !String(cfg.subject ?? cfg.documentInfo?.subject ?? '').trim()) {
+      const subject = String(qcfg.subject ?? qcfg.documentInfo?.subject ?? '').trim();
+      if (subject && (await isOrgFeatureEnabled(prisma, organizationId, 'enableQuotationSubject'))) {
+        cfg.subject = subject;
+        cfg.documentInfo = { ...(cfg.documentInfo || {}), subject };
+      }
+    }
     if (!cfg.poNo && (qcfg.poNo || qcfg.referenceNo || qcfg.documentInfo?.referenceNo)) {
       cfg.poNo = qcfg.poNo || qcfg.documentInfo?.referenceNo || qcfg.referenceNo;
     }

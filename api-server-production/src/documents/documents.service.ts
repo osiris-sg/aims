@@ -8352,6 +8352,8 @@ export class DocumentsService {
           orderJobIds: [],
           deliveryOrderNos: doNumbers,
           orderRemainder: { remainingGross: plan.summary?.remaining?.remainingGross ?? null, matched: plan.summary?.remaining?.matched ?? null, edited: !!edited },
+          // The quotation's Subject when the header source (the order's DO) has none (2026-11-25), as the other order invoices.
+          ...(!(base as any).subject && !(base as any).documentInfo?.subject && quoteSubjectOf(qc) ? { subject: quoteSubjectOf(qc) } : {}),
           referenceNo: reference,
           ...totals,
           showTotals: true,
@@ -9340,12 +9342,37 @@ export class DocumentsService {
    * WCT invoice print "DO No" (2026-11-24): the DO numbers an invoice covers (documents/invoice-do-nos.ts), as
    * render data. Any other type: nothing added. Never fails a print.
    */
-  async invoiceDoNosFor(type: string, documentId: string | null | undefined, organizationId: string, config: any): Promise<{ invoiceDoNos?: string[] }> {
-    if (!isInvoiceDocType(type)) return {};
+  async invoiceDoNosFor(type: string, documentId: string | null | undefined, organizationId: string, config: any): Promise<{ invoiceDoNos?: string[]; quotationSubject?: string }> {
+    // WCT print (2026-11-25): a DO / invoice with no Subject of its own prints its quotation's (wct.ts jobBoxes).
+    const subject = await this.quotationSubjectFor(type, organizationId, config);
+    const extra = subject ? { quotationSubject: subject } : {};
+    if (!isInvoiceDocType(type)) return extra;
     try {
-      return { invoiceDoNos: await invoiceDoNumbers(this.prisma, organizationId, documentId ?? null, config || {}) };
+      return { ...extra, invoiceDoNos: await invoiceDoNumbers(this.prisma, organizationId, documentId ?? null, config || {}) };
     } catch {
-      return {};
+      return extra;
+    }
+  }
+
+  /**
+   * The source quotation's Subject for a DO / invoice whose own Subject is empty (2026-11-25), else null. Read from
+   * config.sourceDocumentId (else the order's quotation); only the WCT layout prints it. Never fails a print.
+   */
+  async quotationSubjectFor(type: string, organizationId: string, config: any): Promise<string | null> {
+    try {
+      if (!isInvoiceDocType(type) && !['DELIVERY_ORDER', 'DO'].includes(String(type || '').toUpperCase())) return null;
+      const c: any = config || {};
+      if (quoteSubjectOf(c)) return null;
+      let qid: string | null = typeof c.sourceDocumentId === 'string' && c.sourceDocumentId ? c.sourceDocumentId : null;
+      if (!qid && typeof c.orderId === 'string' && c.orderId) {
+        const order = await this.prisma.order.findFirst({ where: { id: c.orderId, organizationId }, select: { sourceQuotationId: true } });
+        qid = order?.sourceQuotationId ?? null;
+      }
+      if (!qid) return null;
+      const q = await this.prisma.document.findFirst({ where: { id: qid, organizationId, type: { in: ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'] } }, select: { config: true } });
+      return quoteSubjectOf(q?.config) || null;
+    } catch {
+      return null;
     }
   }
 

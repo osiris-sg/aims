@@ -815,7 +815,7 @@ export class DeliveriesService {
         deliveryItemIdFor: (lineIdx, n) => plannedIds[lineIdx]?.[n],
       });
       if (order) {
-        if (order.sourceQuotationId) await applyQuotationLinkToDoConfig(this.prisma, organizationId, order.sourceQuotationId, doConfig, this.logger);
+        if (order.sourceQuotationId) await applyQuotationLinkToDoConfig(this.prisma, organizationId, order.sourceQuotationId, doConfig, this.logger, { subject: true });
         await applyOrderToDoConfig(this.prisma, organizationId, order.id, doConfig);
       }
       const doc = await this.createScheduledDo(templateId, organizationId, doConfig, dto.projectId);
@@ -1878,7 +1878,7 @@ export class DeliveriesService {
             : null,
           deliveryItemIdFor: (lineIdx, n) => ordered[lineIdx]?.[n]?.id,
         });
-        if (run.sourceQuotationId) await applyQuotationLinkToDoConfig(this.prisma, organizationId, run.sourceQuotationId, doConfig, this.logger);
+        if (run.sourceQuotationId) await applyQuotationLinkToDoConfig(this.prisma, organizationId, run.sourceQuotationId, doConfig, this.logger, { subject: true });
         await applyOrderToDoConfig(this.prisma, organizationId, run.orderId, doConfig);
         // Real number now (issuedOnSchedule: the same "numbered, keep it when
         // cancelled" rule as enableRealDoOnSchedule), marked as issued on the draft.
@@ -2060,7 +2060,7 @@ export class DeliveriesService {
         deliveryAddress: site,
         customer: customer ? { id: customer.id, name: customer.name, customerCode: customer.customerCode, address: customer.address, email: customer.email } : null,
       } as any);
-      if (order.sourceQuotationId) await applyQuotationLinkToDoConfig(this.prisma, organizationId, order.sourceQuotationId, doConfig, this.logger);
+      if (order.sourceQuotationId) await applyQuotationLinkToDoConfig(this.prisma, organizationId, order.sourceQuotationId, doConfig, this.logger, { subject: true });
       await applyOrderToDoConfig(this.prisma, organizationId, order.id, doConfig);
       // 2026-11-24 (Elroy): not printed, not hidden: an on-screen warning on the draft DO (config.checkQtyWarning, shown
       // above the lines until the DO is confirmed; the PDF never reads it).
@@ -2713,7 +2713,7 @@ export class DeliveriesService {
         // its DO: quotationNo + sourceDocument* (the invoice's quote-price tier
         // reads these) and the quoted prices on free-typed lines.
         if (run.sourceQuotationId) {
-          await applyQuotationLinkToDoConfig(this.prisma, organizationId, run.sourceQuotationId, doConfig, this.logger);
+          await applyQuotationLinkToDoConfig(this.prisma, organizationId, run.sourceQuotationId, doConfig, this.logger, { subject: true });
         }
         // WCT orders: the job's DO carries its order (printed as "Order No").
         if (run.orderId) await applyOrderToDoConfig(this.prisma, organizationId, run.orderId, doConfig);

@@ -130,9 +130,21 @@ const CSS = `
   .wct .footnote { margin-top: 10px; font-weight: 700; }
   .wct .doboxes { display: flex; gap: 40px; margin: 14px 0 16px; }
   .wct .doboxes .bx { flex: 1; border: 1.2px solid #000; padding: 5px 8px 12px; min-height: 86px; white-space: pre-line; }
-  /* Company stamp (2026-11-24): "Add company stamp" on the document; bottom-left after the closing. */
-  .wct .cstamp { margin-top: 18px; text-align: left; page-break-inside: avoid; break-inside: avoid; }
+  /* Company stamp (2026-11-24; moved 2026-11-25): "Add company stamp" on the document, left, between
+     "Yours Sincerely" and the signer line ("Director of ..."); on the DO under the Remarks. */
+  .wct .cstamp { margin-top: 10px; text-align: left; page-break-inside: avoid; break-inside: avoid; }
   .wct .cstamp img { display: block; max-width: 150px; max-height: 110px; object-fit: contain; }
+  /* The stamp fills the blank space above the signer line, so the closing keeps a small gap only. */
+  .wct .closing.after-stamp { margin-top: 8px; }
+  /* Delivery order (2026-11-25): Remarks (and the stamp) on the left, the customer's signature (image, name,
+     date) at the bottom right on the same line; blank when unsigned. */
+  .wct .dosign { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-top: 16px; page-break-inside: avoid; break-inside: avoid; }
+  .wct .dosign .l { flex: 1; min-width: 0; }
+  .wct .dosign .l .remarks { margin-top: 0; }
+  .wct .dosign .r { min-width: 230px; text-align: right; }
+  .wct .dosign .r .sig { height: 56px; display: flex; align-items: flex-end; justify-content: flex-end; }
+  .wct .dosign .r .sig img { display: block; max-height: 56px; max-width: 200px; }
+  .wct .dosign .r .ln { border-top: 1px solid #000; padding-top: 3px; font-size: 9.5px; text-align: center; }
   @media print { .wct .screen-only { display: none; } }
 </style>`;
 
@@ -409,13 +421,19 @@ function billToBlock(data: any, di: (k: string, d?: any) => any): string {
   }</div>`;
 }
 
-function jobBoxes(di: (k: string, d?: any) => any): string {
-  const location = withSingapore(first(di('location'), di('jobLocation'), di('siteAddress')));
-  const subject = first(di('subject'), di('title'));
-  if (!location && !subject) return '';
+/**
+ * The boxed Job Location / Subject rows. The Subject falls back to the source quotation's (data.quotationSubject,
+ * resolved by the server for a DO / invoice made from a quotation, 2026-11-25). Invoices add "PO Number" under
+ * the Subject when filled (config.poNumber). The DO prints the Subject only (its Ship To box is the site).
+ */
+function jobBoxes(di: (k: string, d?: any) => any, data: any, opts: { location?: boolean; poNumber?: boolean } = {}): string {
+  const location = opts.location === false ? '' : withSingapore(first(di('location'), di('jobLocation'), di('siteAddress')));
+  const subject = first(di('subject'), di('title'), data?.quotationSubject);
+  const po = opts.poNumber ? first(di('poNumber')) : '';
+  if (!location && !subject && !po) return '';
   return `<div class="boxes">${location ? `<div class="row"><b>Job Location:</b> ${escapeHtml(location)}</div>` : ''}${
     subject ? `<div class="row"><b>Subject:</b> ${escapeHtml(subject)}</div>` : ''
-  }</div>`;
+  }${po ? `<div class="row"><b>PO Number:</b> ${escapeHtml(po)}</div>` : ''}</div>`;
 }
 
 /** The salesperson's printed name (the editor stores the name beside the code / user id). */
@@ -481,9 +499,9 @@ const SIG_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
  * replaces the displayed one). Delivered by: the DO_START technician. The
  * photos go on a page of their own so page 1 stays the paper document.
  */
-function doProof(data: any): { received: string; appendix: string } {
+function doProof(data: any): { received: string; appendix: string; signature: string } {
   const reports: any[] = Array.isArray(data?.maintenanceReports) ? data.maintenanceReports : [];
-  if (!reports.length) return { received: '', appendix: '' };
+  if (!reports.length) return { received: '', appendix: '', signature: '' };
   const base = String(data?.photoBaseUrl || 'https://aims-osiris.s3.ap-southeast-1.amazonaws.com/');
   const at = (r: any) => new Date(r?.signedAt ?? r?.createdAt ?? 0).getTime() || 0;
   const signed = reports.filter((r) => (r.kind === 'DO_ACK' || r.kind === 'DO_INSTALL') && typeof r.signature === 'string' && SIG_RE.test(r.signature));
@@ -506,6 +524,12 @@ function doProof(data: any): { received: string; appendix: string } {
     </div>
   </div>`
       : '';
+  // The DO's bottom-right signature (2026-11-25): image, then name and date under a line. Unsigned = nothing.
+  const signature = latest
+    ? `<div class="sig"><img src="${latest.signature}" alt="" /></div><div class="ln">${escapeHtml(latest.signedByName || '')}${
+        signedDate ? `${latest.signedByName ? ' &nbsp;·&nbsp; ' : ''}${escapeHtml(signedDate)}` : ''
+      }</div>`
+    : '';
   const withPhotos = reports.filter((r) => Array.isArray(r.photos) && r.photos.length > 0);
   const label = (k: string) => (k === 'DO_START' ? 'Delivery Started' : k === 'DO_INSTALL' ? 'Installation Acknowledged' : 'Delivery Acknowledged');
   const appendix = withPhotos.length
@@ -519,7 +543,7 @@ function doProof(data: any): { received: string; appendix: string } {
         })
         .join('')}</div>`
     : '';
-  return { received, appendix };
+  return { received, appendix, signature };
 }
 
 /** A clearly marked SAMPLE stamp, printed until the company uploads its own (Settings > Company profile > Stamp). */
@@ -567,6 +591,12 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
     const quotationNo = first(di('quotationNo'), di('quotationNumber'), di('referenceNo'), data?.sourceDocumentNumber);
     // WCT orders (enableWctOrders): the job's order. No line at all on a DO without one.
     const orderNo = first(di('orderNo'), data?.orderNo);
+    // Remarks + company stamp on the left, the customer's signature at the right on the same line (2026-11-25).
+    const doRemarks = first(data?.remarks, di('remarks'));
+    const doSignRow =
+      doRemarks || stamp || proof.signature
+        ? `<div class="dosign"><div class="l">${doRemarks ? `<div class="remarks"><b>Remarks:</b>${richContent(doRemarks, 'font-size:10.5px;line-height:1.5;')}</div>` : ''}${stamp}</div><div class="r">${proof.signature}</div></div>`
+        : '';
     const body = `
     <div class="title do">${escapeHtml(design.titleText || 'DELIVERY ORDER')}</div>
     <div class="stars">${'*'.repeat(46)}</div>
@@ -582,10 +612,9 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
       <div class="bx">Sold To:\n${escapeHtml(soldName)}${soldAddr ? `\n${escapeHtml(soldAddr)}` : ''}${attention || mobile ? '\n' : ''}${attention ? `\nAttention: ${escapeHtml(attention)}` : ''}${mobile ? `\nMobile: ${escapeHtml(mobile)}` : ''}</div>
       <div class="bx">Ship To:\n${escapeHtml(soldName)}${shipTo ? `\n${escapeHtml(shipTo)}` : ''}</div>
     </div>
+    ${jobBoxes(di, data, { location: false })}
     ${linesTable(data, items, 'do', 'SGD', false, skipTitles)}
-    ${first(data?.remarks, di('remarks')) ? `<div class="remarks" style="margin-top:16px;"><b>Remarks:</b>${richContent(first(data?.remarks, di('remarks')), 'font-size:10.5px;line-height:1.5;')}</div>` : ''}
-    ${proof.received}
-    ${stamp}
+    ${doSignRow}
     ${footerMessage ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>` : ''}
     ${proof.appendix}`;
     return bc ? sheet(bcLetterhead(data, BCAIR_DOC.numberLabel.do, docNumber), body, true) : sheet(letterhead(org, data, 'Delivery Order No', docNumber, racking), body, false, racking);
@@ -630,7 +659,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
       ${di('paymentTerms') && isInvoice ? `<span class="k">Terms</span><span>${escapeHtml(di('paymentTerms'))}</span>` : ''}
     </div>
   </div>
-  ${jobBoxes(di)}`;
+  ${jobBoxes(di, data, { poNumber: isInvoice })}`;
 
   const gstRow = t.gstPercent > 0 ? `<tr><td class="l">GST ${escapeHtml(String(t.gstPercent))}%:</td><td class="v">${cash(t.gstAmount, t.currency)}</td></tr>` : '';
   // Racking prints its discount as "$150.00", like its old quotation; everyone else keeps the brackets.
@@ -673,7 +702,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
     tnc ? richContent(tnc, 'font-size:10px;line-height:1.6;') : BCAIR_DOC.tnc.map((l) => `<div class="ln">${escapeHtml(l)}</div>`).join('')
   }</div>`;
   const S = BCAIR_DOC.sign;
-  const bcSign = `<div class="bcsign"><div class="l"><div>${escapeHtml(S.closing)}</div><div class="scr">${escapeHtml(S.name)}</div><div>${escapeHtml(S.title)}</div><div>${escapeHtml(S.company)}</div></div><div class="r"><div>${escapeHtml(S.confirm)}</div><div>${escapeHtml(S.stamp)}</div></div></div>`;
+  const bcSign = `<div class="bcsign"><div class="l"><div>${escapeHtml(S.closing)}</div>${stamp}<div class="scr">${escapeHtml(S.name)}</div><div>${escapeHtml(S.title)}</div><div>${escapeHtml(S.company)}</div></div><div class="r"><div>${escapeHtml(S.confirm)}</div><div>${escapeHtml(S.stamp)}</div></div></div>`;
 
   const signature = isInvoice ? null : clientSignatureOf(cfg);
   // Racking quotation: the Notes and the terms as one footer, no "Remarks" heading; a TERMS & CONDITIONS
@@ -693,14 +722,14 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   // Signed by: the quotation's own field, else its salesperson (never a raw user id); title default Manager.
   const rkSigner = first(di('signedBy'), salesNameOf(di));
   const rkClosing = `<div class="closing${signature ? ' signed' : ''}">
-        <div class="rksig"><div>Yours Sincerely,</div><div class="scr">${escapeHtml(rkSigner) || '&nbsp;'}</div><div>${escapeHtml(first(di('signedByTitle'), 'Manager'))} of</div><div class="co">${escapeHtml(first(org?.name, data?.company?.name))}</div></div>
+        <div class="rksig"><div>Yours Sincerely,</div>${stamp}<div class="scr">${escapeHtml(rkSigner) || '&nbsp;'}</div><div>${escapeHtml(first(di('signedByTitle'), 'Manager'))} of</div><div class="co">${escapeHtml(first(org?.name, data?.company?.name))}</div></div>
         ${stampHtml}
       </div>`;
   const closing = isInvoice
     ? footerMessage
       ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>`
       : ''
-    : `<div class="closing${signature ? ' signed' : ''}">
+    : `<div class="closing${signature ? ' signed' : ''}${stamp ? ' after-stamp' : ''}">
         <div><div class="director">Director of ${escapeHtml(first(org?.name, data?.company?.name))}</div>${
           footerMessage ? `<div class="screen-only">${escapeHtml(footerMessage)}</div>` : ''
         }</div>
@@ -714,11 +743,11 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
       </div>`;
 
   if (bc) {
-    const bcBody = `${header}${linesTable(data, items, kind, t.currency, false, skipTitles)}${totals}${remarksBlock}${bcTnc}${bcSign}${stamp}${footerMessage ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>` : ''}`;
+    const bcBody = `${header}${linesTable(data, items, kind, t.currency, false, skipTitles)}${totals}${remarksBlock}${bcTnc}${bcSign}${footerMessage ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>` : ''}`;
     return sheet(bcLetterhead(data, BCAIR_DOC.numberLabel.invoice, docNumber), bcBody, true);
   }
   if (rkQuote) {
-    const rkBody = `${header}${linesTable(data, items, kind, t.currency, true)}${totals}${rkFooter}${signBlock(di, true)}${rkClosing}${stamp}`;
+    const rkBody = `${header}${linesTable(data, items, kind, t.currency, true)}${totals}${rkFooter}${signBlock(di, true)}${rkClosing}`;
     const wm = wmUrl ? `<div class="rkwm"><img src="${escapeHtml(wmUrl)}" alt="" /></div>` : '';
     return sheet(letterhead(org, data, 'Quotation No', docNumber, true), rkBody, false, true, wm);
   }
@@ -727,7 +756,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   const rkInvTnc = racking && isInvoice && tnc
     ? `<div class="rkfoot">${hasTermsHeading(tnc) ? '' : `<div class="hd">TERMS &amp; CONDITIONS:</div>`}${rackingFooterText(tnc)}</div>`
     : null;
-  const body = `${header}${linesTable(data, items, kind, t.currency, false, skipTitles)}${totals}${remarksBlock}${rkInvTnc ?? tncBlock}${signBlock(di)}${closing}${stamp}`;
+  const body = `${header}${linesTable(data, items, kind, t.currency, false, skipTitles)}${totals}${remarksBlock}${rkInvTnc ?? tncBlock}${signBlock(di)}${stamp}${closing}`;
   return sheet(letterhead(org, data, isInvoice ? 'Invoice No' : 'Quotation No', docNumber, racking), body, false, racking);
 }
 
