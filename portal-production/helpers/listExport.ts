@@ -25,6 +25,8 @@ export function listExportModel<R>(o: { title: string; orgName: string; rows: R[
     orgName: o.orgName,
     metaLines: [`${o.rows.length} selected`, ...(o.metaLines ?? [])],
     tables: [{ headers: o.columns.map((c) => c.header), rows: total ? [...rows, total] : rows, ...(total ? { boldRows: [rows.length] } : {}) }],
+    // A printed list is not a statement (UAT 2026-11-25): same text as report-export's COMPUTER_GENERATED_LIST_NOTE.
+    generatedNote: "This is a computer generated document. No signature is required.",
   };
 }
 

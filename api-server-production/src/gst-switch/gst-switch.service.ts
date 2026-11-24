@@ -76,6 +76,10 @@ interface Unit {
   sourceCustomer: { id: string; name: string; uen: string | null; email: string | null; phone: string | null; address: string | null; gstRegNo: string | null; customerCode: string | null } | null;
 }
 
+/** A moved report row's label: a real service report, or a DO sign-off / job start record (UAT 2026-11-25). */
+export const reportRowLabel = (kind: unknown): string =>
+  kind === 'DO_ACK' || kind === 'DO_INSTALL' ? 'DO sign-off' : kind === 'DO_START' ? 'Job start record' : 'Service report';
+
 @Injectable()
 export class GstSwitchService {
   constructor(
@@ -132,7 +136,7 @@ export class GstSwitchService {
     if (jobs.length) or.push({ deliveryId: { in: jobs.map((j: any) => j.id) } });
     if (reportIds.size) or.push({ id: { in: [...reportIds] } });
     if (order) or.push({ serviceData: { path: ['orderId'], equals: order.id } });
-    const reports = await this.db.maintenanceServiceReport.findMany({ where: { organizationId: orgId, OR: or }, select: { id: true, reportNumber: true, serviceData: true, invoiceDocumentId: true }, orderBy: { reportNumber: 'asc' } });
+    const reports = await this.db.maintenanceServiceReport.findMany({ where: { organizationId: orgId, OR: or }, select: { id: true, reportNumber: true, serviceData: true, invoiceDocumentId: true, kind: true }, orderBy: { reportNumber: 'asc' } });
     const customerId = order?.customerId || inv.config?.customerId || inv.config?.customer?.id || null;
     const sourceCustomer = customerId
       ? await this.db.customer.findFirst({ where: { id: customerId, organizationId: orgId }, select: { id: true, name: true, uen: true, email: true, phone: true, address: true, gstRegNo: true, customerCode: true } })
@@ -199,7 +203,11 @@ export class GstSwitchService {
           return { id: d.id, kind: sp ? `Invoice (part ${sp.part} of ${sp.of})` : TYPE_LABEL(d.type), name: d.name, status: d.status, action: plan.credit.some((c) => c.id === d.id) ? 'credit' : 'move' };
         }),
       ...unit.jobs.map((j) => ({ id: j.id, kind: 'Job', name: `#${j.deliveryNumber}`, status: null, action: 'move' })),
-      ...unit.reports.map((r) => ({ id: r.id, kind: 'Service report', name: r.reportNumber ? `#${String(r.reportNumber).padStart(6, '0')}` : 'Service report', status: null, action: 'move' })),
+      // UAT 25 Nov: the DOs' sign-off / start records are MaintenanceServiceReport rows too; name them as such.
+      ...unit.reports.map((r: any) => {
+        const label = reportRowLabel(r.kind);
+        return { id: r.id, kind: label, name: r.reportNumber ? `#${String(r.reportNumber).padStart(6, '0')}` : label, status: null, action: 'move' };
+      }),
     ];
     const creditNotes = plan.credit.map((d) => ({ invoiceId: d.id, invoice: d.name, amount: owedOf(d.config), already: !!d.config?.gstMove?.creditNote?.id }));
     return {

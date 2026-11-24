@@ -138,7 +138,9 @@ test("the layout draws every section in order and the page renders it for both k
   // No separate Invoices / Service report / Jobs sections, no helper sentence.
   for (const gone of [">Invoices<", "No service report on this order yet", "not invoiced yet", "No jobs yet"]) assert.ok(!layout.includes(gone), gone);
   const page = read("app/portal/orders/[id]/WctOrderDetail.tsx");
-  assert.match(page, /orderPageModel\(order, \{ jobsCalendar: !!isJobsCalendarEnabled, doFirst, statusFlow: !!isWctStatusFlowEnabled \}\)/);
+  assert.match(page, /orderPageModel\(order, \{ jobsCalendar: !!isJobsCalendarEnabled, doFirst, statusFlow: !!isWctStatusFlowEnabled, allOnDo \}\)/);
+  // 2026-11-25: the page asks the server whether every quoted line is already on a DO.
+  assert.match(page, /\/deliveries\/order\/\$\{id\}\/do-coverage/);
   assert.doesNotMatch(page, /ImportedOrderDetail|OrderHubPanel/);
   // Every action key has its handler.
   for (const k of ORDER_ACTION_KEYS) assert.match(page, new RegExp(`case "${k}":`), k);
@@ -153,6 +155,10 @@ test("native actions: each keeps its gating; Mark complete / Reopen (round 29); 
   assert.equal(a["create-invoice"].disabled, true, "nothing new to bill");
   assert.equal(a["add-do"].show, true);
   assert.deepEqual([a["add-job"].show, a["add-job"].mode], [true, "quick"]);
+  assert.deepEqual([a["add-do"].disabled, a["add-do"].tip], [false, null]);
+  // Every quoted line already on a DO (2026-11-25): Add DO disabled with the tooltip.
+  const full = Object.fromEntries(nativeOrderPage(native(), { jobsCalendar: true, doFirst: true, allOnDo: true }).actions.map((x) => [x.key, x]));
+  assert.deepEqual([full["add-do"].show, full["add-do"].disabled, full["add-do"].tip], [true, true, "All lines already on a DO"]);
   assert.equal(a["service-report"].show, true);
   assert.deepEqual([a["send-report"].show, a["send-report"].disabled, a["send-report"].primary], [true, false, true], "next step: Send service report");
   assert.equal(a["link-document"].show, true);

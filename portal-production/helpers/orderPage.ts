@@ -181,7 +181,12 @@ export interface OrderPageContext {
   doFirst?: boolean;
   /** enableWctStatusFlow: the WCT group wording (Pending / Accepted, Draft / Pending / Awaiting Payment / Paid, order Pending / Completed). */
   statusFlow?: boolean;
+  /** WCT group (2026-11-25): every quoted line is already on a DO, so "Add DO" is disabled (GET /deliveries/order/:id/do-coverage). */
+  allOnDo?: boolean;
 }
+
+/** The "Add DO" tooltip when every quoted line is already on a DO. */
+export const ALL_LINES_ON_DO_TIP = "All lines already on a DO";
 
 const linkedBy = (l?: { byName?: string | null } | null) => (l ? ["Linked", l.byName ? `by ${l.byName}` : ""].filter(Boolean).join(" ") : "");
 const fmtMoney = (n: number | null | undefined) => (n == null || !Number.isFinite(Number(n)) ? "-" : importedMoney(n));
@@ -513,7 +518,7 @@ export function nativeOrderPage(order: any, ctx: OrderPageContext = {}): OrderPa
   const actions: OrderAction[] = [
     // Round 36: mode "remaining" = Create invoice for what is left (the lines dialog).
     { key: "create-invoice", label: ci.mode === "open-draft" ? "Open draft invoice" : "Create invoice", show: ci.show, disabled: ci.disabled, primary: false, tip: null, tour: "wct-order-create-invoice", mode: ci.remaining ? "remaining" : ci.mode, href: ci.href },
-    { key: "add-do", label: "Add DO", show: manualFlow && !cancelled, disabled: false, primary: false, tip: null, tour: "wct-order-add-do" },
+    { key: "add-do", label: "Add DO", show: manualFlow && !cancelled, disabled: !!ctx.allOnDo, primary: false, tip: ctx.allOnDo ? ALL_LINES_ON_DO_TIP : null, tour: "wct-order-add-do" },
     { key: "add-job", label: "Add job", show: !!jobMode, disabled: false, primary: false, tip: null, tour: "wct-order-add-job", mode: jobMode },
     { key: "service-report", label: "Service report", show: true, disabled: false, primary: false, tip: null, tour: "wct-order-add-report" },
     { key: "send-report", label: "Send service report", show: manualFlow, disabled: !ready, primary: false, tip: ready ? null : "Complete or upload a service report first", tour: "wct-order-send-report" },
@@ -677,7 +682,7 @@ export function importedOrderPage(o: any, ctx: OrderPageContext = {}): OrderPage
   const nextIsInvoice = !draft && canCreate && ["PART_BILLED", "DO_DRAFT", "DO_COMPLETED"].includes(o.status);
   const actions: OrderAction[] = [
     { key: "create-invoice", label: draft ? `Open draft invoice${draft.name ? ` ${draft.name}` : ""}` : "Create invoice", show: !!draft || !!o.canInvoice, disabled: false, primary: !!draft || nextIsInvoice, tip: null, tour: "wct-order-create-invoice", mode: draft ? "open-draft" : "create", href: draftHref },
-    { key: "add-do", label: "Add DO", show: manualFlow, disabled: false, primary: false, tip: null, tour: "wct-order-add-do" },
+    { key: "add-do", label: "Add DO", show: manualFlow, disabled: !!ctx.allOnDo, primary: false, tip: ctx.allOnDo ? ALL_LINES_ON_DO_TIP : null, tour: "wct-order-add-do" },
     { key: "add-job", label: "Add job", show: !!jobMode, disabled: false, primary: false, tip: null, tour: "wct-order-add-job", mode: jobMode },
     { key: "service-report", label: "Service report", show: true, disabled: false, primary: false, tip: null, tour: "wct-order-add-report" },
     { key: "send-report", label: "Send service report", show: manualFlow, disabled: !ready, primary: false, tip: ready ? null : "Complete or upload a service report first", tour: "wct-order-send-report" },

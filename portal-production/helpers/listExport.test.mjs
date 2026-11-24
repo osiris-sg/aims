@@ -16,6 +16,8 @@ const rows = [
 
 test("rows as displayed, money 2dp, TOTAL row bold", () => {
   const m = listExportModel({ title: "Invoices", orgName: "WCT", rows, columns: cols });
+  // UAT 2026-11-25: a printed list closes with "document", not "Statement".
+  assert.equal(m.generatedNote, "This is a computer generated document. No signature is required.");
   assert.deepEqual(m.tables[0].headers, ["Invoice #", "Customer", "Amount", "Status"]);
   assert.deepEqual(m.tables[0].rows, [
     ["INV1", "TEST Client", "1,090.00", "Draft"],

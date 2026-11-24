@@ -241,6 +241,13 @@ export class DeliveriesController {
     return out ? { ...out, href: await this.service.documentEditorHref(out.doId, org.id) } : out;
   }
 
+  // Order page (WCT group, 2026-11-25): is every quoted line already on a DO ("Add DO" disabled then). GET = a view.
+  @Get('order/:orderId/do-coverage')
+  @Permissions('documents:read')
+  async orderDoCoverage(@Param('orderId') orderId: string, @UserOrganization() org: { id: string }) {
+    return this.service.orderDoCoverage(orderId, org.id);
+  }
+
   // "Add job" on a DO: a draft job for the calendar / a technician, linked to that DO.
   @Post('order-dos/:doId/job')
   @Permissions('documents:create-basic')

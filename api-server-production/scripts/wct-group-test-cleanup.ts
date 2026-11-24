@@ -53,7 +53,7 @@ const DOC_LIST: Array<[string, string, string]> = [
   [WCT, 'INV202611-0026', '辣不辣 test set (paid: payment journal + invoice journal voided)'],
   [WCT, 'OR-000003', 'receipt of INV202611-0026 only (辣不辣 test set; its journal voided)'],
   // Empty, no customer (owner 25 Nov)
-  ...['QO202611-0031', 'QO202611-0036', 'QO202611-0040', 'QO202611-0044', 'QO202611-0045', 'QO202611-0046', 'QO202611-0047', 'QO202611-0048', 'QO202611-0049', 'QO202611-0058',
+  ...['QO202611-0031', 'QO202611-0036', 'QO202611-0040', 'QO202611-0044', 'QO202611-0045', 'QO202611-0046', 'QO202611-0047', 'QO202611-0048', 'QO202611-0049', 'QO202611-0058', 'QO202611-0065',
       'INV202611-0017', 'INV202611-0018', 'INV202611-0025', 'INV202611-0028', 'INV202611-0031', 'DO202611026'].map((n): [string, string, string] => [WCT, n, 'empty, no customer']),
   [WCT, 'INV202611-0021', 'gibberish subject "hbughughu" (Hood Systems; customer stays)'], [WCT, 'QO202611-0056', 'empty test quotation (M1 Limited; customer stays)'],
   // Subject "test subject" on Yoshinoya (the customer stays) and the DO made from it: only with --with-yoshinoya (owner to decide)

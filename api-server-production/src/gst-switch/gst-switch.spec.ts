@@ -610,3 +610,13 @@ describe('new documents in the non-GST company (2026-11-25: quotations too)', ()
     expect(newDocumentTaxDefault('QUOTATION', bc, { ...blank, erpImport: { source: 'erp' } })).toBeNull();
   });
 });
+
+describe('GST switch pop-up: moved report rows are named by kind (UAT 2026-11-25)', () => {
+  const { reportRowLabel } = require('./gst-switch.service');
+  it('a DO sign-off is not called a service report', () => {
+    expect(reportRowLabel('SERVICE')).toBe('Service report');
+    expect(reportRowLabel('DO_ACK')).toBe('DO sign-off');
+    expect(reportRowLabel('DO_INSTALL')).toBe('DO sign-off');
+    expect(reportRowLabel('DO_START')).toBe('Job start record');
+  });
+});

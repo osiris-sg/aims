@@ -132,6 +132,7 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
   // WCT group soft delete of drafts (enableSoftDeleteDrafts): Delete hides the draft, its number stays as a gap.
   const { isJobsCalendarEnabled, isSoftDeleteDraftsEnabled: softDelete, isWctStatusFlowEnabled } = useOrganizationFeatures();
 
+  const [allOnDo, setAllOnDo] = useState(false);
   const load = useCallback(async () => {
     if (fixture || !organization?.id) return;
     try {
@@ -140,6 +141,11 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
       if (res?.success === false || !res?.data) throw new Error(res?.message || "Order not found");
       setOrder(res.data);
       setError(null);
+      // WCT group (2026-11-25): "Add DO" is disabled when every quoted line is already on a DO.
+      if (res.data?.manualFlow && !fixture) {
+        const cov: any = await request({ path: `/deliveries/order/${id}/do-coverage`, method: "GET", ownError: true, quiet: true } as any, {}, token ?? undefined).catch(() => null);
+        setAllOnDo(!!(cov?.data ?? cov)?.allOnDo);
+      } else setAllOnDo(false);
     } catch (e: any) {
       setError(e?.message || "Failed to load the order");
     } finally {
@@ -174,7 +180,7 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
   const manualFlow = !!(order as any)?.manualFlow;
   // An order with no DO and no job yet (disableAutoDraftDo, 2026-11-19: signing made no DO) is DO first too.
   const doFirst = manualFlow && (dos.length > 0 || !liveJobs.length);
-  const model = useMemo(() => (order ? orderPageModel(order, { jobsCalendar: !!isJobsCalendarEnabled, doFirst, statusFlow: !!isWctStatusFlowEnabled }) : null), [order, isJobsCalendarEnabled, doFirst, isWctStatusFlowEnabled]);
+  const model = useMemo(() => (order ? orderPageModel(order, { jobsCalendar: !!isJobsCalendarEnabled, doFirst, statusFlow: !!isWctStatusFlowEnabled, allOnDo }) : null), [order, isJobsCalendarEnabled, doFirst, isWctStatusFlowEnabled, allOnDo]);
   const imported = o?.imported === true;
 
   const openSrMenuAtButton = (doId: string | null = null) => {

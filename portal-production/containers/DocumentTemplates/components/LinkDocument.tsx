@@ -279,6 +279,9 @@ export function LinkDocumentField({
   );
 }
 
+/** Extra reads of the doc chain after a failed one (UAT 2026-11-25). */
+export const CHAIN_RETRIES = 2;
+
 /** The left panel: the order's chain (or the direct links), like the old ERP's side list. */
 export function DocChainPanel({ documentId, page, onLinked }: { documentId: string | null; page: PageKind; onLinked?: (out: LinkResult) => void }) {
   const api = useApi();
@@ -290,9 +293,15 @@ export function DocChainPanel({ documentId, page, onLinked }: { documentId: stri
   useEffect(() => {
     if (!documentId) return void setChain(null);
     let live = true;
-    api("GET", `/order-refs/chain/${documentId}`)
-      .then((out) => live && setChain(out))
-      .catch(() => live && setChain(null));
+    // UAT 2026-11-25: right after a reload (DO Confirm) the first read can fail before sign-in is ready, which left
+    // "No order linked" until the next reload. Retry twice; a failed read never wipes what the panel already shows.
+    const read = (attempt: number) =>
+      api("GET", `/order-refs/chain/${documentId}`)
+        .then((out) => live && setChain(out))
+        .catch(() => {
+          if (live && attempt < CHAIN_RETRIES) setTimeout(() => live && void read(attempt + 1), 800 * (attempt + 1));
+        });
+    void read(0);
     return () => {
       live = false;
     };

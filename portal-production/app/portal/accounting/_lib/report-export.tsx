@@ -53,9 +53,13 @@ export type ReportExportModel = {
   emailTo?: string[];
   /** Wide tables (a month per column) go out as A4 landscape. */
   landscape?: boolean;
+  /** The closing line in place of the statement one (a printed list is not a statement; UAT 2026-11-25). */
+  generatedNote?: string;
 };
 
-const notesOf = (m: ReportExportModel) => [m.note, COMPUTER_GENERATED_NOTE].filter((n): n is string => !!n);
+/** A printed document list's closing line (WCT Invoices / Quotations / DO lists, UAT 2026-11-25). */
+export const COMPUTER_GENERATED_LIST_NOTE = "This is a computer generated document. No signature is required.";
+const notesOf = (m: ReportExportModel) => [m.note, m.generatedNote ?? COMPUTER_GENERATED_NOTE].filter((n): n is string => !!n);
 const fmtMoney = (n: number) => (Number(n) || 0).toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const looksNumeric = (s: string) => /^-?\(?\s*[\d,]+(\.\d+)?\s*\)?$/.test((s || "").trim()) || s === "";

@@ -85,6 +85,9 @@ import { runNoun } from './job-wording';
 import { wctBrandStamp } from '../maintenance-reports/wct-brand';
 import { withRunLease } from './run-lease';
 import { bySchedule, orgTimeZone, scheduleFields, ymdIn } from './all-day';
+/** "Add DO" refused when every quoted line is already on a DO (WCT group, 2026-11-25). */
+export const ALL_LINES_ON_DO = 'All lines already on a DO';
+
 @Injectable()
 export class DeliveriesService {
   private readonly logger = new Logger(DeliveriesService.name);
@@ -2000,26 +2003,10 @@ export class DeliveriesService {
   }
 
   /**
-   * DO first: a DRAFT DO for the order, with its REAL number, lines from the
-   * quotation, linked to the order and the quotation. No job. Without `force`
-   * an order that already has a DO keeps it (idempotent: the first DO on
-   * accept); with it ("Add DO") another draft DO is issued. Never throws on the
-   * accept path (returns null); "Add DO" passes throwOnError.
+   * What is still to deliver on an order (2026-11-13, shared 2026-11-25): its quotation's lines minus what the order's
+   * other DOs (and jobs with no DO) and linked ERP DOs already carry. Used by "Add DO" and the order page's check.
    */
-  async prepareManualOrderDo(orderId: string, organizationId: string, opts: { force?: boolean; throwOnError?: boolean } = {}): Promise<{ doId: string; doName: string | null; note?: string } | null> {
-    try {
-      if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('DOs on an order need the manual order flow');
-      await assertImportedOrderOpen(this.prisma, organizationId, orderId);
-      const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, customerId: true, sourceQuotationId: true, linkedDocuments: true } });
-      if (!order) throw new NotFoundException('Order not found');
-      if (order.status === 'CANCELLED') throw new BadRequestException('This order is cancelled');
-      if (!opts.force) {
-        const existing = (await this.orderDos(organizationId, orderId))[0];
-        if (existing) {
-          await this.attachWaitingJobsToDo(organizationId, orderId);
-          return { doId: existing.id, doName: existing.name ?? null };
-        }
-      }
+  private async orderDoRemainingLines(organizationId: string, order: { id: string; sourceQuotationId: string | null; linkedDocuments?: any }) {
       const quotation = order.sourceQuotationId
         ? await this.prisma.document.findFirst({ where: { id: order.sourceQuotationId, organizationId }, select: { id: true, config: true, projectId: true } })
         : null;
@@ -2043,6 +2030,43 @@ export class DeliveriesService {
       // Per quotation line: earlier DO lines matched by product, item code, key, then the closest description (ERP DOs word
       // lines differently). Quotation lines an unmatched earlier line may belong to stay at full qty and are named in the remark.
       const { remaining, unmatchedUsed, untouched } = remainingByLine(keyed, used);
+    return { quotation, qcfg, di, resolved, keyed, remaining, unmatchedUsed, untouched };
+  }
+
+  /** Order page (WCT group, 2026-11-25): is every quoted line already on a DO? ("Add DO" is disabled then.) */
+  async orderDoCoverage(orderId: string, organizationId: string): Promise<{ allOnDo: boolean; quotedLines: number; remainingLines: number }> {
+    const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, sourceQuotationId: true, linkedDocuments: true } });
+    if (!order) throw new NotFoundException('Order not found');
+    const { resolved, remaining } = await this.orderDoRemainingLines(organizationId, order);
+    return { allOnDo: resolved.length > 0 && remaining.length === 0, quotedLines: resolved.length, remainingLines: remaining.length };
+  }
+
+  /**
+   * DO first: a DRAFT DO for the order, with its REAL number, lines from the
+   * quotation, linked to the order and the quotation. No job. Without `force`
+   * an order that already has a DO keeps it (idempotent: the first DO on
+   * accept); with it ("Add DO") another draft DO is issued. Never throws on the
+   * accept path (returns null); "Add DO" passes throwOnError.
+   */
+  async prepareManualOrderDo(orderId: string, organizationId: string, opts: { force?: boolean; throwOnError?: boolean } = {}): Promise<{ doId: string; doName: string | null; note?: string } | null> {
+    try {
+      if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('DOs on an order need the manual order flow');
+      await assertImportedOrderOpen(this.prisma, organizationId, orderId);
+      const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, customerId: true, sourceQuotationId: true, linkedDocuments: true } });
+      if (!order) throw new NotFoundException('Order not found');
+      if (order.status === 'CANCELLED') throw new BadRequestException('This order is cancelled');
+      if (!opts.force) {
+        const existing = (await this.orderDos(organizationId, orderId))[0];
+        if (existing) {
+          await this.attachWaitingJobsToDo(organizationId, orderId);
+          return { doId: existing.id, doName: existing.name ?? null };
+        }
+      }
+      const { quotation, qcfg, di, resolved, keyed, remaining, unmatchedUsed, untouched } = await this.orderDoRemainingLines(organizationId, order);
+      // WCT group (2026-11-25): "Add DO" when every quoted line is already on a DO makes no empty DO.
+      if (opts.force && resolved.length && !remaining.length && (await isOrgFeatureEnabled(this.prisma, organizationId, 'enableWctOrders'))) {
+        throw new BadRequestException(ALL_LINES_ON_DO);
+      }
       const untouchedSet = new Set(untouched);
       const unmatchedRemark = unmatchedUsed > 0 ? unmatchedDoRemark(keyed.filter((k) => untouchedSet.has(k.line)).map((k) => quoteLineLabel(k.text, keyed.map((x) => x.text)))) : null;
       const note = resolved.length && !remaining.length ? 'Everything quoted is already on a DO: this DO starts empty.' : undefined;
