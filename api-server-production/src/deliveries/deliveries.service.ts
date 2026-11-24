@@ -1211,7 +1211,7 @@ export class DeliveriesService {
   /** Edit a quick job (still scheduled, still without an order): same fields as the add form. */
   async updateQuickJob(id: string, organizationId: string, body: any) {
     await this.assertCalendarAdd(organizationId);
-    const run = await this.prisma.delivery.findFirst({ where: { id, organizationId }, select: { id: true, status: true, orderId: true, customerId: true } });
+    const run = await this.prisma.delivery.findFirst({ where: { id, organizationId }, select: { id: true, status: true, orderId: true, customerId: true, isDraft: true } });
     if (!run) throw new NotFoundException('Job not found');
     // One job form (WCT group, calendar style, 2026-11-24): a job under an order is edited with the same form; its
     // customer stays the order's. Other orgs: as before (the full form on the job page).
@@ -1234,6 +1234,15 @@ export class DeliveriesService {
         crewWorkers: f.crew,
       },
     });
+    // A DO's draft job (order page / DO "Add job", manual order flow) given its date here is scheduled now (2026-11-25):
+    // before, it stayed a draft, so the calendar hid it and Complete job refused it ("Schedule this job").
+    if (run.isDraft && run.orderId && oneForm && f.scheduledFor) {
+      const items = await this.prisma.deliveryItem.findMany({ where: { deliveryId: id }, select: { documentId: true } });
+      if (items.length && items.every((i: any) => !!i.documentId)) {
+        await this.prisma.delivery.update({ where: { id }, data: { isDraft: false } });
+        await refreshOrderStatus(this.prisma, organizationId, run.orderId);
+      }
+    }
     // Job category (2026-11-25: no field on the form for now): an edit that sends none keeps the job's own.
     if (f.categoryDef && f.category && typeof body?.category === 'string' && body.category.trim()) await storeJobCategory(this.prisma, organizationId, f.categoryDef, id, f.category);
     if (f.styleOn) await this.saveStyleStamped(organizationId, id, f.style, f.ptwStatus);
