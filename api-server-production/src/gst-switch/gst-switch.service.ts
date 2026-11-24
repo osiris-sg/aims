@@ -48,6 +48,7 @@ import {
   planUnit,
   reissuedInvoiceConfig,
   taxedInvoiceConfig,
+  taxedQuotationConfig,
   UnitDoc,
 } from './gst-switch';
 
@@ -309,6 +310,7 @@ export class GstSwitchService {
         for (const d of plan.move) {
           let cfg = remap(movedConfig(d.config, ctxFor(newNames.get(d.id)!, d.name)));
           if (isInvoiceType(d.type)) cfg = taxedInvoiceConfig(cfg, wantGst, Number(dst.taxRate) || 9);
+          else if (isQuotationType(d.type)) cfg = taxedQuotationConfig(cfg, wantGst, Number(dst.taxRate) || 9);
           await tx.document.update({ where: { id: d.id }, data: { config: cfg } });
         }
         for (const r of reissued) {

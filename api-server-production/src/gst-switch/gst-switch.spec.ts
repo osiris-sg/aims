@@ -275,6 +275,9 @@ describe('gst switch: the move', () => {
     // Non-GST now, "Previously <no.>" kept, the customer is BC Air's (created: none matched).
     const ic = byId('i1').config;
     expect([ic.taxApplicable, ic.gstAmount, ic.nettTotal, ic.previousNumber]).toEqual(['N', 0, 1000, 'INV202611-0001']);
+    // The moved quotation is re-taxed too (BC Air = no GST), keeps "Previously", gets no money stamps.
+    const qc = byId('q1').config;
+    expect([qc.taxApplicable, qc.gstAmount, qc.nettTotal, qc.previousNumber, qc.outstandingBalance]).toEqual(['N', 0, 1000, 'QO202611-0001', undefined]);
     const bcCust = db.customer.rows.find((c: Row) => c.organizationId === BC);
     expect(bcCust).toMatchObject({ name: 'TEST Client', customerCode: 'CT001' });
     expect(db.customer.rows.find((c: Row) => c.id === 'cw').organizationId).toBe(WCT); // never moved
@@ -299,6 +302,7 @@ describe('gst switch: the move', () => {
     expect(order.organizationId).toBe(WCT);
     expect(order.orderNumber).toBe('ORDW202611-101');
     expect(byId('i1').config).toMatchObject({ taxApplicable: 'Y', gstAmount: 90, nettTotal: 1090, customerId: 'cw' });
+    expect(byId('q1').config).toMatchObject({ taxApplicable: 'Y', gstAmount: 90, nettTotal: 1090, documentInfo: { taxApplicable: 'Y', gstPercent: 9 } });
     expect(byId('i1').config.movedFrom.length).toBe(2);
     expect(db.customer.rows.length).toBe(2);
   });

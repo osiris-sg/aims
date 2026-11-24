@@ -34,3 +34,11 @@ test("BC Air order: counted WCT (S) invoice links through open-in-org; placehold
   const card = m.cards.find((c) => c.key === "invoice");
   assert.deepEqual(card.docs.map((d) => !!d.placeholder), [false, true]);
 });
+
+// 2026-11-24: the company-switch hop renders without the portal shell (no org bootstrap to get stuck on).
+import { isBarePortalRoute } from "./crossOrg.ts";
+test("only /portal/open-in-org is a bare route", () => {
+  assert.equal(isBarePortalRoute("/portal/open-in-org"), true);
+  assert.equal(isBarePortalRoute("/portal/open-in-org/"), true);
+  for (const p of ["/portal", "/portal/orders", "/portal/open-in-org-x", null, undefined, ""]) assert.equal(isBarePortalRoute(p), false);
+});

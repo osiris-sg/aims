@@ -27,7 +27,8 @@ import {
 } from "@mui/material";
 import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
-import { crossOrgHref } from "@/helpers/crossOrg";
+import { crossOrgHref, safeOpenInOrg } from "@/helpers/crossOrg";
+import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { gstMoveRows, gstSwitchLabel, type GstPreview } from "@/helpers/gstSwitch";
 
 export default function GstSwitchToggle({ documentId, disabled, beforeSwitch }: { documentId: string; disabled?: boolean; beforeSwitch?: () => Promise<boolean> }) {
@@ -82,7 +83,14 @@ export default function GstSwitchToggle({ documentId, disabled, beforeSwitch }: 
       const out = res?.data ?? res;
       toast.success(`Moved to ${out?.to?.name ?? "the other company"}`);
       if (out?.moved && out?.to?.id && out?.invoiceId && out?.templateId) {
-        window.location.assign(crossOrgHref(out.to.id, `/portal/documents/INVOICE/${out.templateId}/${out.invoiceId}`));
+        // Straight to the invoice in the other company: set the tab's company, then one page load (no hop page).
+        const target = safeOpenInOrg(out.to.id, `/portal/documents/INVOICE/${out.templateId}/${out.invoiceId}`);
+        try {
+          if (target) window.sessionStorage.setItem(ACTIVE_ORG_KEY, target.org);
+        } catch {
+          /* no sessionStorage: fall back to the hop page */
+        }
+        window.location.assign(target ? target.to : crossOrgHref(out.to.id, `/portal/documents/INVOICE/${out.templateId}/${out.invoiceId}`));
       } else {
         window.location.reload();
       }

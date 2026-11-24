@@ -13,6 +13,7 @@ import { OrganizationProvider } from "./context/OrganizationContext";
 import { ConfigurationProvider } from "./context/ConfigurationContext";
 import UiLangProvider from "@/i18n/UiLangProvider";
 import OrgTimeZoneLoader from "@/components/OrgTimeZoneLoader";
+import { isBarePortalRoute } from "@/helpers/crossOrg";
 import AppNavTracker from "@/components/nav/AppNavTracker";
 import { SidebarProvider } from "@/components/Sidebar/SidebarContext";
 import { useThemeMode } from "@/contexts/ThemeModeContext";
@@ -88,6 +89,11 @@ export default function Layout(props: Props) {
      pathSegments.length >= 6);
 
   console.log("Is document page:", isDocumentPage);
+
+  // "Open in the other company" (/portal/open-in-org, WCT group 2026-11-23) only sets the tab's company and
+  // redirects; it renders WITHOUT the portal shell, so a slow or stuck org bootstrap can never leave it on a
+  // spinner (seen 24 Nov after a GST switch move, osiris admin "viewing as"). The target page loads the shell.
+  if (isBarePortalRoute(pathname)) return <>{children}</>;
 
   return (
     <OrganizationProvider>

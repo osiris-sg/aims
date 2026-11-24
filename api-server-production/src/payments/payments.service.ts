@@ -3,7 +3,7 @@ import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { refreshOrderStatus } from '../orders/wct-orders';
 import { PrismaService } from '../common/prisma.service';
 import { assertPeriodOpen } from '../common/period-lock';
-import { amountPaidOf, grossStampOf, outstandingOf, owedOf, stampDocumentMoney } from '../common/document-money';
+import { amountPaidOf, creditNoteMoneyAfterApplied, grossStampOf, outstandingOf, owedOf, stampDocumentMoney } from '../common/document-money';
 import { erpPaidAtImport, isErpImported } from '../common/erp-import';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { UpdatePaymentDto } from './dto/update-payment.dto';
@@ -610,6 +610,16 @@ export class PaymentsService {
 
       if (!document) {
         return; // Silently return if document not found
+      }
+
+      // A credit note consumed by a Manual Offset / receipt (2026-11-24): its owed / applied stamps follow its
+      // Payment rows (document-money.ts creditNoteMoneyAfterApplied); status unchanged.
+      if (['CREDIT_NOTE', 'CN'].includes(String(document.type))) {
+        const rows = await this.prisma.payment.findMany({ where: { documentId, organizationId }, select: { amount: true } });
+        const applied = rows.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        const next = creditNoteMoneyAfterApplied(document.config, applied);
+        if (next) await this.prisma.document.update({ where: { id: documentId }, data: { config: next } });
+        return;
       }
 
       // Only process invoices

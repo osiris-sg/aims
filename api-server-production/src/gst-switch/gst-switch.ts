@@ -87,6 +87,19 @@ export function taxedInvoiceConfig(config: any, gst: boolean, gstPercent = 9): a
   return stampDocumentMoney(out, { gross: t.nettTotal, outstanding: t.nettTotal, paid: 0 });
 }
 
+/**
+ * A moved quotation's config with the target company's GST setting (2026-11-24): the same totals as an invoice,
+ * no money stamps (a quotation is not owed). "Previously <no.>" (movedConfig) is untouched.
+ */
+export function taxedQuotationConfig(config: any, gst: boolean, gstPercent = 9): any {
+  const out = taxedInvoiceConfig(config, gst, gstPercent);
+  for (const k of ['outstandingBalance', 'xeroBalance', 'paidToDate', 'xeroAmountPaid', 'totalWithTax', 'xeroGross']) {
+    if (config?.[k] === undefined) delete out[k];
+    else out[k] = config[k];
+  }
+  return out;
+}
+
 /** The GST reading of an invoice config: false only for taxApplicable 'N' / false. */
 export function invoiceIsGst(config: any): boolean {
   const v = config?.taxApplicable ?? config?.documentInfo?.taxApplicable;

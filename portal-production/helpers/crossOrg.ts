@@ -17,3 +17,6 @@ export function safeOpenInOrg(org: string | null | undefined, to: string | null 
 
 /** "I-012345 · WCT (S)" */
 export const crossOrgLabel = (name: string | null | undefined, orgName: string | null | undefined): string => [name || "Invoice", orgName || "other company"].join(" · ");
+
+/** Portal routes rendered without the portal shell (no org bootstrap): the company switch hop only. */
+export const isBarePortalRoute = (pathname: string | null | undefined): boolean => String(pathname ?? "").replace(/\/+$/, "") === "/portal/open-in-org";

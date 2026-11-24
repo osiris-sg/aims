@@ -97,6 +97,20 @@ export function stampDocumentMoney(
 
 
 /**
+ * A credit note's money after its allocations (Manual Offsets / receipts consume it through Payment rows,
+ * 2026-11-24): owed = gross - applied (never below 0), paid = applied. Imported (Xero / ERP) credit notes keep
+ * their import-time balance: null = leave the config as it is.
+ */
+export function creditNoteMoneyAfterApplied(config: any, applied: number): any | null {
+  const c = config || {};
+  if (c.xeroImported || c.erpImport) return null;
+  const gross = Math.abs(grossOf(c) ?? 0);
+  if (!(gross > 0)) return null;
+  const used = Math.max(0, Math.round((Number(applied) || 0) * 100) / 100);
+  return stampDocumentMoney(c, { gross, outstanding: Math.max(0, Math.round((gross - used) * 100) / 100), paid: used });
+}
+
+/**
  * Totals for a document built OUTSIDE the editor (an invoice auto-drafted from
  * a delivery order). Mirrors the editor's standard formula (TabbedDocumentCreator
  * totals effect) so the stored numbers equal what the office sees on opening it:
