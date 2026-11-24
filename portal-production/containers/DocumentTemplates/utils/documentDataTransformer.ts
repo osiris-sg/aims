@@ -6,7 +6,7 @@ import { salesPersonNameToSave } from '@/helpers/salesPersonName';
  * based on template field definitions.
  */
 
-import { TemplateFieldConfig, FieldDefinition } from '../types/templateFieldTypes';
+import type { TemplateFieldConfig, FieldDefinition } from '../types/templateFieldTypes';
 
 /**
  * Get nested value from object using dot notation
@@ -246,6 +246,17 @@ export function transformFormDataForBackend(
     result.showTotals = formData.documentInfo.showTotals;
   }
 
+  // WCT group (2026-11-25): editor-only keys a template's field-config does not list, so they survive a save.
+  // "Add company stamp" (documentInfo.addCompanyStamp; was lost on reload), and the document discount row the
+  // editor adds for the WCT quotation / invoice (documentInfo.discountPercent + discountType) when the template has
+  // no Disc field of its own. Only written when the editor carries them; every other document stays as before.
+  const di = formData.documentInfo || {};
+  if (di.addCompanyStamp !== undefined) result.addCompanyStamp = di.addCompanyStamp === true;
+  if (result.discountPercent === undefined && di.discountPercent !== undefined) {
+    result.discountPercent = di.discountPercent;
+    if (di.discountType !== undefined) result.discountType = di.discountType;
+  }
+
   // Handle GST registration number
   result.gstRegNo = formData.company?.gstRegNo || organization?.registrationNumber || '';
 
@@ -335,6 +346,11 @@ export function transformBackendDataForForm(
   if (backendData.contact !== undefined || backendData.documentInfo?.contact !== undefined) {
     result.documentInfo.contact = backendData.contact ?? backendData.documentInfo?.contact ?? '';
   }
+
+  // WCT group (2026-11-25): the editor-only keys saved flat above, back under documentInfo where the editor reads them.
+  if (backendData.addCompanyStamp !== undefined && result.documentInfo.addCompanyStamp === undefined) result.documentInfo.addCompanyStamp = backendData.addCompanyStamp === true;
+  if (backendData.discountPercent !== undefined && result.documentInfo.discountPercent === undefined) result.documentInfo.discountPercent = backendData.discountPercent;
+  if (backendData.discountType !== undefined && result.documentInfo.discountType === undefined) result.documentInfo.discountType = backendData.discountType;
 
   // Rehydrate the referenced quotation's confirm date (Biofuel DO "Our Ref").
   if (backendData.referenceQuotationDate !== undefined) {
