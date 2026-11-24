@@ -35,9 +35,10 @@ describe('WCT print: Total > Discount (-$x) > GST > Amount Paid / Due (invoice) 
 
   it('invoice, bulk %: rows in order, discount as -$', () => {
     const h = renderWctBody('invoice', doc({ discountPercent: 10, discountType: 'percent', discountAmount: 50 }), {}, design);
+    // 2026-11-25b: Total = before any discount (200 + 300 + 70); Discount = lines (20 + 50) + document (50).
     expect(rows(h)).toEqual([
-      ['Total:', '$500.00'],
-      ['Discount:', '-$50.00'],
+      ['Total:', '$570.00'],
+      ['Discount:', '-$120.00'],
       ['GST 9%:', '$40.50'],
       ['Amount Paid:', '$0.00'],
       ['Amount Due:', '$490.50'],
@@ -46,8 +47,8 @@ describe('WCT print: Total > Discount (-$x) > GST > Amount Paid / Due (invoice) 
   it('quotation, bulk $ typed (no stored amount): Total Amount last', () => {
     const h = renderWctBody('quotation', doc({ discountPercent: 40, discountType: 'amount' }), {}, design);
     expect(rows(h)).toEqual([
-      ['Total:', '$500.00'],
-      ['Discount:', '-$40.00'],
+      ['Total:', '$570.00'],
+      ['Discount:', '-$110.00'],
       ['GST 9%:', '$41.40'],
       ['Total Amount:', '$501.40'],
     ]);

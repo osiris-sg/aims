@@ -347,18 +347,27 @@ function totalsOf(di: (k: string, d?: any) => any, items: any[]) {
   return { currency, gstPercent, gstAmount, discountAmount, displayNet, total };
 }
 
+/** The $ a line's own discount takes off qty x price (% or $, capped at the line); 0 without one. */
+export function lineDiscountOff(it: any): number {
+  const d = Number(it?.discount);
+  if (!(d > 0)) return 0;
+  const gross = (Number(it.quantity) || 0) * (Number(it.unitPrice) || Number(it.salePrice) || 0);
+  return it.discountType === 'amount' ? Math.min(d, Math.max(0, gross)) : (gross * Math.min(d, 100)) / 100;
+}
+
+/** Every line discount on the document (2026-11-25): the totals' Discount row adds them to the document discount. */
+export const lineDiscountsTotal = (items: any[]): number =>
+  Math.round(items.reduce((s, it) => s + (it && !it.isGroupHeader && !it.rateMerge ? lineDiscountOff(it) : 0), 0) * 100) / 100;
+
 /**
  * A line's own discount (2026-11-25, QO / invoice): printed under its description, e.g. "Discount 10%: -$20.00" or
  * "Discount: -$20.00" for a $ amount; the Amount column is the line after it. Nothing for a line without one.
  */
 export function lineDiscountText(it: any, currency: string): string {
-  const d = Number(it?.discount);
-  if (!(d > 0)) return '';
-  const gross = (Number(it.quantity) || 0) * (Number(it.unitPrice) || Number(it.salePrice) || 0);
-  const isAmount = it.discountType === 'amount';
-  const off = isAmount ? Math.min(d, Math.max(0, gross)) : (gross * Math.min(d, 100)) / 100;
+  const off = lineDiscountOff(it);
   if (!(off > 0)) return '';
-  const pct = isAmount ? '' : ` ${Number(d.toFixed(2))}%`;
+  const d = Number(it.discount);
+  const pct = it.discountType === 'amount' ? '' : ` ${Number(d.toFixed(2))}%`;
   return `<div class="ldisc">Discount${pct}: -${cash(off, currency)}</div>`;
 }
 
@@ -688,31 +697,35 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   ${jobBoxes(di, data, { poNumber: isInvoice })}`;
 
   const gstRow = t.gstPercent > 0 ? `<tr><td class="l">GST ${escapeHtml(String(t.gstPercent))}%:</td><td class="v">${cash(t.gstAmount, t.currency)}</td></tr>` : '';
+  // 2026-11-25: Total = the lines before any discount; Discount = the lines' own discounts + the document discount.
+  // GST and the amounts after it are unchanged (the lines' amounts are already net of their discounts).
+  const allDisc = Math.round((t.discountAmount + lineDiscountsTotal(items)) * 100) / 100;
+  const grossAll = t.displayNet + allDisc;
   // Racking prints its discount as "$150.00", like its old quotation; everyone else "-$150.00" (2026-11-25), under
   // Total and above GST, only when there is one.
-  const discountRow = t.discountAmount > 0 ? `<tr><td class="l">Discount:</td><td class="v">${racking ? cash(t.discountAmount, t.currency) : `-${cash(t.discountAmount, t.currency)}`}</td></tr>` : '';
+  const discountRow = allDisc > 0 ? `<tr><td class="l">Discount:</td><td class="v">${racking ? cash(allDisc, t.currency) : `-${cash(allDisc, t.currency)}`}</td></tr>` : '';
   const L = BCAIR_DOC.totals;
   // Racking quotation: Total Amount, then (only when there is one) Goodwill Discount and the Final Amount.
-  const rkFinal = t.discountAmount > 0 || t.gstPercent > 0;
+  const rkFinal = allDisc > 0 || t.gstPercent > 0;
   const totals = !showTotals
     ? ''
     : rkQuote
     ? `<div class="totals"><table>
-    <tr><td class="l">Total Amount:</td><td class="v">${cash(t.displayNet + t.discountAmount, t.currency)}</td></tr>
-    ${t.discountAmount > 0 ? `<tr><td class="l">Goodwill Discount:</td><td class="v">${cash(t.discountAmount, t.currency)}</td></tr>` : ''}${gstRow}
+    <tr><td class="l">Total Amount:</td><td class="v">${cash(grossAll, t.currency)}</td></tr>
+    ${allDisc > 0 ? `<tr><td class="l">Goodwill Discount:</td><td class="v">${cash(allDisc, t.currency)}</td></tr>` : ''}${gstRow}
     ${rkFinal ? `<tr><td class="l">Final Amount:</td><td class="v">${cash(t.total, t.currency)}</td></tr>` : ''}
   </table></div>`
     : bc
     ? `<div class="totals"><table>
-    <tr><td class="l">${L.total}</td><td class="v">${cash(t.displayNet + t.discountAmount, t.currency)}</td></tr>
-    <tr><td class="l">${L.discount}</td><td class="v">${cash(t.discountAmount, t.currency)}</td></tr>
+    <tr><td class="l">${L.total}</td><td class="v">${cash(grossAll, t.currency)}</td></tr>
+    <tr><td class="l">${L.discount}</td><td class="v">${cash(allDisc, t.currency)}</td></tr>
     ${gstRow}
     <tr><td class="l">${L.paid}</td><td class="v">${cash(paid, t.currency)}</td></tr>
     <tr class="due"><td class="l">${L.due}</td><td class="v">${cash(due, t.currency)}</td></tr>
     <tr><td class="l">${L.paymentType}</td><td class="v"></td></tr>
   </table></div>`
     : `<div class="totals"><table>
-    <tr><td class="l">Total:</td><td class="v">${cash(t.displayNet + t.discountAmount, t.currency)}</td></tr>
+    <tr><td class="l">Total:</td><td class="v">${cash(grossAll, t.currency)}</td></tr>
     ${discountRow}${gstRow}
     ${
       isInvoice

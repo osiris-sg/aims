@@ -22,3 +22,18 @@ export function withDocumentDiscountField<F extends { fieldName: string }>(field
 /** On for a WCT-group (enableWctDocNav) quotation or invoice, outside template editing. */
 export const wctDiscountsOn = (o: { wctDocNav: boolean; isQuotation: boolean; isInvoice: boolean; templateMode: boolean }) =>
   !!o.wctDocNav && !o.templateMode && (o.isQuotation || o.isInvoice);
+
+/** The $ a line's own discount takes off qty x price (% or $, capped at the line); 0 without one. Same as the print. */
+export function lineDiscountOff(it: any): number {
+  const d = Number(it?.discount);
+  if (!(d > 0)) return 0;
+  const gross = (Number(it.quantity) || 0) * (Number(it.unitPrice) || Number(it.salePrice) || 0);
+  return it.discountType === "amount" ? Math.min(d, Math.max(0, gross)) : (gross * Math.min(d, 100)) / 100;
+}
+
+/**
+ * Every line discount on the document (2026-11-25b): the WCT totals panel shows Gross Total before any discount and
+ * the Disc amount as lines + document. Display only: the stored totals and GST / Nett are unchanged.
+ */
+export const lineDiscountsTotal = (items: any[]): number =>
+  Math.round((Array.isArray(items) ? items : []).reduce((s, it) => s + (it && !it.isGroupHeader && !it.isTagGroup && !it.rateMerge ? lineDiscountOff(it) : 0), 0) * 100) / 100;

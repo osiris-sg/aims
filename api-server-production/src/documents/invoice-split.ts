@@ -89,13 +89,13 @@ export function taxOf(config: any): { gstPercent: any; taxApplicable: any; absor
  * discount, in the lines' own tax basis), the invoice's totals from its lines
  * and the quotation it bills (for the ", ref QO…" on each line).
  */
-export function splitBaseOf(config: any): { contractValue: number; nettTotal: number; tax: ReturnType<typeof taxOf>; quotationNo: string | null } {
+export function splitBaseOf(config: any, opts: { lineDiscounts?: boolean } = {}): { contractValue: number; nettTotal: number; tax: ReturnType<typeof taxOf>; quotationNo: string | null } {
   const c = config || {};
   const di = c.documentInfo || {};
   const items = (Array.isArray(c.items) ? c.items : []).filter((l: any) => !isDisplayRow(l));
   const tax = taxOf(c);
   const discount = num(c.discountAmount) ?? num(di.discountAmount) ?? 0;
-  const t = computeDocumentTotals(items, tax, { discountAmount: discount });
+  const t = computeDocumentTotals(items, tax, { discountAmount: discount, lineDiscounts: opts.lineDiscounts });
   const contractValue = R2(t.grossTotal - (t.discountAmount ?? 0));
   const srcType = String(c.sourceDocumentType ?? '').toUpperCase();
   const quotationNo =
@@ -286,8 +286,8 @@ export function originalAccountNets(items: any[], net: number): Array<{ accountC
 }
 
 /** Every part of a split: amount, line text, totals and GL allocation. Throws SplitPlanError on a bad plan. */
-export function planInvoiceSplit(config: any, plan: SplitPlan): { parts: SplitPart[]; contractValue: number; quotationNo: string | null } {
-  const { contractValue, tax, quotationNo } = splitBaseOf(config);
+export function planInvoiceSplit(config: any, plan: SplitPlan, opts: { lineDiscounts?: boolean } = {}): { parts: SplitPart[]; contractValue: number; quotationNo: string | null } {
+  const { contractValue, tax, quotationNo } = splitBaseOf(config, opts);
   const { amounts } = splitAmounts(contractValue, plan);
   const texts = splitLineTexts(plan, contractValue, quotationNo);
   const c = config || {};
@@ -295,7 +295,7 @@ export function planInvoiceSplit(config: any, plan: SplitPlan): { parts: SplitPa
   const original = computeDocumentTotals(
     (Array.isArray(c.items) ? c.items : []).filter((l: any) => !isDisplayRow(l)),
     tax,
-    { discountAmount: num(c.discountAmount) ?? num(di.discountAmount) ?? 0 },
+    { discountAmount: num(c.discountAmount) ?? num(di.discountAmount) ?? 0, lineDiscounts: opts.lineDiscounts },
   );
   const totals = amounts.map((amount) => computeDocumentTotals([{ amount }], tax));
   // The last part takes the leftover subtotal / GST / total cents.

@@ -28,3 +28,18 @@ test("only WCT doc nav quotations and invoices, never in template editing", () =
   assert.equal(wctDiscountsOn({ wctDocNav: false, isQuotation: true, isInvoice: false, templateMode: false }), false);
   assert.equal(wctDiscountsOn({ wctDocNav: true, isQuotation: true, isInvoice: false, templateMode: true }), false);
 });
+
+test("Totals panel (1125b): line discounts total for Gross Total and the Disc amount", async () => {
+  const { lineDiscountsTotal, lineDiscountOff } = await import("./wctDiscount.ts");
+  const l1 = { quantity: 4, unitPrice: 200, discount: 10, discountType: "percent", amount: 720 };
+  const l2 = { quantity: 1, unitPrice: 350, discount: 50, discountType: "amount", amount: 300 };
+  const free = { quantity: 2, unitPrice: 100, discount: 100, amount: 0 };
+  assert.equal(lineDiscountOff(l1), 80);
+  assert.equal(lineDiscountOff({ quantity: 1, unitPrice: 30, discount: 90, discountType: "amount" }), 30);
+  assert.equal(lineDiscountOff({ quantity: 1, unitPrice: 30 }), 0);
+  // Gross Total shown = stored gross (net lines 1,020) + 130 = 1,150; Disc shown = document 51 + 130 = 181.
+  assert.equal(lineDiscountsTotal([l1, l2]), 130);
+  assert.equal(lineDiscountsTotal([l1, l2, free, { isGroupHeader: true, discount: 5, quantity: 1, unitPrice: 9 }, { rateMerge: true, discount: 5, quantity: 1, unitPrice: 9 }]), 330);
+  assert.equal(lineDiscountsTotal([]), 0);
+  assert.equal(lineDiscountsTotal(undefined), 0);
+});

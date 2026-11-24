@@ -17,7 +17,7 @@
  */
 import { HttpException, HttpStatus } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { amountPaidOf, grossOf } from '../common/document-money';
+import { amountPaidOf, grossOf, LINE_DISCOUNT_FLAG } from '../common/document-money';
 import { isErpImported } from '../common/erp-import';
 import { DRAFT_INVOICE_STATUSES, POST_INVOICES_ON_CONFIRM_FLAG } from '../common/org-features';
 import { refreshOrderStatus } from '../orders/wct-orders';
@@ -95,12 +95,14 @@ export async function splitInvoice(prisma: any, organizationId: string, document
   if (why) throw bad(why);
   const cfg: any = doc.config || {};
   const stored = grossOf(cfg);
-  const { nettTotal } = splitBaseOf(cfg);
+  // WCT group (LINE_DISCOUNT_FLAG): a line is priced after its own discount (a 100% line = $0).
+  const lineOpts = { lineDiscounts: (await features(prisma, organizationId))[LINE_DISCOUNT_FLAG] === true };
+  const { nettTotal } = splitBaseOf(cfg, lineOpts);
   if (stored !== null && Math.abs(stored - nettTotal) > 0.01) throw bad('The invoice total does not match its lines. Save the invoice first.');
 
   let planned;
   try {
-    planned = planInvoiceSplit(cfg, plan);
+    planned = planInvoiceSplit(cfg, plan, lineOpts);
   } catch (e: any) {
     if (e instanceof SplitPlanError) throw bad(e.message);
     throw e;

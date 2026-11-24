@@ -120,18 +120,27 @@ export function creditNoteMoneyAfterApplied(config: any, applied: number): any |
  * An invoice saved with NO totals posted Dr 0 against Cr <lines> in the posting
  * review (guru 2026-10-27, WCT INV202610-0002). The discount (a WCT order's
  * first invoice carrying its quotation's discount) is capped at gross, as in the editor.
+ * adjust.lineDiscounts: the WCT group only (LINE_DISCOUNT_FLAG); see amountOf.
  */
+/** The org flag that prices a line after its own discount in computeDocumentTotals (the WCT group). */
+export const LINE_DISCOUNT_FLAG = 'enableWctDocNav';
+
 export function computeDocumentTotals(
-  lines: Array<{ amount?: any; quantity?: any; unitPrice?: any }>,
+  lines: Array<{ amount?: any; quantity?: any; unitPrice?: any; discount?: any; discountType?: any }>,
   tax: { gstPercent?: any; taxApplicable?: any; absorbTax?: any },
-  adjust: { discountAmount?: any } = {},
+  adjust: { discountAmount?: any; lineDiscounts?: boolean } = {},
 ): { grossTotal: number; subTotal: number; gstAmount: number; nettTotal: number; gstPercent: number; taxApplicable: 'Y' | 'N'; absorbTax: 'Y' | 'N'; discountAmount?: number } {
   const R = (n: number) => Math.round(n * 100) / 100;
   const amountOf = (l: any) => {
     const a = Number(l?.amount);
     if (isFinite(a) && a !== 0) return a;
     const q = Number(l?.quantity), u = Number(l?.unitPrice);
-    return isFinite(q) && isFinite(u) ? q * u : 0;
+    const gross = isFinite(q) && isFinite(u) ? q * u : 0;
+    // WCT group (lineDiscounts, enableWctDocNav, 2026-11-25): a line with its own discount is priced after it, so a
+    // 100% line (amount 0) counts 0, not qty x price. Every other org: unchanged.
+    const d = Number(l?.discount);
+    if (adjust?.lineDiscounts && isFinite(d) && d > 0) return l?.discountType === 'amount' ? Math.max(0, gross - d) : gross * (1 - Math.min(d, 100) / 100);
+    return gross;
   };
   const grossTotal = R((Array.isArray(lines) ? lines : []).reduce((s, l) => s + amountOf(l), 0));
   const applicable = !(tax?.taxApplicable === 'N' || tax?.taxApplicable === false);

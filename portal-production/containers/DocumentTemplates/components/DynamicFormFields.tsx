@@ -925,6 +925,8 @@ interface DynamicFormFieldsProps {
   hideDiscount?: boolean; // Route Order PO: hide the document-level Disc field
   /** The document-level discount row's label (WCT Racking quotation: "Goodwill Discount"). Default "Disc". */
   discountLabel?: string;
+  /** WCT group (2026-11-25b): the lines' own discounts, shown in Gross Total (before any discount) and the Disc amount. */
+  lineDiscountTotal?: number;
   hiddenFields?: string[]; // fieldNames to omit entirely (e.g. billTo/deliveryTo on invoices)
   // Extra row rendered LAST inside the left field column, styled like the
   // other rows (label cell + content) — e.g. the quotation Project picker.
@@ -1092,6 +1094,7 @@ export default function DynamicFormFields({
   setFormData,
   hideDiscount = false,
   discountLabel,
+  lineDiscountTotal = 0,
   hiddenFields = [],
   appendRow,
   customInputs,
@@ -1535,7 +1538,7 @@ export default function DynamicFormFields({
             sx={{ ...inputSx, width: 64 }}
           />
           <Typography sx={{ flex: 1, textAlign: 'right', fontSize: '13px', px: 1 }}>
-            {Number(discAmount).toFixed(2)}
+            {(Number(discAmount) + lineDiscountTotal).toFixed(2)}
           </Typography>
           <Typography sx={{ fontSize: '13px', color: 'text.secondary', pr: 1 }}>{currency}</Typography>
         </Box>
@@ -1587,7 +1590,7 @@ export default function DynamicFormFields({
           </>
         ) : (
           <Typography sx={{ flex: 1, textAlign: 'right', fontSize: '13px', px: 1 }}>
-            {Number(value).toFixed(2)}
+            {(Number(value) + (field.fieldName === 'documentInfo.grossTotal' ? lineDiscountTotal : 0)).toFixed(2)}
           </Typography>
         )}
         <Typography sx={{ fontSize: '13px', color: 'text.secondary', pr: 1 }}>{currency}</Typography>

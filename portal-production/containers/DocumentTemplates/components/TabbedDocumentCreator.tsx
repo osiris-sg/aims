@@ -149,7 +149,7 @@ import QuotationSignLinkDialog from "./QuotationSignLinkDialog";
 import SignLinkDialog from "@/app/portal/sales/quotations/id/_components/SignLinkDialog";
 import SendForSignatureButton from "@/app/portal/sales/quotations/id/_components/SendForSignatureButton";
 import DoOrderToolbar, { DoAttachSignedDialog, DoConfirmButton } from "@/components/delivery/DoOrderToolbar";
-import { withDocumentDiscountField, withLineDiscountColumn, wctDiscountsOn } from "@/helpers/wctDiscount";
+import { withDocumentDiscountField, withLineDiscountColumn, wctDiscountsOn, lineDiscountsTotal } from "@/helpers/wctDiscount";
 import DoSignLinkDialog, { doSignCustomerOf } from "@/components/delivery/DoSignLinkDialog";
 import { editorTitleBar, isNarrowSnoCell, lineColumnWidth } from "@/helpers/wctDocUi";
 import { doOrderIdOf } from "@/helpers/doOrder";
@@ -6681,6 +6681,8 @@ export default function TabbedDocumentCreator({
                     setFormData={setFormData}
                     hideDiscount={isRouteOrderPO}
                     discountLabel={isRackingQuote ? "Goodwill Discount" : undefined}
+                    // WCT group (2026-11-25b): Gross Total before any discount, Disc = lines + document (display only).
+                    lineDiscountTotal={wctDiscountsOn({ wctDocNav: !!isWctDocNavEnabled, isQuotation, isInvoice: isInvoiceTypeDoc, templateMode: isTemplateEditMode }) ? lineDiscountsTotal(items) : 0}
                     hiddenFields={
                       // Legacy invoice arrangement drops Bill to (auto-filled
                       // from the customer master, printed as-is) and Currency

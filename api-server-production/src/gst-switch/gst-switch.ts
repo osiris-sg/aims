@@ -81,7 +81,9 @@ export function taxedInvoiceConfig(config: any, gst: boolean, gstPercent = 9): a
   const absorbTax = c.absorbTax ?? di.absorbTax ?? 'N';
   const items = (Array.isArray(c.items) ? c.items : []).filter((l: any) => !isDisplayRow(l));
   const discount = Number(c.discountAmount ?? di.discountAmount) || 0;
-  const t = computeDocumentTotals(items, { gstPercent: pct, taxApplicable: ta, absorbTax }, { discountAmount: discount });
+  // The switch runs only for the WCT group's GST pair (eligible: enableWctOrders), so lines are priced after their
+  // own discount here (computeDocumentTotals lineDiscounts, 2026-11-25).
+  const t = computeDocumentTotals(items, { gstPercent: pct, taxApplicable: ta, absorbTax }, { discountAmount: discount, lineDiscounts: true });
   const totals = { grossTotal: t.grossTotal, subTotal: t.subTotal, gstAmount: t.gstAmount, nettTotal: t.nettTotal };
   const out = { ...c, taxApplicable: ta, gstPercent: pct, ...totals, documentInfo: { ...di, taxApplicable: ta, gstPercent: pct, ...totals } };
   return stampDocumentMoney(out, { gross: t.nettTotal, outstanding: t.nettTotal, paid: 0 });

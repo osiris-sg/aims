@@ -44,7 +44,7 @@ import * as moment from 'moment';
 import { pdfOptionsFor, isNamedLayout } from '../common/services/document-html';
 import { resolveDesign } from '../common/services/document-html/design';
 import { effectiveDesign, isImportedDoc } from '../common/services/document-html/wct-brand';
-import { outstandingOf, grossStampOf, grossOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
+import { outstandingOf, grossStampOf, grossOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney, LINE_DISCOUNT_FLAG } from '../common/document-money';
 import { splitInvoice as splitInvoiceOp, undoInvoiceSplit as undoInvoiceSplitOp } from './invoice-split-ops';
 import { keepSplitPartTotals, splitGlRevenueLines, type SplitPlan } from './invoice-split';
 import { sgToday, wctFamilyOf, wctFamilyOfTypes, isWctStatusValue, wctStatusMatches, wctStatusOf } from '../common/wct-statuses';
@@ -7392,6 +7392,11 @@ export class DocumentsService {
     return this.createInvoiceFromDeliveryOrder(documentId, organizationId);
   }
 
+  /** WCT group (LINE_DISCOUNT_FLAG, 2026-11-25): built invoices price a line after its own discount (100% = $0). */
+  private lineDiscountsOn(organizationId: string): Promise<boolean> {
+    return isOrgFeatureEnabled(this.prisma as any, organizationId, LINE_DISCOUNT_FLAG).catch(() => false);
+  }
+
   /**
    * Create an invoice from a completed DO (Phase 4c) — IDEMPOTENT.
    * Idempotency guard: skip if an INVOICE already references this DO via
@@ -7533,7 +7538,7 @@ export class DocumentsService {
       const orgRow: any = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { taxRate: true, taxApplicable: true } }).catch(() => null);
       taxSrc = { gstPercent: orgRow?.taxRate ?? 9, taxApplicable: orgRow?.taxApplicable === false ? 'N' : 'Y', absorbTax: 'N' };
     }
-    const totals = computeDocumentTotals(invoiceLines, taxSrc);
+    const totals = computeDocumentTotals(invoiceLines, taxSrc, { lineDiscounts: await this.lineDiscountsOn(organizationId) });
     const invoiceConfig = stampDocumentMoney(
       {
         ...invoiceBase,
@@ -7963,9 +7968,9 @@ export class DocumentsService {
       // The quotation's document discount comes with its lines, as an amount
       // (extras on top are not discounted); the % is stored so the editor,
       // which re-derives the discount from it, lands on the same amount.
-      const quoteGross = plan.billQuote ? computeDocumentTotals(workLines, taxSrc).grossTotal : 0;
+      const quoteGross = plan.billQuote ? computeDocumentTotals(workLines, taxSrc, { lineDiscounts: await this.lineDiscountsOn(organizationId) }).grossTotal : 0;
       const discount = plan.billQuote ? quoteDiscountAmount(qc, quoteGross) : 0;
-      const totals = computeDocumentTotals(lines, taxSrc, { discountAmount: discount });
+      const totals = computeDocumentTotals(lines, taxSrc, { discountAmount: discount, lineDiscounts: await this.lineDiscountsOn(organizationId) });
       const discountPercent = invoiceDiscountPercent(qc, discount, totals.grossTotal, !extrasAll.length);
       const discountKeys = discount > 0 ? { discountAmount: totals.discountAmount ?? 0, discountPercent } : {};
       const quotedNett = Number(qc.nettTotal ?? qc.documentInfo?.nettTotal);
@@ -8144,9 +8149,9 @@ export class DocumentsService {
         taxSrc = { gstPercent: orgRow?.taxRate ?? 9, taxApplicable: orgRow?.taxApplicable === false ? 'N' : 'Y', absorbTax: 'N' };
       }
       const lines = quoteItems.map((l) => ({ ...l, fromQuotation: true }));
-      const quoteGross = computeDocumentTotals(workLines, taxSrc).grossTotal;
+      const quoteGross = computeDocumentTotals(workLines, taxSrc, { lineDiscounts: await this.lineDiscountsOn(organizationId) }).grossTotal;
       const discount = quoteDiscountAmount(qc, quoteGross);
-      const totals = computeDocumentTotals(lines, taxSrc, { discountAmount: discount });
+      const totals = computeDocumentTotals(lines, taxSrc, { discountAmount: discount, lineDiscounts: await this.lineDiscountsOn(organizationId) });
       const discountPercent = invoiceDiscountPercent(qc, discount, totals.grossTotal, true);
       const discountKeys = discount > 0 ? { discountAmount: totals.discountAmount ?? 0, discountPercent } : {};
       const doNumbers = dos.map((d: any) => d.name).filter(Boolean) as string[];
@@ -8248,7 +8253,7 @@ export class DocumentsService {
         const taxSrc = { gstPercent: rate, taxApplicable: rate > 0 ? 'Y' : 'N', absorbTax: 'N' };
         // 2026-11-23: each line that is a quotation line keeps its item code, UOM, account and revenue tag (as on AIMS orders).
         const items = remainderInvoiceItems(sourceLines, rate, allItems);
-        const totals = computeDocumentTotals(items, taxSrc);
+        const totals = computeDocumentTotals(items, taxSrc, { lineDiscounts: await this.lineDiscountsOn(organizationId) });
         const reference = orderInvoiceReference(order.orderNumber, [], qc.referenceNo ?? qc.subject ?? null);
         // Header: the quotation's customer side only (never its ERP marker, numbers, totals or money keys).
         const pick = (k: string) => (qc[k] === undefined ? {} : { [k]: qc[k] });
@@ -8350,7 +8355,7 @@ export class DocumentsService {
       // A line that is a quotation line keeps that line's item code, unit and account (the office may have edited qty / price).
       const quoteLines: any[] = Array.isArray(qc.items) ? qc.items.filter((l: any) => !isDisplayRow(l)) : [];
       const items = remainderInvoiceItems(lines, rate, quoteLines);
-      const totals = computeDocumentTotals(items, taxSrc);
+      const totals = computeDocumentTotals(items, taxSrc, { lineDiscounts: await this.lineDiscountsOn(organizationId) });
       const doNumbers = dos.map((d: any) => d.name).filter(Boolean) as string[];
       const reference = orderInvoiceReference(order.orderNumber, doNumbers, (base as any).referenceNo ?? (base as any).documentInfo?.referenceNo);
       invoiceConfig = stampDocumentMoney(
