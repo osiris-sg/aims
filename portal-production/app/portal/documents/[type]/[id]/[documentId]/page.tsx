@@ -8,6 +8,8 @@ import TabbedDocumentCreator from "@/containers/DocumentTemplates/components/Tab
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
+import { crossOrgHref, safeOpenInOrg } from "@/helpers/crossOrg";
+import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { toast } from "react-toastify";
 import { useGetSuppliers, useGetDocumentNav } from "@/app/portal/hooks/api";
 import { useCustomerPool } from "@/app/portal/hooks/api/useCustomerPicker";
@@ -327,6 +329,31 @@ export default function page() {
     }
   }, []);
 
+  // GST switch (WCT group, 2026-11-25): a document moved out of this company. With access to where it is now: open it
+  // there. Without: back to the same type's list here with "<no.> moved to <company>". True when handled.
+  const landMovedDocument = useCallback(async (docId: string, token: string): Promise<boolean> => {
+    try {
+      const res: any = await request({ path: `/gst-switch/where/${docId}`, method: "GET", ownError: true, quiet: true } as any, {}, token);
+      const w = res?.data ?? res;
+      if (!w?.moved) return false;
+      if (w.canOpen && w.path && w.to?.id) {
+        const target = safeOpenInOrg(w.to.id, w.path);
+        try {
+          if (target) window.sessionStorage.setItem(ACTIVE_ORG_KEY, target.org);
+        } catch {
+          /* no sessionStorage: the hop page sets it */
+        }
+        window.location.assign(target ? target.to : crossOrgHref(w.to.id, w.path));
+        return true;
+      }
+      toast.info(w.message || "This document moved to another company");
+      router.replace(w.listPath || "/portal/sales/invoices");
+      return true;
+    } catch {
+      return false;
+    }
+  }, [router]);
+
   // Prefetch documents silently in the background with rate limiting
   const prefetchDocuments = useCallback(async (docIds: string[], token: string, urlType: string | string[]) => {
     for (const docId of docIds) {
@@ -524,7 +551,7 @@ export default function page() {
           setDocumentMetadata(result.documentMetadata);
           setFieldConfig(result.fieldConfig);
           setSelectedCustomerId(result.customerId);
-        } else {
+        } else if (!(await landMovedDocument(docIdStr, token))) {
           toast.error("Failed to load document");
         }
       } catch (error) {
@@ -537,7 +564,7 @@ export default function page() {
 
     setIsLoading(true);
     loadDocument();
-  }, [documentId, getToken, fetchDocumentData, type]);
+  }, [documentId, getToken, fetchDocumentData, type, landMovedDocument]);
 
   // Initial prefetch effect - runs when filteredDocuments and currentIndex are ready
   useEffect(() => {

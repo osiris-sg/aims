@@ -30,9 +30,15 @@ import { memberOrgIds } from '../organizations/org-group';
 import { gstSwitchFor } from './gst-switch-state';
 import { isImportedOrder } from '../orders/imported-orders';
 import { ensureOrderNumberFormat, issueOrderNumberInTx, refreshOrderStatus } from '../orders/wct-orders';
+import { withSplitPartIds } from '../documents/invoice-split';
+import { storedFileValues } from '../common/storage-sign';
+import { orgOfKey } from '../common/storage-keys';
+import { normalizeStoredKey } from '../files/files.service';
+import { groupOrgIds } from '../organizations/org-group';
 import {
   CN_TYPES,
   creditNoteConfig,
+  fileMoveOf,
   GstSwitchState,
   invoiceIsGst,
   isDoType,
@@ -43,10 +49,14 @@ import {
   MoveCtx,
   movedConfig,
   moveHeadline,
+  movedPartNumber,
   numberingTypeOf,
   orderLinksAfterMove,
   planUnit,
+  recordFileKeys,
   reissuedInvoiceConfig,
+  splitAfterMove,
+  splitOf,
   taxedInvoiceConfig,
   taxedQuotationConfig,
   UnitDoc,
@@ -54,6 +64,7 @@ import {
 
 const bad = (m: string) => new HttpException(m, HttpStatus.BAD_REQUEST);
 const SOFT_DELETED = 'DELETED';
+const DOC_SELECT = { id: true, type: true, name: true, status: true, config: true, documentTemplateId: true } as const;
 const gstLabel = (gst: boolean) => (gst ? 'GST invoice' : 'Non-GST invoice');
 const TYPE_LABEL = (t: string) => (isQuotationType(t) ? 'Quotation' : isDoType(t) ? 'DO' : isInvoiceType(t) ? 'Invoice' : t);
 
@@ -97,7 +108,9 @@ export class GstSwitchService {
 
   /** The invoice's order (or the invoice alone) with every document, job and service report on it. */
   private async loadUnit(orgId: string, inv: any): Promise<Unit> {
-    const orderId = typeof inv.config?.orderId === 'string' ? inv.config.orderId : null;
+    // A split part (2026-11-25): its order is the order of any part of its split.
+    const parts = await this.splitPartsOf(orgId, [inv]);
+    const orderId = [inv, ...parts].map((d: any) => d.config?.orderId).find((x: any) => typeof x === 'string' && x) ?? null;
     const order = orderId ? await this.db.order.findFirst({ where: { id: orderId, organizationId: orgId } }) : null;
     const ids = new Set<string>([inv.id]);
     if (order) {
@@ -107,7 +120,9 @@ export class GstSwitchService {
       const onOrder: Array<{ id: string }> = await this.db.$queryRawUnsafe(`SELECT id::text AS id FROM "Document" WHERE "organizationId" = $1 AND config->>'orderId' = $2`, orgId, order.id);
       for (const r of onOrder) ids.add(r.id);
     }
-    const rows = await this.db.document.findMany({ where: { id: { in: [...ids] }, organizationId: orgId }, select: { id: true, type: true, name: true, status: true, config: true, documentTemplateId: true } });
+    const found = await this.db.document.findMany({ where: { id: { in: [...ids] }, organizationId: orgId }, select: DOC_SELECT });
+    // Split payment parts (2026-11-25): every part of a split among them moves with the order, even one not on it.
+    const rows = [...found, ...(await this.splitPartsOf(orgId, found))];
     const docs: UnitDoc[] = rows.filter((d: any) => String(d.type).toUpperCase() !== SOFT_DELETED && (isQuotationType(d.type) || isDoType(d.type) || isInvoiceType(d.type)));
     const jobs = order ? await this.db.delivery.findMany({ where: { organizationId: orgId, orderId: order.id }, select: { id: true, deliveryNumber: true, orderInvoiceId: true }, orderBy: { deliveryNumber: 'asc' } }) : [];
     const docIds = docs.map((d) => d.id);
@@ -123,6 +138,21 @@ export class GstSwitchService {
       ? await this.db.customer.findFirst({ where: { id: customerId, organizationId: orgId }, select: { id: true, name: true, uen: true, email: true, phone: true, address: true, gstRegNo: true, customerCode: true } })
       : null;
     return { order, docs, jobs, reports, sourceCustomer };
+  }
+
+  /** Every other part of the splits among `docs` (part 1 lists them in partIds; a part names part 1 as groupId), to a fixed point. */
+  private async splitPartsOf(orgId: string, docs: any[]): Promise<any[]> {
+    const seen = new Set<string>(docs.map((d) => d.id));
+    const out: any[] = [];
+    let frontier = docs;
+    for (let round = 0; round < 3 && frontier.length; round++) {
+      const want = withSplitPartIds([...seen], frontier).filter((x) => !seen.has(x));
+      if (!want.length) break;
+      want.forEach((x) => seen.add(x));
+      frontier = await this.db.document.findMany({ where: { id: { in: want }, organizationId: orgId }, select: DOC_SELECT });
+      out.push(...frontier);
+    }
+    return out;
   }
 
   /** Payments / allocations, live ledger entries, other credit notes, per document id. */
@@ -164,7 +194,10 @@ export class GstSwitchService {
     const documents = [
       ...[...unit.docs]
         .sort((a, b) => order(a.type) - order(b.type) || String(a.name).localeCompare(String(b.name)))
-        .map((d) => ({ id: d.id, kind: TYPE_LABEL(d.type), name: d.name, status: d.status, action: plan.credit.some((c) => c.id === d.id) ? 'credit' : 'move' })),
+        .map((d) => {
+          const sp = isInvoiceType(d.type) ? splitOf(d.config) : null;
+          return { id: d.id, kind: sp ? `Invoice (part ${sp.part} of ${sp.of})` : TYPE_LABEL(d.type), name: d.name, status: d.status, action: plan.credit.some((c) => c.id === d.id) ? 'credit' : 'move' };
+        }),
       ...unit.jobs.map((j) => ({ id: j.id, kind: 'Job', name: `#${j.deliveryNumber}`, status: null, action: 'move' })),
       ...unit.reports.map((r) => ({ id: r.id, kind: 'Service report', name: r.reportNumber ? `#${String(r.reportNumber).padStart(6, '0')}` : 'Service report', status: null, action: 'move' })),
     ];
@@ -264,6 +297,9 @@ export class GstSwitchService {
       this.actionLog.log({ actorType: 'USER', actorId: actor.id || 'unknown', actorName: actor.name, actorEmail: actor.email, organizationId: orgId, channel: 'portal', action: 'CREDIT', resource: 'document', resourceId: saved.id, details: { gstSwitch: true, creditNote: saved.name, credits: d.name, amount, movedTo: target.name } });
     }
 
+    // A3 files (2026-11-25): the moved records' own files, re-registered to the target in the transaction below.
+    const fileKeys = await this.fileKeysOf(orgId, unit, plan.move.map((d) => d.id));
+
     // ── 3. one transaction: the move ──
     const formatId = unit.order ? (await ensureOrderNumberFormat(this.db, target.id)).id : null;
     const result = await this.db.$transaction(
@@ -284,9 +320,17 @@ export class GstSwitchService {
         const renames = new Map<string, string>();
         const newNames = new Map<string, string>();
         const kindRank = (t: string) => (isQuotationType(t) ? 0 : isDoType(t) ? 1 : 2);
+        // Split payment parts (2026-11-25): ONE new invoice number per split group, the parts are <number>-1..-n.
+        const splitBase = new Map<string, string>();
+        const partName = async (d: UnitDoc): Promise<string | null> => {
+          const sp = isInvoiceType(d.type) ? splitOf(d.config) : null;
+          if (!sp) return null;
+          if (!splitBase.has(sp.groupId)) splitBase.set(sp.groupId, await this.nextNumber(tx, target.id, 'INVOICE', tplOf.INVOICE, at, dst));
+          return movedPartNumber(splitBase.get(sp.groupId)!, Number(sp.part));
+        };
         for (const d of [...plan.move].sort((a, b) => kindRank(a.type) - kindRank(b.type))) {
           const nt = numberingTypeOf(d.type)!;
-          const n = await this.nextNumber(tx, target.id, nt, tplOf[nt], at, dst);
+          const n = (await partName(d)) ?? (await this.nextNumber(tx, target.id, nt, tplOf[nt], at, dst));
           await tx.document.update({ where: { id: d.id }, data: { name: n, organizationId: target.id, documentTemplateId: tplOf[nt], projectId: null } });
           if (d.name) renames.set(d.name, n);
           newNames.set(d.id, n);
@@ -295,7 +339,7 @@ export class GstSwitchService {
         // Re-issued invoices (target, draft) for the credited ones.
         const reissued: Array<{ oldId: string; oldName: string | null; newId: string; newName: string; creditNoteId: string; creditNoteName: string; templateId: string | null }> = [];
         for (const c of credited) {
-          const n = await this.nextNumber(tx, target.id, 'INVOICE', tplOf.INVOICE, at, dst);
+          const n = (await partName(c.inv)) ?? (await this.nextNumber(tx, target.id, 'INVOICE', tplOf.INVOICE, at, dst));
           const id = randomUUID();
           await tx.document.create({ data: { id, type: 'INVOICE', name: n, organizationId: target.id, documentTemplateId: tplOf.INVOICE, status: 'draft', revisionNumber: 0, config: {} } });
           reissued.push({ oldId: c.inv.id, oldName: c.inv.name, newId: id, newName: n, creditNoteId: c.cnId, creditNoteName: c.cnName, templateId: tplOf.INVOICE });
@@ -306,16 +350,27 @@ export class GstSwitchService {
           if (typeof c?.orderInvoiceId === 'string' && swap.has(c.orderInvoiceId)) c.orderInvoiceId = swap.get(c.orderInvoiceId);
           return c;
         };
+        // A split part keeps its split: ids follow the re-issues, the group's new base number, part 1's Undo-split
+        // snapshot renumbered and re-taxed (gst-switch.ts splitAfterMove).
+        const rate = Number(dst.taxRate) || 9;
+        const keepSplit = (cfg: any) =>
+          splitAfterMove(cfg, {
+            swap,
+            baseOf: (g) => splitBase.get(g),
+            restoreConfig: (rc, base) => taxedInvoiceConfig(movedConfig(rc, ctxFor(base, String(rc?.documentNumber ?? rc?.documentInfo?.documentNumber ?? '') || null)), wantGst, rate),
+          });
         // Configs of the moved documents.
         for (const d of plan.move) {
           let cfg = remap(movedConfig(d.config, ctxFor(newNames.get(d.id)!, d.name)));
-          if (isInvoiceType(d.type)) cfg = taxedInvoiceConfig(cfg, wantGst, Number(dst.taxRate) || 9);
+          if (isInvoiceType(d.type)) cfg = keepSplit(taxedInvoiceConfig(cfg, wantGst, rate));
           else if (isQuotationType(d.type)) cfg = taxedQuotationConfig(cfg, wantGst, Number(dst.taxRate) || 9);
           await tx.document.update({ where: { id: d.id }, data: { config: cfg } });
         }
         for (const r of reissued) {
           const c = credited.find((x) => x.inv.id === r.oldId)!;
-          const cfg = remap(reissuedInvoiceConfig(c.inv.config, ctxFor(r.newName, c.inv.name), wantGst, { invoiceId: r.oldId, creditNoteId: r.creditNoteId, creditNoteNumber: r.creditNoteName }));
+          let cfg = remap(reissuedInvoiceConfig(c.inv.config, ctxFor(r.newName, c.inv.name), wantGst, { invoiceId: r.oldId, creditNoteId: r.creditNoteId, creditNoteNumber: r.creditNoteName }));
+          const sp = splitOf(c.inv.config);
+          if (sp) cfg = keepSplit({ ...cfg, invoiceSplit: sp });
           if (unit.order) cfg.orderId = unit.order.id;
           await tx.document.update({ where: { id: r.newId }, data: { config: cfg } });
           // The credited invoice and its credit note point at the re-issue (source company rows; money untouched).
@@ -369,12 +424,13 @@ export class GstSwitchService {
           }
           await tx.$executeRawUnsafe(`UPDATE "ServiceReportSignLink" SET "organizationId" = $1 WHERE "organizationId" = $2 AND "reportIds" && $3::text[]`, target.id, orgId, unit.reports.map((r) => r.id));
         }
+        const files = await this.moveFiles(tx, fileKeys, orgId, target.id, `moved with ${unit.order?.orderNumber ?? p.inv.name ?? 'an invoice'} to ${target.name} (GST switch)`);
         const movedIds = plan.move.map((d) => d.id);
         if (movedIds.length) {
           await tx.documentEmbedding.updateMany({ where: { documentId: { in: movedIds } }, data: { organizationId: target.id, ...(customer ? { customerId: customer.id } : {}) } });
           await tx.priceHistory.updateMany({ where: { documentId: { in: movedIds } }, data: { organizationId: target.id, ...(customer ? { customerId: customer.id } : {}) } });
         }
-        return { orderNumber, newNames, reissued, customer };
+        return { orderNumber, newNames, reissued, customer, files };
       },
       { timeout: 60000, maxWait: 15000 },
     );
@@ -387,7 +443,7 @@ export class GstSwitchService {
       ...result.reissued.map((r) => ({ id: r.newId, kind: 'Invoice (re-issued)', from: r.oldName, to: r.newName })),
     ];
     for (const r of rows) {
-      const details = { gstSwitch: true, kind: r.kind, oldNumber: r.from, newNumber: r.to, fromOrg: from.name, toOrg: target.name, toGst: wantGst };
+      const details = { gstSwitch: true, kind: r.kind, oldNumber: r.from, newNumber: r.to, fromOrg: from.name, toOrg: target.name, toGst: wantGst, ...(r.kind === 'order' || !unit.order ? { files: result.files } : {}) };
       for (const oid of [orgId, target.id]) {
         this.actionLog.log({ actorType: 'USER', actorId: actor.id || 'unknown', actorName: actor.name, actorEmail: actor.email, organizationId: oid, channel: 'portal', action: 'MOVE', resource: r.kind === 'order' ? 'order' : 'document', resourceId: r.id, details });
       }
@@ -409,7 +465,84 @@ export class GstSwitchService {
       templateId: tplOf.INVOICE,
       renamed: rows,
       creditNotes: credited.map((c) => ({ invoice: c.inv.name, creditNote: c.cnName })),
+      files: result.files,
     };
+  }
+
+  /**
+   * The S3 keys of the moved records' own files: the moved documents (config + attachments), the order (its
+   * attachments: uploaded completed DOs, service report files), the jobs (stamped DO photos), their job photos and
+   * every moved service report (photos, files). Company-wide files are left out (gst-switch.ts recordFileKeys).
+   */
+  private async fileKeysOf(orgId: string, unit: Unit, movedDocIds: string[]): Promise<string[]> {
+    const jobIds = unit.jobs.map((j) => j.id);
+    const [docs, jobs, photos, reports] = await Promise.all([
+      movedDocIds.length ? this.db.document.findMany({ where: { id: { in: movedDocIds }, organizationId: orgId } }) : [],
+      jobIds.length ? this.db.delivery.findMany({ where: { id: { in: jobIds }, organizationId: orgId } }) : [],
+      jobIds.length ? this.db.jobPhoto.findMany({ where: { deliveryId: { in: jobIds } }, select: { fileKey: true, thumbKey: true } }) : [],
+      unit.reports.length ? this.db.maintenanceServiceReport.findMany({ where: { id: { in: unit.reports.map((r) => r.id) }, organizationId: orgId } }) : [],
+    ]);
+    const values = [
+      ...storedFileValues([docs, unit.order, jobs, reports], 20000),
+      ...(photos as any[]).flatMap((p) => [p.fileKey, p.thumbKey]),
+    ];
+    return recordFileKeys(values.map((v) => normalizeStoredKey(v)));
+  }
+
+  /** Re-register the keys from `from` to `to` in the StoredFile registry (the keys themselves never change). */
+  private async moveFiles(tx: any, keys: string[], from: string, to: string, note: string): Promise<{ moved: number; shared: number }> {
+    if (!keys.length) return { moved: 0, shared: 0 };
+    const rows: any[] = await tx.storedFile.findMany({ where: { key: { in: keys } }, select: { key: true, organizationId: true, quarantined: true, sharedOrgIds: true } });
+    const byKey = new Map(rows.map((r) => [r.key, r]));
+    let moved = 0;
+    let shared = 0;
+    for (const key of keys) {
+      const row = byKey.get(key) ?? null;
+      const { op } = fileMoveOf(key, row, orgOfKey(key), from, to);
+      if (op === 'update') {
+        await tx.storedFile.update({ where: { key }, data: { organizationId: to, note } });
+        moved++;
+      } else if (op === 'create') {
+        await tx.storedFile.create({ data: { key, organizationId: to, source: 'gst-switch', note } });
+        moved++;
+      } else if (op === 'share') {
+        await tx.storedFile.update({ where: { key }, data: { sharedOrgIds: [...(row.sharedOrgIds ?? []), to] } });
+        shared++;
+      }
+    }
+    return { moved, shared };
+  }
+
+  /**
+   * A7 (2026-11-25): a document opened in a company it was moved OUT of by the GST switch. With access to where it
+   * is now (active membership + role, or a platform admin): its link there. Without: only where to go back to (the
+   * same type's list in the current company) and "<no.> moved to <company>". Never changes anyone's access.
+   */
+  async whereMoved(documentId: string, orgId: string, viewer: { userId?: string | null; isAdmin?: boolean }) {
+    const none = { moved: false as const };
+    try {
+      const doc = await this.db.document.findFirst({ where: { id: documentId }, select: { id: true, type: true, name: true, organizationId: true, documentTemplateId: true, config: true } });
+      if (!doc || doc.organizationId === orgId) return none;
+      const hist: any[] = Array.isArray(doc.config?.movedFrom) ? doc.config.movedFrom : doc.config?.movedFrom ? [doc.config.movedFrom] : [];
+      const fromHere = [...hist].reverse().find((h) => h?.orgId === orgId && h?.reason === 'gst-switch');
+      if (!fromHere) return none;
+      if (!(await groupOrgIds(this.db, orgId)).includes(doc.organizationId)) return none;
+      const org = await this.db.organization.findUnique({ where: { id: doc.organizationId }, select: { id: true, name: true } });
+      const canOpen = !!viewer.isAdmin || (await memberOrgIds(this.db, viewer.userId ?? null, [doc.organizationId])).has(doc.organizationId);
+      const listPath = isQuotationType(doc.type) ? '/portal/sales/quotations' : isDoType(doc.type) ? '/portal/sales/delivery-orders' : '/portal/sales/invoices';
+      const number = String(fromHere.number || doc.name || 'This document');
+      return {
+        moved: true as const,
+        number,
+        to: { id: doc.organizationId, name: org?.name ?? '' },
+        canOpen,
+        listPath,
+        message: `${number} moved to ${org?.name ?? 'another company'}`,
+        ...(canOpen && doc.documentTemplateId ? { path: `/portal/documents/${doc.type}/${doc.documentTemplateId}/${doc.id}`, newNumber: doc.name } : {}),
+      };
+    } catch {
+      return none;
+    }
   }
 
   /** The source customer's code when free in the target, else the next C<letter><n>. */

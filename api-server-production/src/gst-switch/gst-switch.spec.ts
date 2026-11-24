@@ -19,6 +19,7 @@ import {
   invoiceIsGst,
   matchCustomer,
   movedConfig,
+  newDocumentTaxDefault,
   orderLinksAfterMove,
   planUnit,
   taxedInvoiceConfig,
@@ -193,6 +194,7 @@ function world(opts: { confirmed?: boolean; payment?: boolean } = {}) {
     jobPhoto: table([]),
     documentEmbedding: table([]),
     priceHistory: table([]),
+    storedFile: table([]),
     documentTemplate: table([]),
     userOrganization: table([{ userId: 'u1', organizationId: BC, isActive: true }, { userId: 'u1', organizationId: WCT, isActive: true }]),
     userRole: table([{ userId: 'u1', organizationId: BC, isActive: true }, { userId: 'u1', organizationId: WCT, isActive: true }]),
@@ -366,6 +368,209 @@ describe('gst switch: the move', () => {
   });
 });
 
+// ── Split payment parts (2026-11-25): no "Undo the split first"; every part moves with the order ──
+function splitWorld(opts: { confirmedPart?: number; paidPart?: number } = {}) {
+  const w = world();
+  const { db } = w;
+  const i1 = db.document.rows.find((d: Row) => d.id === 'i1');
+  const original = JSON.parse(JSON.stringify(i1.config));
+  const amounts = [300, 300, 400];
+  const ids = ['i1', 'i2', 'i3'];
+  const part = (n: number) => {
+    const a = amounts[n - 1];
+    const gst = Math.round(a * 9) / 100;
+    return {
+      ...original,
+      // Part 3 is not on the order's links nor carries the orderId: it is found through part 1's partIds.
+      ...(n === 3 ? { orderId: undefined } : {}),
+      documentNumber: `INV202611-0001-${n}`,
+      items: [{ description: `Payment ${n}`, quantity: 1, unitPrice: a, amount: a, splitPart: n }],
+      subTotal: a,
+      gstAmount: gst,
+      nettTotal: a + gst,
+      outstandingBalance: a + gst,
+      invoiceSplit: { groupId: 'i1', part: n, of: 3, baseNumber: 'INV202611-0001', mode: 'rate', ...(n === 1 ? { partIds: ids, restore: { config: original } } : {}) },
+    };
+  };
+  i1.name = 'INV202611-0001-1';
+  i1.config = part(1);
+  for (const n of [2, 3]) {
+    db.document.rows.push({ id: ids[n - 1], type: 'INVOICE', name: `INV202611-0001-${n}`, status: 'draft', organizationId: WCT, documentTemplateId: `tpl-${WCT}-INVOICE`, projectId: null, config: part(n) });
+  }
+  if (opts.confirmedPart) {
+    const d = db.document.rows.find((r: Row) => r.id === ids[opts.confirmedPart! - 1]);
+    d.status = 'pending_payment';
+    db.journalEntry.rows.push({ id: `je-${d.id}`, organizationId: WCT, sourceDocumentId: d.id, status: 'POSTED', type: 'INVOICE' });
+  }
+  if (opts.paidPart) db.payment.rows.push({ id: 'pp', organizationId: WCT, documentId: ids[opts.paidPart - 1], amount: 10 });
+  return w;
+}
+
+describe('gst switch: split payment parts (2026-11-25)', () => {
+  beforeAll(() => {
+    process.env.TENANCY_MODE = 'single';
+    jest.spyOn(DocumentNumberingService.prototype, 'issueNumberLocked').mockResolvedValue(null as any);
+  });
+  const ym = () => {
+    const d = new Date();
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+  const byId = (db: any, id: string) => db.document.rows.find((d: Row) => d.id === id);
+
+  it('all parts drafts: switching any part moves the order with ALL parts, the split kept and re-taxed', async () => {
+    const { db, svc } = splitWorld();
+    const pre: any = await svc.preview('i3', WCT, false);
+    expect(pre.blocked).toBeNull();
+    expect(pre.documents.filter((d: any) => d.kind.startsWith('Invoice (part')).map((d: any) => [d.kind, d.name])).toEqual([
+      ['Invoice (part 1 of 3)', 'INV202611-0001-1'],
+      ['Invoice (part 2 of 3)', 'INV202611-0001-2'],
+      ['Invoice (part 3 of 3)', 'INV202611-0001-3'],
+    ]);
+    const out: any = await svc.move('i3', WCT, false, actor);
+    expect(out.moved).toBe(true);
+    expect(out.invoiceId).toBe('i3');
+    const base = `INVOICE${ym()}-001`;
+    for (const [id, n, a] of [['i1', 1, 300], ['i2', 2, 300], ['i3', 3, 400]] as const) {
+      const d = byId(db, id);
+      expect([d.organizationId, d.name, d.status]).toEqual([BC, `${base}-${n}`, 'draft']);
+      expect([d.config.taxApplicable, d.config.gstAmount, d.config.nettTotal, d.config.outstandingBalance]).toEqual(['N', 0, a, a]);
+      expect(d.config.invoiceSplit).toMatchObject({ groupId: 'i1', part: n, of: 3, baseNumber: base });
+      expect(d.config.previousNumber).toBe(`INV202611-0001-${n}`);
+    }
+    // Part 1 lists every part; its Undo-split snapshot is the moved original (new base number, non-GST).
+    const s1 = byId(db, 'i1').config.invoiceSplit;
+    expect(s1.partIds).toEqual(['i1', 'i2', 'i3']);
+    expect(s1.restore.config).toMatchObject({ documentNumber: base, taxApplicable: 'N', gstAmount: 0, nettTotal: 1000 });
+    // Back again keeps the split too.
+    const back: any = await svc.move('i2', BC, true, actor);
+    expect(back.moved).toBe(true);
+    expect(byId(db, 'i2').config).toMatchObject({ taxApplicable: 'Y', gstAmount: 27, nettTotal: 327, invoiceSplit: { part: 2, of: 3 } });
+    expect(byId(db, 'i1').organizationId).toBe(WCT);
+  });
+
+  it('a confirmed unpaid part: credit note in the source + a new draft part in the target; the other parts move', async () => {
+    const { db, svc } = splitWorld({ confirmedPart: 2 });
+    const pre: any = await svc.preview('i1', WCT, false);
+    expect(pre.blocked).toBeNull();
+    expect(pre.creditNotes).toEqual([{ invoiceId: 'i2', invoice: 'INV202611-0001-2', amount: 327, already: false }]);
+    expect(pre.documents.find((d: any) => d.id === 'i2')).toMatchObject({ kind: 'Invoice (part 2 of 3)', action: 'credit' });
+    const out: any = await svc.move('i1', WCT, false, actor);
+    expect(out.creditNotes).toEqual([{ invoice: 'INV202611-0001-2', creditNote: 'CN202611-0001' }]);
+    const base = `INVOICE${ym()}-001`;
+    // The confirmed part stays in WCT (S), credited; its re-issue is part 2 in BC Air.
+    expect([byId(db, 'i2').organizationId, byId(db, 'i2').name]).toEqual([WCT, 'INV202611-0001-2']);
+    const re = byId(db, byId(db, 'i2').config.gstMove.reissued.id);
+    expect([re.organizationId, re.name, re.status]).toEqual([BC, `${base}-2`, 'draft']);
+    expect(re.config).toMatchObject({ taxApplicable: 'N', nettTotal: 300, invoiceSplit: { groupId: 'i1', part: 2, of: 3, baseNumber: base } });
+    expect(byId(db, 'i1').config.invoiceSplit.partIds).toEqual(['i1', re.id, 'i3']);
+    expect(byId(db, 'i3')).toMatchObject({ organizationId: BC, name: `${base}-3` });
+  });
+
+  it('a paid / allocated part blocks: nothing changes', async () => {
+    const { db, svc } = splitWorld({ paidPart: 3 });
+    const before = JSON.stringify(db.document.rows);
+    const pre: any = await svc.preview('i1', WCT, false);
+    expect(pre.blocked).toBe('INV202611-0001-3 has a payment or an allocation. Nothing was changed.');
+    await expect(svc.move('i1', WCT, false, actor)).rejects.toThrow('has a payment or an allocation');
+    expect(JSON.stringify(db.document.rows)).toBe(before);
+  });
+});
+
+// ── A3 files + A7 landing (2026-11-25) ──
+const OTHER = '0000aaaa-0000-4000-8000-000000000009';
+function filesWorld() {
+  const w = world();
+  const { db } = w;
+  const doc = (id: string) => db.document.rows.find((d: Row) => d.id === id);
+  const k = {
+    signedDo: `org/${WCT}/documents/signed-do/s.pdf`,
+    orderFile: `org/${WCT}/orders/report.pdf`,
+    msrPhoto: `maintenance-reports/${WCT}/photos/p.jpg`,
+    jobPhoto: `org/${WCT}/job-photos/j.jpg`,
+    jobThumb: `org/${WCT}/job-photos/j-thumb.jpg`,
+    logo: `org/${WCT}/logos/logo.png`,
+    stamp: `org/${WCT}/stamps/stamp.png`,
+    foreign: `org/${OTHER}/documents/x.pdf`,
+    shared: `documents/legacy/shared.pdf`,
+  };
+  doc('d1').attachments = [{ fileKey: k.signedDo, label: 'Stamped DO' }, { fileKey: k.foreign }];
+  doc('q1').config.logoUrl = k.logo;
+  doc('i1').config.stampUrl = `https://aims-osiris.s3.ap-southeast-1.amazonaws.com/${k.stamp}`;
+  db.order.rows[0].attachments = [...db.order.rows[0].attachments, { kind: 'file', fileKey: k.orderFile }, { kind: 'file', fileKey: k.shared }];
+  db.maintenanceServiceReport.rows[0].photos = [k.msrPhoto];
+  db.jobPhoto.rows.push({ id: 'jp1', organizationId: WCT, deliveryId: 'j1', fileKey: k.jobPhoto, thumbKey: k.jobThumb });
+  db.storedFile.rows.push(
+    { key: k.signedDo, organizationId: WCT, quarantined: false, sharedOrgIds: [] },
+    { key: k.logo, organizationId: WCT, quarantined: false, sharedOrgIds: [] },
+    { key: k.stamp, organizationId: WCT, quarantined: false, sharedOrgIds: [] },
+    { key: k.foreign, organizationId: OTHER, quarantined: false, sharedOrgIds: [] },
+    { key: k.shared, organizationId: WCT, quarantined: true, sharedOrgIds: [OTHER] },
+  );
+  // u2: BC Air only; u3: WCT (S) only.
+  db.userOrganization.rows.push({ userId: 'u2', organizationId: BC, isActive: true }, { userId: 'u3', organizationId: WCT, isActive: true });
+  db.userRole.rows.push({ userId: 'u2', organizationId: BC, isActive: true }, { userId: 'u3', organizationId: WCT, isActive: true });
+  return { ...w, k };
+}
+
+describe('gst switch: files move with the order (A3, 2026-11-25)', () => {
+  beforeAll(() => {
+    process.env.TENANCY_MODE = 'single';
+    jest.spyOn(DocumentNumberingService.prototype, 'issueNumberLocked').mockResolvedValue(null as any);
+  });
+  const { FilesService } = require('../files/files.service');
+  const opens = async (db: any, key: string, actor: any) => (await new FilesService(db, { getSignedUrl: async (x: string) => `signed:${x}` }).sign([key], actor))[key];
+
+  it('signed DOs, attachments, report files, job photos re-register to the target; keys unchanged; back again', async () => {
+    const { db, svc, k } = filesWorld();
+    const before = { d1: JSON.stringify(db.document.rows.find((d: Row) => d.id === 'd1').attachments) };
+    expect(await opens(db, k.signedDo, { userId: 'u2', activeOrgId: BC })).toBeNull();
+    const out: any = await svc.move('i1', WCT, false, actor);
+    expect(out.files).toEqual({ moved: 5, shared: 1 });
+    const reg = (key: string) => db.storedFile.rows.find((r: Row) => r.key === key);
+    for (const key of [k.signedDo, k.orderFile, k.msrPhoto, k.jobPhoto, k.jobThumb]) expect(reg(key).organizationId).toBe(BC);
+    // Company files never move; another company's file is left alone; a quarantined file is shared with the target.
+    expect([reg(k.logo).organizationId, reg(k.stamp).organizationId, reg(k.foreign).organizationId]).toEqual([WCT, WCT, OTHER]);
+    expect(reg(k.shared)).toMatchObject({ organizationId: WCT, quarantined: true, sharedOrgIds: [OTHER, BC] });
+    // The stored keys on the records are untouched.
+    expect(JSON.stringify(db.document.rows.find((d: Row) => d.id === 'd1').attachments)).toBe(before.d1);
+    // files.service: a BC Air user now opens them in BC Air; a WCT (S)-only user no longer does; the logo stays WCT's.
+    expect(await opens(db, k.signedDo, { userId: 'u2', activeOrgId: BC })).toBe(`signed:${k.signedDo}`);
+    expect(await opens(db, k.jobPhoto, { userId: 'u2', activeOrgId: BC })).toBe(`signed:${k.jobPhoto}`);
+    expect(await opens(db, k.signedDo, { userId: 'u3', activeOrgId: WCT })).toBeNull();
+    expect(await opens(db, k.logo, { userId: 'u3', activeOrgId: WCT })).toBe(`signed:${k.logo}`);
+    // Moving back re-registers them to WCT (S).
+    const back: any = await svc.move('i1', BC, true, actor);
+    expect(back.files.moved).toBe(5);
+    for (const key of [k.signedDo, k.orderFile, k.msrPhoto, k.jobPhoto, k.jobThumb]) expect(reg(key).organizationId).toBe(WCT);
+    expect(await opens(db, k.signedDo, { userId: 'u3', activeOrgId: WCT })).toBe(`signed:${k.signedDo}`);
+    expect(reg(k.shared).sharedOrgIds).toEqual([OTHER, BC]);
+  });
+});
+
+describe('gst switch: opening a moved document (A7, 2026-11-25)', () => {
+  beforeAll(() => {
+    process.env.TENANCY_MODE = 'single';
+    jest.spyOn(DocumentNumberingService.prototype, 'issueNumberLocked').mockResolvedValue(null as any);
+  });
+  it('with access to the target: its link there; without: back to the list with "<no.> moved to <company>"; no access change', async () => {
+    const { db, svc } = filesWorld();
+    expect(await svc.whereMoved('i1', WCT, { userId: 'u3' })).toEqual({ moved: false });
+    await svc.move('i1', WCT, false, actor);
+    const inv = db.document.rows.find((d: Row) => d.id === 'i1');
+    const yes: any = await svc.whereMoved('i1', WCT, { userId: 'u1' });
+    expect(yes).toMatchObject({ moved: true, canOpen: true, number: 'INV202611-0001', to: { id: BC }, path: `/portal/documents/INVOICE/tpl-${BC}-INVOICE/i1`, newNumber: inv.name });
+    const rolesBefore = JSON.stringify([db.userOrganization.rows, db.userRole.rows]);
+    const no: any = await svc.whereMoved('i1', WCT, { userId: 'u3' });
+    expect(no).toEqual({ moved: true, number: 'INV202611-0001', to: { id: BC, name: 'BC AIR PTE. LTD.' }, canOpen: false, listPath: '/portal/sales/invoices', message: 'INV202611-0001 moved to BC AIR PTE. LTD.' });
+    expect(((await svc.whereMoved('q1', WCT, { userId: 'u3' })) as any).listPath).toBe('/portal/sales/quotations');
+    expect(((await svc.whereMoved('d1', WCT, { userId: 'u3' })) as any).listPath).toBe('/portal/sales/delivery-orders');
+    expect(JSON.stringify([db.userOrganization.rows, db.userRole.rows])).toBe(rolesBefore);
+    // Opened in the company it is in now, or in a company it never left: nothing to say.
+    expect(await svc.whereMoved('i1', BC, { userId: 'u2' })).toEqual({ moved: false });
+    expect(await svc.whereMoved('i1', OTHER, { userId: 'u2' })).toEqual({ moved: false });
+  });
+});
+
 describe('gstSwitchFor (the default non-GST invoice of createBasicDocument reads this)', () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { gstSwitchFor } = require('./gst-switch-state');
@@ -382,5 +587,26 @@ describe('gstSwitchFor (the default non-GST invoice of createBasicDocument reads
   });
   it('a database error: off (never fails a create)', async () => {
     expect(await gstSwitchFor({ $queryRawUnsafe: async () => [{ id: 'a' }, { id: 'b' }], organization: { findMany: async () => { throw new Error('x'); } }, organizationUIConfig: { findMany: async () => [] } }, 'a')).toMatchObject({ on: false });
+  });
+});
+
+describe('new documents in the non-GST company (2026-11-25: quotations too)', () => {
+  const bc = { on: true, gst: false, partner: { id: WCT, name: 'WCT' } };
+  const wct = { on: true, gst: true, partner: { id: BC, name: 'BC' } };
+  const off = { on: false, gst: true, partner: null };
+  const blank = { documentInfo: { taxApplicable: 'Y', gstPercent: 9, absorbTax: 'N' }, items: [] };
+  it('BC Air: a new quotation starts Non-GST (Tax N, GST 0), like its invoices', () => {
+    for (const t of ['QUOTATION', 'QO', 'QO1']) {
+      const q = newDocumentTaxDefault(t, bc, blank);
+      expect([q.taxApplicable, q.gstAmount, q.documentInfo.taxApplicable, q.documentInfo.gstAmount]).toEqual(['N', 0, 'N', 0]);
+      expect(q.outstandingBalance).toBeUndefined(); // a quotation is not owed
+    }
+    expect(newDocumentTaxDefault('INVOICE', bc, blank).taxApplicable).toBe('N');
+  });
+  it('WCT (S), orgs outside the switch, other types and imported documents: unchanged', () => {
+    expect(newDocumentTaxDefault('QUOTATION', wct, blank)).toBeNull();
+    expect(newDocumentTaxDefault('QUOTATION', off, blank)).toBeNull();
+    expect(newDocumentTaxDefault('DELIVERY_ORDER', bc, blank)).toBeNull();
+    expect(newDocumentTaxDefault('QUOTATION', bc, { ...blank, erpImport: { source: 'erp' } })).toBeNull();
   });
 });

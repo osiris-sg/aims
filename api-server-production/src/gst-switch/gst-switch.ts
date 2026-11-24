@@ -254,7 +254,8 @@ export function planUnit(docs: UnitDoc[], b: Blockers): { blocked: string | null
     const already = !!c.gstMove?.creditNote?.id;
     if (!already && b.payments.has(d.id)) return { blocked: `${label} has a payment or an allocation. Nothing was changed.`, move: [], credit: [] };
     if (!already && b.otherCredits.has(d.id)) return { blocked: `${label} has a credit note. Nothing was changed.`, move: [], credit: [] };
-    if (isInvoiceType(d.type) && c.invoiceSplit && isDraftStatus(d.status)) return { blocked: `${label} is a split payment part. Undo the split first.`, move: [], credit: [] };
+    // Split payment parts (2026-11-25): no "Undo the split first". Draft parts move, confirmed parts are credited and
+    // re-issued like any confirmed invoice; a paid / allocated part blocked above. The split is kept (splitAfterMove).
     const confirmedInvoice = isInvoiceType(d.type) && !isDraftStatus(d.status) && c.voided !== true;
     if (confirmedInvoice) {
       credit.push(d);
@@ -288,3 +289,89 @@ export function matchCustomer<T extends { id: string; name: string; uen?: string
 }
 
 export const r2 = R2;
+
+
+/** The split marker of an invoice config ({ groupId, part, of, baseNumber, partIds? ... }), or null. */
+export function splitOf(config: any): { groupId: string; part: number; of: number; baseNumber: string; partIds?: string[]; restore?: any } | null {
+  const sp = config?.invoiceSplit;
+  return sp && typeof sp === 'object' && typeof sp.groupId === 'string' && Number.isFinite(Number(sp.part)) ? sp : null;
+}
+
+/**
+ * A split part's marker after the move (2026-11-25): the group keeps its parts, ids follow the re-issues (a credited
+ * part is replaced by its re-issue), the base number is the group's new number in the target company, and part 1's
+ * Undo-split snapshot is renumbered and re-taxed like the part itself (so Undo split there gives the moved invoice).
+ */
+export function splitAfterMove(config: any, ctx: { swap: Map<string, string>; baseOf: (groupId: string) => string | undefined; restoreConfig?: (restore: any, newBase: string) => any }): any {
+  const sp = splitOf(config);
+  if (!sp) return config;
+  const base = ctx.baseOf(sp.groupId) ?? sp.baseNumber;
+  const next: any = { ...sp, groupId: ctx.swap.get(sp.groupId) ?? sp.groupId, baseNumber: base };
+  if (Array.isArray(sp.partIds)) next.partIds = sp.partIds.map((id) => ctx.swap.get(id) ?? id);
+  if (sp.restore?.config && ctx.restoreConfig) next.restore = { ...sp.restore, config: ctx.restoreConfig(sp.restore.config, base) };
+  return { ...config, invoiceSplit: next };
+}
+
+/** A part's number from its group's new base: TI2202611-005 + part 2 -> TI2202611-005-2. */
+export const movedPartNumber = (base: string, part: number) => `${base}-${part}`;
+
+/**
+ * A3 files (2026-11-25): the folders of a record's OWN files (signed / stamped DOs, attachments, service report
+ * files and photos, job photos, signatures captured on the job, generated PDFs). Company-wide files (logos, stamps,
+ * staff signatures, payment details, assets, vehicles, bills ...) never move with an order, even when a moved
+ * document's config names them.
+ */
+const RECORD_FILE_FOLDERS = new Set([
+  'documents', 'orders', 'deliveries', 'do-start', 'do-ack', 'do-install', 'do-stamped', 'delivery-pod', 'job-fields', 'job-photos',
+  'msr-photos', 'msr-annotations', 'maintenance-reports', 'captured-images', 'attachments', 'signed-docs', 'delivery-posts', 'misc',
+]);
+
+/** The folder a key is filed under: org/<org>/<folder>/... -> folder, <folder>/... -> folder. */
+export function fileFolderOf(key: string): string {
+  const p = String(key || '').split('/');
+  return p[0] === 'org' ? p[2] ?? '' : p[0] ?? '';
+}
+
+/** Of the stored values found on the moved records, the keys that are the records' own files (deduplicated). */
+export function recordFileKeys(keys: Array<string | null | undefined>): string[] {
+  const out = new Set<string>();
+  for (const k of keys) if (k && RECORD_FILE_FOLDERS.has(fileFolderOf(k))) out.add(k);
+  return [...out];
+}
+
+export interface StoredFileRow {
+  key: string;
+  organizationId: string;
+  quarantined: boolean;
+  sharedOrgIds: string[];
+}
+
+/**
+ * What re-registering a moved record's file does (StoredFile, the registry files.service reads first; the S3 key
+ * itself never changes): a file of the source company (registry row, else the org its key names, else unknown) is
+ * registered to the target; a quarantined file the source shares gets the target added to its orgs; a file of any
+ * other company is left alone.
+ */
+export function fileMoveOf(key: string, row: StoredFileRow | null, keyOrg: string | null, from: string, to: string): { op: 'update' | 'create' | 'share' | 'skip' } {
+  if (row) {
+    if (row.quarantined) {
+      const orgs = [row.organizationId, ...(row.sharedOrgIds ?? [])];
+      return { op: orgs.includes(from) && !orgs.includes(to) ? 'share' : 'skip' };
+    }
+    return { op: row.organizationId === from ? 'update' : 'skip' };
+  }
+  return { op: keyOrg === null || keyOrg === from ? 'create' : 'skip' };
+}
+
+/**
+ * A new document's tax in a company of the pair (createBasicDocument): the non-GST company (BC Air) starts its
+ * invoices (2026-11-24) and quotations (2026-11-25) as non-GST (Tax N, GST amount 0). Null = leave the document as
+ * it is (the GST company, any other type, an imported document, an org outside the switch).
+ */
+export function newDocumentTaxDefault(type: unknown, state: GstSwitchState, config: any): any | null {
+  if (config?.erpImport) return null;
+  if (!state.on || state.gst) return null;
+  if (isQuotationType(type)) return taxedQuotationConfig(config, false);
+  if (['INVOICE', 'TI', 'TI2'].includes(String(type ?? '').toUpperCase())) return taxedInvoiceConfig(config, false);
+  return null;
+}

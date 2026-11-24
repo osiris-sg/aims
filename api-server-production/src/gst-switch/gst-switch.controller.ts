@@ -15,6 +15,13 @@ export class GstSwitchController {
     return id;
   }
 
+  /** A document moved out of this company by the switch: where it went (and, with access there, its link). */
+  @Get('where/:documentId')
+  @Permissions('documents:read')
+  where(@Param('documentId') id: string, @Req() req: any) {
+    return this.svc.whereMoved(id, this.org(req), { userId: req.user?.id ?? null, isAdmin: !!req.isOsirisAdmin });
+  }
+
   @Get(':invoiceId')
   @Permissions('documents:read')
   state(@Param('invoiceId') id: string, @Req() req: any) {

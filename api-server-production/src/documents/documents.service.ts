@@ -1,6 +1,6 @@
 import { invoiceDoNumbers, isInvoiceDocType } from './invoice-do-nos';
 import { gstSwitchFor } from '../gst-switch/gst-switch-state';
-import { taxedInvoiceConfig } from '../gst-switch/gst-switch';
+import { isQuotationType, newDocumentTaxDefault } from '../gst-switch/gst-switch';
 const INVOICE_TYPES_FOR_GST = ['INVOICE', 'TI', 'TI2'];
 import { IMPORTED_ORDER_USE_CREATE_INVOICE, importedMarkerOf, importedOrderDraftInvoice, importedStatusFrom, isImportedOrder, isImportedOrdersEnabled, loadImportedOrderInputs, refreshImportedOrderStatus } from '../orders/imported-orders';
 import { remainingForOrder } from '../orders/imported-remaining';
@@ -4032,11 +4032,11 @@ export class DocumentsService {
         di.gstPercent = Number(orgTaxRate);
       }
       // GST switch (WCT group, 2026-11-24; gst-switch/): the non-GST company of the pair (BC Air) issues non-GST
-      // invoices by default. Every other org: no change.
-      if (INVOICE_TYPES_FOR_GST.includes(String(type).toUpperCase()) && !initialConfig.erpImport) {
-        const sw = await gstSwitchFor(this.prisma, organizationId);
-        if (sw.on && !sw.gst) {
-          const { documentInfo: taxedDi, ...taxedFlat } = taxedInvoiceConfig({ ...initialConfig, documentInfo: di }, false);
+      // invoices by default, and (2026-11-25) non-GST quotations (Tax N, GST 0). Every other org: no change.
+      if ((INVOICE_TYPES_FOR_GST.includes(String(type).toUpperCase()) || isQuotationType(type)) && !initialConfig.erpImport) {
+        const taxed = newDocumentTaxDefault(type, await gstSwitchFor(this.prisma, organizationId), { ...initialConfig, documentInfo: di });
+        if (taxed) {
+          const { documentInfo: taxedDi, ...taxedFlat } = taxed;
           Object.assign(initialConfig, taxedFlat);
           Object.assign(di, taxedDi);
         }
