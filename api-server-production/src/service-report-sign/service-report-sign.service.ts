@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { UploadsService } from '../uploads/uploads.service';
 import { MaintenanceReportsService } from '../maintenance-reports/maintenance-reports.service';
+import { isOrgFolderKey } from '../common/storage-keys';
 
 /**
  * Remote customer signature for SERVICE reports (2026-10-26).
@@ -58,6 +59,15 @@ type LinkState = 'active' | 'signed' | 'revoked' | 'expired' | 'notfound';
 
 const customerOf = (r: { serviceData: unknown }) => String(((r.serviceData as any) ?? {}).customerName ?? '').trim() || 'Unknown customer';
 
+/**
+ * A technician signature the field app uploaded: new server-built keys
+ * (org/<this org>/maintenance-reports/...) or the legacy flat key
+ * (maintenance-reports/<file>). Another org's key is refused.
+ */
+export function isTechSignatureKey(key: string, organizationId: string): boolean {
+  return isOrgFolderKey(key, organizationId, SIGNATURE_FOLDER) || /^maintenance-reports\/[A-Za-z0-9._-]+$/.test(key);
+}
+
 @Injectable()
 export class ServiceReportSignService {
   private readonly logger = new Logger(ServiceReportSignService.name);
@@ -87,7 +97,7 @@ export class ServiceReportSignService {
     if (!ids.length) throw new BadRequestException('Pick at least one report');
     if (ids.length > MAX_REPORTS) throw new BadRequestException(`One link can cover at most ${MAX_REPORTS} reports`);
     const techKey = (body?.techSignatureKey ?? '').trim() || null;
-    if (techKey && !/^maintenance-reports\/[A-Za-z0-9._-]+$/.test(techKey)) throw new BadRequestException('Invalid technician signature');
+    if (techKey && !isTechSignatureKey(techKey, organizationId)) throw new BadRequestException('Invalid technician signature');
 
     const rows = await this.prisma.maintenanceServiceReport.findMany({
       where: { id: { in: ids }, organizationId },
