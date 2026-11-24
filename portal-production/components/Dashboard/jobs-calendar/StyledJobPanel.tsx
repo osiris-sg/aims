@@ -166,7 +166,7 @@ export default function StyledJobPanel({
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [e.id, orderId, !!actions]);
+  }, [e.id, e.status, e.doCount, orderId, !!actions]); // status / DO count: reload the documents after Complete job (2026-11-24)
 
   // Team / crew: typed here, saved when the field is left (or Enter).
   // Round 39 B4: the free text part (teamText) when the API sends it, else the whole text as before.
