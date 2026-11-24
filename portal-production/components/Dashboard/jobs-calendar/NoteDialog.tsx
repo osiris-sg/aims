@@ -1,18 +1,19 @@
 "use client";
 
 // WCT jobs calendar add (2026-11-04): a calendar note (leave, PTW, blockage, other). Not a job: no SiteClock, no
-// billing. Add from an empty slot; click a note bar to edit or delete it.
+// billing. Add from an empty slot; click a note to see it (calendar style orgs: in the side panel, Edit opens this).
 // Note types (calendar style orgs, 2026-11-24): General (default), Site visit and Technician Site Visit join Leave,
-// PTW and Blockage. A Technician Site Visit has a job's fields and shows on the calendar like a job.
+// PTW and Blockage. 2026-11-25 (Elroy): every type has the General fields (title, staff, dates / times, remark); a
+// Technician Site Visit still shows on the calendar like a job. Unsaved typing asks "Discard changes?" before closing.
 
 import React, { useEffect, useState } from "react";
 import { Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, Switch, TextField, useMediaQuery } from "@mui/material";
-import { TSV_DURATIONS, TSV_TYPE, blankTsv, defaultNoteType, durationLabel, noteBody, noteTypeOptions, tsvFormOf, type CalendarNote, type NoteForm, type NoteType, type TsvForm } from "@/helpers/calendarAdd";
-import { useCalendarApi, useCalendarStylePeople, useSiteClockWorkers } from "./calendarAddApi";
+import { defaultNoteType, noteBody, noteTypeOptions, type CalendarNote, type NoteForm, type NoteType } from "@/helpers/calendarAdd";
+import { useCalendarApi, useSiteClockWorkers } from "./calendarAddApi";
 import DateInput from "@/components/DateInput";
-import CustomerPicker from "@/components/CustomerPicker";
-import type { PickerCustomer } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { closeAction, formDirty } from "@/helpers/calendarDiscard";
+import DiscardChangesDialog from "./DiscardChangesDialog";
 
 export default function NoteDialog({
   open,
@@ -31,13 +32,14 @@ export default function NoteDialog({
   const api = useCalendarApi();
   const phone = useMediaQuery((t: any) => t.breakpoints.down("sm"));
   const workers = useSiteClockWorkers(open);
-  // Calendar style orgs (WCT group): the extra note types and the Technician Site Visit's Salesperson list.
+  // Calendar style orgs (WCT group): the extra note types.
   const { features } = useOrganizationFeatures();
   const styled = features?.enableCalendarStyle === true;
-  const people = useCalendarStylePeople(open && styled);
   const types = noteTypeOptions(styled);
   const [form, setForm] = useState<NoteForm>(() => blank(slot, styled));
-  const [customer, setCustomer] = useState<PickerCustomer | null>(null);
+  // "Discard changes?" (2026-11-25): the form as it opened; only the person's changes make it differ.
+  const [baseline, setBaseline] = useState<NoteForm>(form);
+  const [askDiscard, setAskDiscard] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState("");
@@ -46,7 +48,8 @@ export default function NoteDialog({
     if (!open) return;
     setError("");
     setConfirmDelete(false);
-    setForm(
+    setAskDiscard(false);
+    const opened: NoteForm =
       note
         ? {
             title: note.title,
@@ -59,16 +62,19 @@ export default function NoteDialog({
             startTime: note.startTime ?? "09:00",
             endTime: note.endTime ?? "17:00",
             remark: note.remark ?? "",
-            ...(note.type === TSV_TYPE ? { tsv: tsvFormOf(note) } : {}),
           }
-        : blank(slot, styled),
-    );
-    setCustomer(note?.details?.customerId ? { id: note.details.customerId, name: note.details.customerName ?? "" } : null);
+        : blank(slot, styled);
+    setForm(opened);
+    setBaseline(opened);
   }, [open, note, slot, styled]);
 
   const set = (patch: Partial<NoteForm>) => setForm((f) => ({ ...f, ...patch }));
-  const tsv = form.type === TSV_TYPE ? form.tsv ?? blankTsv() : null;
-  const setTsv = (patch: Partial<TsvForm>) => setForm((f) => ({ ...f, tsv: { ...(f.tsv ?? blankTsv()), ...patch } }));
+  // Cancel, Esc or a click outside: closes at once when nothing was typed, else asks first.
+  const requestClose = () => {
+    const a = closeAction({ dirty: formDirty(form, baseline), busy });
+    if (a === "close") onClose();
+    else if (a === "ask") setAskDiscard(true);
+  };
   // A type the form doesn't list (e.g. a Site visit note opened after the calendar style was turned off) stays listed.
   const typeList = types.some((t) => t.value === form.type) ? types : [...types, ...noteTypeOptions(true).filter((t) => t.value === form.type)];
   const staff = form.staffId ? workers.options.find((o) => o.id === form.staffId) ?? { id: form.staffId, name: form.staffName ?? "", employeeNo: null, group: "Current" } : null;
@@ -93,23 +99,20 @@ export default function NoteDialog({
   };
 
   return (
-    <Dialog open={open} onClose={() => !busy && onClose()} fullWidth maxWidth="sm" fullScreen={phone}>
+    <>
+    <Dialog open={open} onClose={requestClose} fullWidth maxWidth="sm" fullScreen={phone}>
       <DialogTitle>{note ? "Edit note" : "New note"}</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2}>
-          {!tsv && <TextField label="Title" size="small" fullWidth required value={form.title} onChange={(e) => set({ title: e.target.value })} inputProps={{ maxLength: 120 }} autoFocus={!note} />}
+          <TextField label="Title" size="small" fullWidth required value={form.title} onChange={(e) => set({ title: e.target.value })} inputProps={{ maxLength: 120 }} autoFocus={!note} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
             <TextField
               select
               label="Type"
               size="small"
               value={form.type}
-              onChange={(e) => {
-                const type = e.target.value as NoteType;
-                set(type === TSV_TYPE ? { type, tsv: form.tsv ?? blankTsv(), endDate: form.startDate, ...(note?.type === TSV_TYPE ? {} : { allDay: false }) } : { type });
-              }}
+              onChange={(e) => set({ type: e.target.value as NoteType })}
               sx={{ minWidth: 160 }}
-              fullWidth={!!tsv}
               data-tour="calendar-note-type"
             >
               {typeList.map((t) => (
@@ -121,7 +124,7 @@ export default function NoteDialog({
                 </MenuItem>
               ))}
             </TextField>
-            {tsv ? null : workers.enabled ? (
+            {workers.enabled ? (
               <Autocomplete
                 fullWidth
                 size="small"
@@ -143,70 +146,11 @@ export default function NoteDialog({
               />
             )}
           </Stack>
-          {tsv && (
-            <>
-              <CustomerPicker
-                value={tsv.customerId}
-                initialCustomer={customer}
-                onChange={(c) => {
-                  setCustomer(c);
-                  setTsv({ customerId: c?.id ?? null, customerName: c?.name ?? "", ...(c && !tsv.siteAddress ? { siteAddress: c.address || "" } : {}) });
-                }}
-                label="Customer"
-                size="small"
-                fullWidth
-              />
-              <TextField label="Shop name" size="small" fullWidth value={tsv.shopName} onChange={(e) => setTsv({ shopName: e.target.value })} inputProps={{ maxLength: 120 }} />
-              <TextField label="Site address" size="small" fullWidth value={tsv.siteAddress} onChange={(e) => setTsv({ siteAddress: e.target.value })} inputProps={{ maxLength: 500 }} />
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }}>
-                <DateInput label="Date" size="small" value={form.startDate} onChange={(e) => set({ startDate: e.target.value, endDate: e.target.value })} InputLabelProps={{ shrink: true }} sx={{ flex: 1 }} />
-                {!form.allDay && <TextField label="Time" type="time" size="small" value={form.startTime} onChange={(e) => set({ startTime: e.target.value })} InputLabelProps={{ shrink: true }} sx={{ flex: 1 }} />}
-                {!form.allDay && (
-                  <TextField select label="Duration" size="small" value={String(tsv.durationMin)} onChange={(e) => setTsv({ durationMin: Number(e.target.value) })} sx={{ flex: 1 }}>
-                    {[...new Set([...TSV_DURATIONS, tsv.durationMin])]
-                      .sort((a, b) => a - b)
-                      .map((m) => (
-                        <MenuItem key={m} value={String(m)}>
-                          {durationLabel(m)}
-                        </MenuItem>
-                      ))}
-                  </TextField>
-                )}
-                <FormControlLabel control={<Switch checked={form.allDay} onChange={(e) => set({ allDay: e.target.checked })} />} label="No specific time" sx={{ flexShrink: 0, mr: 0, whiteSpace: "nowrap" }} />
-              </Stack>
-              {workers.enabled ? (
-                <Autocomplete
-                  multiple
-                  size="small"
-                  options={workers.options}
-                  groupBy={(o) => o.group}
-                  value={tsv.workers.map((w) => workers.options.find((o) => o.id === w.id) ?? { id: w.id, name: w.name, employeeNo: null, group: "Current" })}
-                  loading={workers.loading}
-                  isOptionEqualToValue={(a, b) => a.id === b.id}
-                  getOptionLabel={(o) => (o.employeeNo ? `${o.name} (${o.employeeNo})` : o.name)}
-                  onChange={(_e, v) => setTsv({ workers: v.map((o) => ({ id: o.id, name: o.name })) })}
-                  renderInput={(params) => <TextField {...params} label="Assigned workers" error={!!workers.error} />}
-                />
-              ) : null}
-              <TextField label="Team / crew" size="small" fullWidth value={tsv.team} onChange={(e) => setTsv({ team: e.target.value })} inputProps={{ maxLength: 200 }} />
-              {people.enabled && (
-                <Autocomplete
-                  size="small"
-                  options={people.salespeople}
-                  value={tsv.salesperson ? people.salespeople.find((p) => p.id === tsv.salesperson!.id) ?? { id: tsv.salesperson.id, name: tsv.salesperson.name } : null}
-                  isOptionEqualToValue={(a, b) => a.id === b.id}
-                  getOptionLabel={(o) => o.name}
-                  onChange={(_e, o) => setTsv({ salesperson: o ? { id: o.id, name: o.name } : null })}
-                  renderInput={(params) => <TextField {...params} label="Salesperson" />}
-                />
-              )}
-            </>
-          )}
-          {!tsv && <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
             <DateInput label="Start date" size="small" value={form.startDate} onChange={(e) => set({ startDate: e.target.value, ...(form.endDate && form.endDate < e.target.value ? { endDate: e.target.value } : {}) })} InputLabelProps={{ shrink: true }} sx={{ flex: 1 }} />
             <DateInput label="End date" size="small" value={form.endDate} onChange={(e) => set({ endDate: e.target.value })} InputLabelProps={{ shrink: true }} sx={{ flex: 1 }} />
-          </Stack>}
-          {!tsv && <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }}>
+          </Stack>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }}>
             <FormControlLabel control={<Switch checked={form.allDay} onChange={(e) => set({ allDay: e.target.checked })} />} label="All day" />
             {!form.allDay && (
               <>
@@ -214,8 +158,8 @@ export default function NoteDialog({
                 <TextField label="To" type="time" size="small" value={form.endTime} onChange={(e) => set({ endTime: e.target.value })} InputLabelProps={{ shrink: true }} />
               </>
             )}
-          </Stack>}
-          <TextField label={tsv ? "Remarks" : "Remark"} size="small" fullWidth multiline minRows={2} value={form.remark} onChange={(e) => set({ remark: e.target.value })} />
+          </Stack>
+          <TextField label="Remark" size="small" fullWidth multiline minRows={2} value={form.remark} onChange={(e) => set({ remark: e.target.value })} />
           {error && <Alert severity="error">{error}</Alert>}
         </Stack>
       </DialogContent>
@@ -231,7 +175,7 @@ export default function NoteDialog({
             </Button>
           ))}
         <Box sx={{ flex: 1 }} />
-        <Button onClick={onClose} disabled={busy}>
+        <Button onClick={requestClose} disabled={busy}>
           Cancel
         </Button>
         <Button variant="contained" onClick={() => void save()} disabled={busy}>
@@ -239,6 +183,15 @@ export default function NoteDialog({
         </Button>
       </DialogActions>
     </Dialog>
+    <DiscardChangesDialog
+      open={askDiscard}
+      onKeep={() => setAskDiscard(false)}
+      onDiscard={() => {
+        setAskDiscard(false);
+        onClose();
+      }}
+    />
+    </>
   );
 }
 

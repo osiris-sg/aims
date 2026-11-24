@@ -2,7 +2,8 @@
 
 // Jobs calendar side panel, round 36 (WCT group, 2026-11-20, calendar style orgs): the customer as the title (plain
 // text), the Subject and Remarks, every linked document with its own status (Order, Quotation, Invoices, DOs), the
-// "Team / crew" field, quick toggles (PTW status, PTW applicant, Generate sticker, COD, Category; ✅ stays automatic),
+// "Team / crew" field, quick toggles (PTW status, PTW applicant, Generate sticker, COD; ✅ stays automatic; the Category
+// pills went 2026-11-25),
 // and Open job / Cancel job (Undo) / Postpone / Reschedule. All text can be selected and copied.
 // Another company's job (group calendar) is read only here: a member opens it in one click (the tab switches to that
 // company), a non member gets no link.
@@ -20,7 +21,7 @@ import DateInput from "@/components/DateInput";
 import { orderPageModel } from "@/helpers/orderPage";
 import { applicantLabel, crewLine, timeWindow, type CalendarEvent } from "./calendarModel";
 import {
-  PANEL_DOC_LIMIT, PTW_PILLS, applyToggle, canEditOnCalendar, colourCircle, crossOrgOpen, customerOf, panelDocGroups, panelDocsFallback, panelDocsFromOrder, postponedLabel, ptwPillOf, ptwStatusOf, toggleRequest,
+  PANEL_DOC_LIMIT, PTW_PILLS, applyToggle, canEditOnCalendar, colourCircle, crossOrgOpen, customerOf, jobRemarks, panelDocGroups, remarksLine, panelDocsFallback, panelDocsFromOrder, postponedLabel, ptwPillOf, ptwStatusOf, toggleRequest,
   type Clash, type PanelDoc, type PanelToggle, type RescheduleTarget,
 } from "./calendarPanel";
 import type { StylePerson } from "./calendarAddApi";
@@ -37,8 +38,8 @@ export interface CalendarActions {
   reload: () => void;
   applicants: StylePerson[];
   defaultApplicant: StylePerson | null;
-  /** The org's job categories (null: the org has none). */
-  categories: string[] | null;
+  /** The org's job categories (null: the org has none). Not shown since 2026-11-25. */
+  categories?: string[] | null;
 }
 
 const STATUS_HUE: Record<string, string> = {
@@ -136,7 +137,8 @@ export default function StyledJobPanel({
   const editable = !!actions && canEditOnCalendar(e) && !e.recordOnly;
   const cross = crossOrgOpen(e);
   const customer = customerOf(e);
-  const remarks = e.remarks && e.remarks.trim().toLowerCase() !== (e.subject ?? "").trim().toLowerCase() ? e.remarks : null;
+  // 2026-11-25: shown as "Remarks: <text>" (not when they only repeat the subject / job title).
+  const remarks = jobRemarks(e) || null;
 
   // Linked documents: the order page's own list (status chips as the order page shows them), else the job's own.
   const [docs, setDocs] = useState<PanelDoc[] | null>(null);
@@ -312,8 +314,8 @@ export default function StyledJobPanel({
         </Typography>
       )}
       {remarks && (
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-          {remarks}
+        <Typography variant="body2" color="text.secondary" data-testid="panel-remarks" sx={{ mt: 0.5, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+          {remarksLine(remarks)}
         </Typography>
       )}
       {(e.cancelled || e.postponed || e.postponedFrom) && (
@@ -444,19 +446,7 @@ export default function StyledJobPanel({
                 <Pill label="🟫 COD" on={!!e.cod} onClick={() => void toggle({ kind: "cod", on: !e.cod })} />
               </Stack>
             </Box>
-            {actions?.categories && actions.categories.length > 0 && (
-              <Box>
-                <Typography variant="caption" color="text.secondary">
-                  Category
-                </Typography>
-                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 0.5 }}>
-                  {/* A retired category the job already has (e.g. Site visit, 2026-11-24) stays shown on that job. */}
-                  {[...actions.categories, ...(e.category && !actions.categories.some((c) => c.toLowerCase() === e.category!.toLowerCase()) ? [e.category] : [])].map((c) => (
-                    <Pill key={c} label={c} on={(e.category ?? "").toLowerCase() === c.toLowerCase()} onClick={() => void toggle({ kind: "category", category: c })} />
-                  ))}
-                </Stack>
-              </Box>
-            )}
+            {/* Category pills removed 2026-11-25 (Elroy, "for now"); a job keeps its stored category. */}
           </Stack>
         </>
       )}
@@ -480,7 +470,7 @@ export default function StyledJobPanel({
                   time={resched.allDay ? null : resched.time || null}
                   allDay={resched.allDay}
                   durationMin={e.end ? Math.max(15, Math.round((Date.parse(e.end) - Date.parse(e.start)) / 60_000)) : 60}
-                  team={e.team ?? null}
+                  crew={e.crewPicks ?? null}
                   excludeId={e.id}
                   onPick={(sl) => setResched({ ...resched, mode: "date", date: sl.date, time: sl.time ?? resched.time, allDay: !sl.time })}
                   onHints={setReschedHints}

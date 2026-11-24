@@ -281,7 +281,7 @@ export function styleOf(i: StyleInput, colours: CalendarColours): EventStyle {
   if (i.sticker) icons.push({ icon: ICON.sticker, label: 'Generate sticker' });
   // An applicant with no colour (the neutral bar) gets no circle.
   const applicantIcon = applicantBar && applicant && applicantBar !== NEUTRAL_BAR ? colourCircle(applicantBar) : null;
-  return { fill, text: textOn(fill), bar, icons, greyed: i.cancelled || i.postponed, prefix: categoryPrefix(i.category), ...(applicantIcon ? { applicantIcon } : {}) };
+  return { fill, text: textOn(fill), bar, icons, greyed: i.cancelled || i.postponed, prefix: null /* 2026-11-25: no (SV) / (M) / (CC) tag on the chips for now (categoryPrefix kept for later) */, ...(applicantIcon ? { applicantIcon } : {}) };
 }
 
 /**

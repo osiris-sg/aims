@@ -16,6 +16,7 @@ import {
   salespersonFromCode,
   styleOf,
   StyleInput,
+  categoryPrefix,
 } from './calendar-style';
 import { CalendarStyleService, isSalesMember } from './calendar-style.service';
 import { JobsCalendarService } from './jobs-calendar.service';
@@ -99,11 +100,11 @@ describe('calendar style: chips', () => {
     expect(styleOf(input(), colours).greyed).toBe(false);
   });
 
-  it('category prefixes: (SV) Site visit, (M) Meeting, (CC) Collect cheque; others none', () => {
-    expect(styleOf(input({ category: 'Site visit' }), colours).prefix).toBe('(SV)');
-    expect(styleOf(input({ category: 'Meeting' }), colours).prefix).toBe('(M)');
-    expect(styleOf(input({ category: 'collect cheque' }), colours).prefix).toBe('(CC)');
-    expect(styleOf(input({ category: 'Service order' }), colours).prefix).toBeNull();
+  it('2026-11-25: no category tag on the chips, whatever the category (the list stays for later)', () => {
+    for (const category of ['Site visit', 'Meeting', 'collect cheque', 'Service order', null]) expect(styleOf(input({ category }), colours).prefix).toBeNull();
+    expect(categoryPrefix('Site visit')).toBe('(SV)');
+    expect(categoryPrefix('Meeting')).toBe('(M)');
+    expect(categoryPrefix('collect cheque')).toBe('(CC)');
   });
 
   it('the legend is icons only (no people)', () => {
@@ -814,7 +815,7 @@ describe('round 36: Cancel job / Undo and Postpone / Reschedule from the panel',
     expect(zonedInstant('2026-11-25', '09:05').toISOString()).toBe('2026-11-25T01:05:00.000Z');
   });
 
-  it("the PTW pills send the status only: the job's PTW remark is kept; Not needed clears it", async () => {
+  it("the PTW pills send the status only: the job's PTW remark is kept, also on Not needed (2026-11-25); an explicit one is saved", async () => {
     const s = jobSvc({ id: 'j', status: 'scheduled', ptwRemark: 'MCST form' });
     s.prisma.delivery.update = jest.fn(async () => ({}));
     await s.setPtw('j', 'org', { ptwStatus: 'APPROVED' });
@@ -822,6 +823,8 @@ describe('round 36: Cancel job / Undo and Postpone / Reschedule from the panel',
     await s.setPtw('j', 'org', { ptwStatus: 'APPROVED', ptwRemark: 'new' });
     expect(s.prisma.delivery.update).toHaveBeenLastCalledWith({ where: { id: 'j' }, data: { ptwStatus: 'APPROVED', ptwRemark: 'new' } });
     await s.setPtw('j', 'org', { ptwStatus: 'NOT_NEEDED' });
+    expect(s.prisma.delivery.update).toHaveBeenLastCalledWith({ where: { id: 'j' }, data: { ptwStatus: null, ptwRemark: 'MCST form' } });
+    await s.setPtw('j', 'org', { ptwStatus: 'NOT_NEEDED', ptwRemark: '' });
     expect(s.prisma.delivery.update).toHaveBeenLastCalledWith({ where: { id: 'j' }, data: { ptwStatus: null, ptwRemark: null } });
   });
 });

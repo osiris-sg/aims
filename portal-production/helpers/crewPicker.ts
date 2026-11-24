@@ -95,3 +95,19 @@ export const crewDisplay = (crew: CrewPick[] | null | undefined, team: string | 
 /** Two { crew, team } values hold the same chips (same picks in the same order, same text). */
 export const sameValue = (a: { crew: CrewPick[]; team: string }, b: { crew: CrewPick[]; team: string }): boolean =>
   a.team === b.team && a.crew.length === b.crew.length && a.crew.every((c, i) => c.kind === b.crew[i].kind && c.id === b.crew[i].id);
+
+/**
+ * Typed text that is exactly a team's or worker's name (any case; "Team A" for team "A" too) becomes that pick
+ * (2026-11-25): only picks count in the "already has a job then" warning, so a real team typed by hand still does.
+ * Anything else ("+2PT") stays free text.
+ */
+export function resolveTyped(chips: CrewChip[], options: CrewOptions | null | undefined): CrewChip[] {
+  const list = crewOptionList(options);
+  if (!list.length) return chips;
+  return chips.map((c) => {
+    if (typeof c !== "string") return c;
+    const k = crewKey(c);
+    const hit = list.find((o) => crewKey(o.name) === k) ?? list.find((o) => o.kind === "team" && crewKey(teamName(o.name)) === k);
+    return hit ?? c;
+  });
+}

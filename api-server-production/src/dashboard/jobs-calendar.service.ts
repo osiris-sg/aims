@@ -441,17 +441,16 @@ export class JobsCalendarService {
   }
 
   /**
-   * Calendar style: Technician Site Visit notes as job events (calendar-note-types.ts tsvEvent), coloured by their
-   * salesperson through the same styleOf the jobs use (the salesperson's current name when known).
+   * Calendar style: Technician Site Visit notes as job events (calendar-note-types.ts tsvEvent). 2026-11-25: the
+   * card is the note's time + title; its fill is the People colour of the note's old salesperson (kept, hidden) or,
+   * for a note made since, of the person who added it, through the same styleOf the jobs use.
    */
   private async tsvEvents(notes: CalendarNoteView[], colours: CalendarColours): Promise<CalendarEvent[]> {
-    const spIds = new Set(notes.map((n) => (n.details as any)?.salesperson?.id).filter((x): x is string => typeof x === 'string'));
-    const names: Map<string, { name: string | null }> = spIds.size ? await this.style!.names(spIds) : new Map();
     return notes.map((n) => {
-      const sp = (n.details as any)?.salesperson as { id: string; name: string | null } | undefined;
-      const salesperson = sp?.id ? { id: sp.id, name: names.get(sp.id)?.name ?? sp.name ?? null } : null;
-      const input: StyleInput = { cancelled: false, postponed: false, ptwStatus: null, doCount: 0, cod: false, category: null, salespersonId: salesperson?.id ?? null, ptwApplicantId: null };
-      return tsvEvent(n, { style: styleOf(input, colours), salesperson, createdBy: n.createdBy ?? null });
+      const spId = (n.details as any)?.salesperson?.id;
+      const colourOf = typeof spId === 'string' ? spId : n.createdBy?.id ?? null;
+      const input: StyleInput = { cancelled: false, postponed: false, ptwStatus: null, doCount: 0, cod: false, category: null, salespersonId: colourOf, ptwApplicantId: null };
+      return tsvEvent(n, { style: styleOf(input, colours), createdBy: n.createdBy ?? null });
     });
   }
 

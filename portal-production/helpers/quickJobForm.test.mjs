@@ -10,7 +10,9 @@ const style = read("components/Dashboard/jobs-calendar/JobStyleFields.tsx");
 
 test("every New job field of the WCT group is on the form", () => {
   assert.ok(dialog.includes('label={wctForm ? "Company" : "Customer"}'), "the WCT form calls the customer Company");
-  for (const label of ["Organisation", "Quotation", "Job category", "Job title", "Site / address", "Date", "Time", "Duration", "No specific time", "Assigned workers", "Remarks", "PTW"]) {
+  // 2026-11-25: Job category and PTW remark are gone from the form.
+  assert.ok(!dialog.includes('label="Job category"') && !dialog.includes('label="PTW remark"'));
+  for (const label of ["Organisation", "Quotation", "Job title", "Site / address", "Date", "Time", "Duration", "No specific time", "Assigned workers", "Remarks", "PTW"]) {
     assert.ok(dialog.includes(`label="${label}"`), `New job is missing "${label}"`);
   }
   for (const label of ["Salesperson", "COD", "Generate sticker", "Team / crew", "PTW applicant"]) {
@@ -19,11 +21,10 @@ test("every New job field of the WCT group is on the form", () => {
   assert.match(dialog, /<JobStyleFields/);
 });
 
-test("Company, Job category and the people fields show at once for the WCT group (no wait on any list)", () => {
+test("Company and the people fields show at once for the WCT group (no wait on any list)", () => {
   // The WCT group form = calendar style orgs (pending while the people load, or loaded and on).
   assert.match(dialog, /const wctForm = people\.pending \|\| people\.enabled;/);
   assert.match(dialog, /\{!companies && wctForm && <TextField label="Organisation"/);
-  assert.match(dialog, /\{!categoryDef && !categoryLoaded && wctForm && <TextField required label="Job category"/);
   assert.match(dialog, /\{wctForm && form\.style && \(\s*<JobStyleFields/);
   // The style block starts filled while the people load.
   assert.match(dialog, /if \(!open \|\| editId \|\| !people\.pending\) return;/);

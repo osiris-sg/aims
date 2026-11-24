@@ -25,6 +25,9 @@ export interface JobDayPreviewProps {
   time: string | null;
   allDay: boolean;
   durationMin: number;
+  /** The form's picked teams / workers (2026-11-25): only picks are compared ("+2PT" typed in Team / crew never is). */
+  crew?: Array<{ kind: string; id: string; name: string }> | null;
+  /** The shared Schedule dialog's picked SiteClock worker (a name): compared with the other jobs' picked names. */
   team?: string | null;
   /** The job being edited / rescheduled: never shown as its own clash. */
   excludeId?: string | null;
@@ -41,7 +44,7 @@ export const JobDayPreviewFixture = createContext<CalendarPayload | null>(null);
 const SGT_TODAY = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 const addMin = (date: string, time: string, min: number) => new Date(Date.parse(`${date}T${time}:00+08:00`) + min * 60_000).toISOString();
 
-export default function JobDayPreview({ date, time, allDay, durationMin, team, excludeId, onPick, onHints, orgId = null }: JobDayPreviewProps) {
+export default function JobDayPreview({ date, time, allDay, durationMin, crew = null, team, excludeId, onPick, onHints, orgId = null }: JobDayPreviewProps) {
   const api = useCalendarApi();
   const { getToken, userId } = useAuth();
   const { isHideSiteClockJobs } = useOrganizationFeatures();
@@ -115,7 +118,11 @@ export default function JobDayPreview({ date, time, allDay, durationMin, team, e
     () => (/^\d{4}-\d{2}-\d{2}$/.test(date) ? (t ? { start: addMin(date, t, 0), end: addMin(date, t, Math.max(15, durationMin || 60)), allDay: false } : { start: date, end: date, allDay: true }) : null),
     [date, t, durationMin],
   );
-  const hints = useMemo(() => (/^\d{4}-\d{2}-\d{2}$/.test(date) ? slotHints(events, { date, time: t, durationMin, team, excludeId }) : []), [events, date, t, durationMin, team, excludeId]);
+  const crewKey = JSON.stringify(crew ?? []);
+  const hints = useMemo(
+    () => (/^\d{4}-\d{2}-\d{2}$/.test(date) ? slotHints(events, { date, time: t, durationMin, crew: JSON.parse(crewKey), pickedName: team, excludeId }) : []),
+    [events, date, t, durationMin, crewKey, team, excludeId],
+  );
   const hintsKey = hints.join("\n");
   useEffect(() => {
     onHints?.(hints);

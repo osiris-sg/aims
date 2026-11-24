@@ -32,6 +32,11 @@ import { linkedToast } from "@/helpers/quickJobQuotation";
 import NoteDialog from "./jobs-calendar/NoteDialog";
 import CalendarSearch, { type CalendarSearchHit } from "./jobs-calendar/CalendarSearch";
 import JobEditHost, { type JobEditTarget } from "./jobs-calendar/JobEditHost";
+import CalendarSkeleton, { FilterRowSkeleton, GridSkeleton } from "./jobs-calendar/CalendarSkeleton";
+import CalendarColoursDialog from "./jobs-calendar/CalendarColoursDialog";
+import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
+import { CALENDAR_COLOURS_PATH, orgSettingsEditOf, wctSettingsEntry } from "@/helpers/customAccess";
+import { filterSchedule } from "@/helpers/calendarSearch";
 
 const CalendarView = dynamic(() => import("./jobs-calendar/CalendarView"), {
   ssr: false,
@@ -42,7 +47,14 @@ const CalendarView = dynamic(() => import("./jobs-calendar/CalendarView"), {
 /** fullHeight: WCT's dashboard is this calendar alone. */
 export default function JobsCalendar({ fullHeight = false }: { fullHeight?: boolean }) {
   // WCT (enableWctOrders): "Job" wording, and a click opens the job.
-  const { isWctOrdersEnabled, isHideSiteClockJobs, isGroupCalendarEnabled } = useOrganizationFeatures();
+  const { isWctOrdersEnabled, isHideSiteClockJobs, isGroupCalendarEnabled, features, isLoading: featuresLoading } = useOrganizationFeatures();
+  // 2026-11-25 (old calendar flash): the org's calendar style is known from its settings before the first data, so
+  // the plain calendar never shows first; a skeleton of the real layout shows until both are in.
+  const expectStyled = features?.enableCalendarStyle === true;
+  // Calendar "Settings" (Calendar colours): the same rule as the Org Settings menu entry (Org Settings edit).
+  const { userRoles, isLoading: rolesLoading } = useUserPermissions();
+  const canColours = !rolesLoading && wctSettingsEntry(CALENDAR_COLOURS_PATH, { customAccess: false, calendarStyle: expectStyled, orgSettingsEdit: orgSettingsEditOf(userRoles) }) != null;
+  const [coloursOpen, setColoursOpen] = useState(false);
   const { getToken, userId } = useAuth();
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
   const [data, setData] = useState<CalendarPayload | null>(null);
@@ -126,14 +138,10 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
     return () => window.removeEventListener("pageshow", onShow);
   }, []);
 
-  // Round 36 (calendar style orgs): the side panel's toggles, Cancel / Undo, Reschedule; the job categories for its pills.
+  // Round 36 (calendar style orgs): the side panel's toggles, Cancel / Undo, Reschedule. (Its Category pills and the
+  // Category filter went 2026-11-25, so the job category list is no longer read here.)
   const styledOn = !!data?.style;
   const stylePeople = useCalendarStylePeople(styledOn);
-  const [categories, setCategories] = useState<string[] | null>(null);
-  useEffect(() => {
-    if (!styledOn || categories) return;
-    void api<any>("GET", "/deliveries/job-category").then((r) => setCategories(r.ok && Array.isArray(r.data?.options) ? r.data.options : []));
-  }, [styledOn, categories, api]);
   const actions = useMemo<CalendarActions | undefined>(
     () =>
       styledOn
@@ -145,10 +153,9 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
             reload,
             applicants: stylePeople.applicants,
             defaultApplicant: stylePeople.defaultApplicant,
-            categories,
           }
         : undefined,
-    [styledOn, api, reload, stylePeople.applicants, stylePeople.defaultApplicant, categories],
+    [styledOn, api, reload, stylePeople.applicants, stylePeople.defaultApplicant],
   );
   // Export list: any range (up to a month) as the calendar shows it, and the header from Settings > Job fields.
   const loadRange = useCallback(
@@ -190,10 +197,13 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
     },
     [api],
   );
+  if (featuresLoading) return <CalendarSkeleton fullHeight={fullHeight} />;
   return (
     <>
       <JobsCalendarPanel
         data={data}
+        pendingStyle={expectStyled && !data && !error}
+        onSettings={canColours ? () => setColoursOpen(true) : undefined}
         loading={loading}
         error={error}
         showCancelled={showCancelled}
@@ -216,6 +226,7 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
         loadHeader={loadHeader}
       />
       {canAdd && <JobEditHost target={jobEdit} onClose={() => setJobEdit(null)} onSaved={reload} />}
+      {canColours && <CalendarColoursDialog open={coloursOpen} onClose={() => setColoursOpen(false)} onSaved={reload} />}
       {canAdd && (
         <>
           <QuickJobDialog
@@ -277,6 +288,8 @@ export function JobsCalendarPanel({
   actions,
   loadRange,
   loadHeader,
+  pendingStyle = false,
+  onSettings,
 }: {
   data: CalendarPayload | null;
   loading: boolean;
@@ -309,10 +322,15 @@ export function JobsCalendarPanel({
   /** Round 36: the Export list's jobs for any range, and its header line. */
   loadRange?: (from: string, to: string) => Promise<CalendarPayload | null>;
   loadHeader?: () => Promise<string | null>;
+  /** 2026-11-25: the org has the calendar style and its first data is still loading: skeleton over the real layout. */
+  pendingStyle?: boolean;
+  /** Calendar colours (Org Settings edit only): the "Settings" button beside Export list. */
+  onSettings?: () => void;
 }) {
   const banner = siteclockBanner(data);
   // Calendar style (enableCalendarStyle, WCT group): an icon legend only, and cancelled / postponed always shown (greyed).
-  const styled = !!data?.style;
+  // pendingStyle: known from the org's settings before the data arrives (no plain calendar first).
+  const styled = !!data?.style || pendingStyle;
   // The Salesperson filter (calendarHqView) was removed 2026-11-19: the people list beside the calendar does this job.
   const allEvents = useMemo(() => data?.events ?? [], [data]);
   // People list (calendar style orgs, 2026-11-19): unticking a person hides the jobs and notes they made; a company
@@ -369,11 +387,10 @@ export function JobsCalendarPanel({
     for (const e of allEvents) if (e.ptwApplicant?.id && !m.has(e.ptwApplicant.id)) m.set(e.ptwApplicant.id, e.ptwApplicant.name || "Unknown");
     return [...m].map(([id, name]) => ({ id, name }));
   }, [actions, allEvents]);
-  const filterCategories = useMemo(() => {
-    const out = [...(actions?.categories ?? [])];
-    for (const e of allEvents) if (e.category && !out.some((c) => c.toLowerCase() === e.category!.toLowerCase())) out.push(e.category);
-    return out;
-  }, [actions, allEvents]);
+  // Schedule view search (2026-11-25): the box filters the Schedule list live; other views keep the dropdown.
+  const [viewType, setViewType] = useState<string>(initialView ?? "dayGridMonth");
+  const [searchText, setSearchText] = useState("");
+  const scheduleSearch = viewType === "schedule" && !!searchText.trim();
   const [exportOpen, setExportOpen] = useState(false);
   // Calendar search pick: the calendar goes to its day and opens it (the Companies filter narrows the search too).
   const [focus, setFocus] = useState<{ id: string; kind: "job" | "note"; date: string; n: number } | null>(null);
@@ -395,6 +412,7 @@ export function JobsCalendarPanel({
     [loadRange, data, withPeople, hidden, filters, ownOrgId],
   );
   const shownNotes = useMemo(() => (withPeople && data?.notes ? filterByPeople(data.notes, hidden) : data?.notes), [withPeople, data, hidden]);
+  const scheduleShown = useMemo(() => (scheduleSearch ? filterSchedule(shownEvents, shownNotes, searchText) : null), [scheduleSearch, shownEvents, shownNotes, searchText]);
   const theme = useTheme();
   // People panel (2026-11-19): open by default only on wide screens (1600px+), so Month gets the full width on a
   // laptop; the people icon toggles it and the choice is remembered for this user in this browser.
@@ -475,23 +493,42 @@ export function JobsCalendarPanel({
           {error}
         </Alert>
       )}
-      {styled && (
+      {styled && pendingStyle && !data && <FilterRowSkeleton />}
+      {styled && !!data && (
         <CalendarFilterBar
           value={filters}
           onChange={setFilters}
           applicants={filterApplicants}
-          categories={filterCategories}
           companies={data?.group?.orgs ?? []}
           onExport={() => setExportOpen(true)}
-          search={searchJobs ? <CalendarSearch search={runSearch} onPick={(h) => setFocus((f) => ({ id: h.id, kind: h.kind, date: h.date, n: (f?.n ?? 0) + 1 }))} /> : null}
+          onSettings={onSettings}
+          search={
+            searchJobs ? (
+              <CalendarSearch
+                search={runSearch}
+                filterMode={viewType === "schedule"}
+                onText={setSearchText}
+                onPick={(h) => setFocus((f) => ({ id: h.id, kind: h.kind, date: h.date, n: (f?.n ?? 0) + 1 }))}
+              />
+            ) : null
+          }
         />
       )}
       {styled && <ExportListDialog open={exportOpen} onClose={() => setExportOpen(false)} loadEvents={exportEvents} loadHeader={loadHeader} />}
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
       {showPanel && <PeoplePanel rows={rows} legend={data?.style?.legend ?? []} stripes={data?.style?.stripes ?? []} onToggle={(id) => saveHidden(toggleRow(hidden, id))} onAll={() => saveHidden(selectAllRows())} onNone={() => saveHidden(selectNoRows(rows))} />}
-      <Box sx={{ flex: 1, minWidth: 0, width: "100%" }}>
+      <Box sx={{ flex: 1, minWidth: 0, width: "100%", position: "relative" }}>
+      {/* First load of a calendar style org: the calendar is laid out but hidden under the skeleton (it must mount to
+          ask for its first range); it shows once the data is in. */}
+      {pendingStyle && !data && (
+        <Box sx={{ position: "absolute", inset: 0, zIndex: 3, bgcolor: "background.paper" }}>
+          <GridSkeleton />
+        </Box>
+      )}
+      <Box sx={pendingStyle && !data ? { visibility: "hidden" } : undefined}>
       <CalendarView
-        events={shownEvents}
+        onViewChange={setViewType}
+        events={scheduleShown?.events ?? shownEvents}
         showCancelled={styled || showCancelled}
         onRange={onRange}
         initialDate={initialDate}
@@ -499,7 +536,7 @@ export function JobsCalendarPanel({
         jobWords={jobWords}
         openOnClick={jobWords}
         fullHeight={fullHeight}
-        notes={shownNotes}
+        notes={scheduleShown?.notes ?? shownNotes}
         canAdd={canAdd}
         newButton={newButton}
         focus={focus}
@@ -513,6 +550,7 @@ export function JobsCalendarPanel({
         schedule={styled}
         actions={actions}
       />
+      </Box>
       </Box>
       </Stack>
     </Box>

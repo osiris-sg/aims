@@ -2,12 +2,13 @@
 
 // Round 39 B4 (Workers & Teams, WCT (S), flag enableWorkersTeams): the jobs' "Team / crew" field. Pick teams and
 // workers from Settings > Workers & Teams (several), or type anything (Enter or leaving the field keeps it as text).
+// Free-typed chips are outlined, picks filled; only picks count as "already has a job then" (2026-11-25).
 // Rules in helpers/crewPicker.ts. Used by New / Edit job, the job page and the calendar side panel.
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Autocomplete, Chip, TextField } from "@mui/material";
 import { useCalendarApi } from "./calendarAddApi";
-import { chipsToValue, crewChipText, crewChips, crewLabel, crewOptionList, sameCrew, sameValue, type CrewChip, type CrewOptions, type CrewPick } from "@/helpers/crewPicker";
+import { chipsToValue, crewChipText, crewChips, crewLabel, crewOptionList, resolveTyped, sameCrew, sameValue, type CrewChip, type CrewOptions, type CrewPick } from "@/helpers/crewPicker";
 
 /** The org's active teams and workers (GET /workers-teams/picker), read once per page. */
 let cached: { at: number; org: string; data: CrewOptions } | null = null;
@@ -63,7 +64,8 @@ export default function CrewPicker({
   // 2026-11-24: duplicates (any case, or text equal to a pick's name) are dropped, and nothing is sent when the
   // field did not change, so a deleted chip is not saved back by a stale copy.
   const commit = (chips: CrewChip[]) => {
-    const next = chipsToValue(chips);
+    // A name typed exactly as a team / worker in the list becomes that pick; other text stays free text (outlined).
+    const next = chipsToValue(resolveTyped(chips, options));
     if (sameValue(next, chipsToValue(value))) return;
     onChange(next);
   };

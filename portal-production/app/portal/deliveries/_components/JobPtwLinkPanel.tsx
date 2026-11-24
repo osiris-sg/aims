@@ -28,19 +28,18 @@ export default function JobPtwLinkPanel({
 }) {
   const api = useCalendarApi();
   const [ptw, setPtw] = useState<PtwStatus>(((run.ptwStatus as PtwStatus) || "NOT_NEEDED") as PtwStatus);
-  const [remark, setRemark] = useState(run.ptwRemark ?? "");
   const [saving, setSaving] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
 
   useEffect(() => {
     setPtw(((run.ptwStatus as PtwStatus) || "NOT_NEEDED") as PtwStatus);
-    setRemark(run.ptwRemark ?? "");
-  }, [run.ptwStatus, run.ptwRemark]);
+  }, [run.ptwStatus]);
 
-  const dirty = ptw !== ((run.ptwStatus as PtwStatus) || "NOT_NEEDED") || (ptw !== "NOT_NEEDED" && remark.trim() !== (run.ptwRemark ?? ""));
+  // 2026-11-25: no PTW remark field any more; the stored remark is not sent, so the server keeps it (hidden).
+  const dirty = ptw !== ((run.ptwStatus as PtwStatus) || "NOT_NEEDED");
   const savePtw = async () => {
     setSaving(true);
-    const res = await api("PATCH", `/deliveries/${run.id}/ptw`, { ptwStatus: ptw, ptwRemark: ptw === "NOT_NEEDED" ? "" : remark });
+    const res = await api("PATCH", `/deliveries/${run.id}/ptw`, { ptwStatus: ptw });
     setSaving(false);
     if (!res.ok) return toast.error(res.message || "Couldn't save the PTW");
     toast.success("PTW saved");
@@ -101,7 +100,6 @@ export default function JobPtwLinkPanel({
               </MenuItem>
             ))}
           </TextField>
-          {ptw !== "NOT_NEEDED" && <TextField label="PTW remark" size="small" value={remark} onChange={(e) => setRemark(e.target.value)} inputProps={{ maxLength: 300 }} sx={{ flex: 1, minWidth: 200 }} />}
           {dirty && (
             <Button size="small" variant="contained" onClick={() => void savePtw()} disabled={saving}>
               {saving ? "Saving…" : "Save PTW"}

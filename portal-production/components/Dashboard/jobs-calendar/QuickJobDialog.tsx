@@ -9,7 +9,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import JobDayPreview, { JobSplitContent, SlotHintsAlert, SPLIT_PAPER_SX } from "./JobDayPreview";
-import { crewDisplay } from "@/helpers/crewPicker";
+import { closeAction, formDirty } from "@/helpers/calendarDiscard";
+import DiscardChangesDialog from "./DiscardChangesDialog";
 import { Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, TextField, Tooltip, Typography, useMediaQuery } from "@mui/material";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import CustomerPicker from "@/components/CustomerPicker";
@@ -19,7 +20,6 @@ import { useCalendarApi, useCalendarStylePeople, useJobCompanies, useSiteClockWo
 import JobStyleFields from "./JobStyleFields";
 import JobEditDetails, { type JobEditRun } from "./JobEditDetails";
 import { applyQuotationPick, doOptionLabel, needsDoPick, quotationLabel, quotationRow, quotationSearchPath, type QuotationDetail, type QuotationOption } from "@/helpers/quickJobQuotation";
-import { categoryShown, type JobCategoryDef } from "@/helpers/jobCategory";
 import DateInput from "@/components/DateInput";
 
 const DURATIONS = [30, 60, 90, 120, 180, 240, 480];
@@ -93,6 +93,14 @@ export default function QuickJobDialog({
   const api = useMemo(() => (orgFor ? (<T = any,>(m: string, p: string, b?: any) => baseApi<T>(m, p, b, orgFor)) : baseApi), [baseApi, orgFor]) as typeof baseApi;
   const workers = useSiteClockWorkers(open, orgFor);
   const [form, setForm] = useState<QuickJobForm>(() => blank(slot));
+  // "Discard changes?" (2026-11-25): the form as it opened, with what the pop-up filled in by itself (defaults, the
+  // job's saved style, an order's quotation) applied to it too, so only the person's own changes make it differ.
+  const [baseline, setBaseline] = useState<QuickJobForm>(form);
+  const [askDiscard, setAskDiscard] = useState(false);
+  const loadForm = (u: (f: QuickJobForm) => QuickJobForm) => {
+    setForm(u);
+    setBaseline(u);
+  };
   // Round 39 #8: the mini calendar's warning above Save (same team at the same time, a busy slot).
   const [hints, setHints] = useState<string[]>([]);
   const [customer, setCustomer] = useState<PickerCustomer | null>(null);
@@ -102,33 +110,16 @@ export default function QuickJobDialog({
   const quotationOn = withQuotation && !edit;
   const [quotation, setQuotation] = useState<QuotationDetail | null>(null);
   const [quotationBusy, setQuotationBusy] = useState(false);
-  // Job category (WCT group): the org's list, null for every other org (no field shown, nothing sent).
-  const [categoryDef, setCategoryDef] = useState<JobCategoryDef | null>(null);
-  const [categoryLoaded, setCategoryLoaded] = useState(false);
-  const editCategory = edit?.category ?? null;
-  useEffect(() => {
-    if (!open) return;
-    let live = true;
-    setCategoryLoaded(false);
-    void api<JobCategoryDef | null>("GET", `/deliveries/job-category${editCategory ? `?keep=${encodeURIComponent(editCategory)}` : ""}`).then((res) => {
-      if (!live) return;
-      const def = res.ok && res.data && Array.isArray(res.data.options) && res.data.options.length ? res.data : null;
-      setCategoryDef(def);
-      setCategoryLoaded(true);
-      if (def) setForm((f) => ({ ...f, category: f.category && def.options.includes(f.category) ? f.category : categoryShown(def, editCategory) }));
-    });
-    return () => {
-      live = false;
-    };
-  }, [open, api, editCategory, orgFor]);
-
+  // Job category (2026-11-25, Elroy): no field for now. A new job is stored as the org's default ("Service order")
+  // by the server; an edited job sends its own category back unchanged.
   useEffect(() => {
     if (!open) return;
     setError("");
     setConfirmDelete(false);
+    setAskDiscard(false);
     if (edit) {
       const p = sgtParts(edit.scheduledFor);
-      setForm({
+      loadForm(() => ({
         customerId: edit.customer?.id ?? null,
         siteAddress: edit.siteAddress ?? "",
         date: p.date,
@@ -140,10 +131,10 @@ export default function QuickJobDialog({
         ptwStatus: ((edit.ptwStatus as PtwStatus) || "NOT_NEEDED") as PtwStatus,
         ptwRemark: edit.ptwRemark ?? "",
         category: edit.category ?? null,
-      });
+      }));
       setCustomer(edit.customer);
     } else {
-      setForm(blank(slot));
+      loadForm(() => blank(slot));
       setCustomer(null);
     }
     setQuotation(null);
@@ -157,13 +148,13 @@ export default function QuickJobDialog({
   const editId = edit?.id ?? null;
   useEffect(() => {
     if (!open || editId || !people.pending) return;
-    setForm((f) => ({ ...f, style: f.style ?? { salesperson: null, ptwApplicant: null, cod: false, sticker: false, team: "", crew: [], shopName: "", jobTitle: "" } }));
+    loadForm((f) => ({ ...f, style: f.style ?? { salesperson: null, ptwApplicant: null, cod: false, sticker: false, team: "", crew: [], shopName: "", jobTitle: "" } }));
   }, [open, editId, people.pending]);
   useEffect(() => {
     if (!open || !people.loaded || !people.enabled) return;
     if (!editId) {
       // The defaults fill only what is still empty (a pick made while the people loaded stays).
-      setForm((f) => ({
+      loadForm((f) => ({
         ...f,
         style: f.style
           ? { ...f.style, salesperson: f.style.salesperson ?? people.defaultSalesperson, ptwApplicant: f.style.ptwApplicant ?? people.defaultApplicant }
@@ -176,7 +167,7 @@ export default function QuickJobDialog({
       if (!live) return;
       const d = res.ok ? res.data : null;
       const person = (id: string | null | undefined, name: string | null | undefined) => (id ? { id, name: name || people.applicants.find((p) => p.id === id)?.name || id } : null);
-      setForm((f) => ({
+      loadForm((f) => ({
         ...f,
         style: { salesperson: person(d?.salespersonId, d?.salespersonName), ptwApplicant: person(d?.ptwApplicantId, d?.ptwApplicantName) ?? people.defaultApplicant, cod: !!d?.cod, sticker: !!d?.sticker, team: d?.team ?? "", crew: Array.isArray(d?.crew) ? d.crew : [], shopName: d?.shopName ?? "", jobTitle: d?.jobTitle ?? "" },
       }));
@@ -188,12 +179,12 @@ export default function QuickJobDialog({
 
   // Order page Add job: the order's quotation is picked at once (its Customer, Site and open DOs).
   useEffect(() => {
-    if (open && quotationOn && initialQuotationId) void pickQuotation({ id: initialQuotationId } as QuotationOption);
+    if (open && quotationOn && initialQuotationId) void pickQuotation({ id: initialQuotationId } as QuotationOption, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, quotationOn, initialQuotationId]);
 
   // Quotation picked: its customer, Site and (only into empty Remarks) Subject; its order's open DOs for the DO pick.
-  const pickQuotation = async (o: QuotationOption | null) => {
+  const pickQuotation = async (o: QuotationOption | null, auto = false) => {
     if (!o) {
       setQuotation(null);
       set({ quotationId: null, doId: null, doRequired: false }); // the typed fields stay
@@ -207,7 +198,7 @@ export default function QuickJobDialog({
     setError("");
     setQuotation(q);
     if (q.customer) setCustomer(q.customer as PickerCustomer);
-    setForm((f) => {
+    (auto ? loadForm : setForm)((f: QuickJobForm) => {
       const picked = applyQuotationPick(f, q);
       // Job title (WCT group, 2026-11-24): the quotation subject fills an empty Job title (not the Remarks any more).
       const subject = (q.subject ?? "").trim();
@@ -246,6 +237,13 @@ export default function QuickJobDialog({
     onSaved(edit?.id ?? saved?.id ?? "", edit ? undefined : { orderNumber: saved?.orderNumber ?? null, doName: saved?.doName ?? null, quotationName: quotation?.name ?? null, orgName: orgFor ? companyName(orgFor) : null });
   };
 
+  // Cancel, Esc or a click outside: closes at once when nothing was typed, else asks "Discard changes?".
+  const requestClose = () => {
+    const a = closeAction({ dirty: formDirty(form, baseline), busy: saving });
+    if (a === "close") onClose();
+    else if (a === "ask") setAskDiscard(true);
+  };
+
   const remove = async () => {
     if (!edit) return;
     setSaving(true);
@@ -257,7 +255,8 @@ export default function QuickJobDialog({
 
   return (
     // Round 39 #8: a large dialog, the form on the left and the day's jobs on the right (full screen on phones).
-    <Dialog open={open} onClose={() => !saving && onClose()} fullWidth maxWidth={false} fullScreen={phone} PaperProps={{ sx: phone ? undefined : SPLIT_PAPER_SX }}>
+    <>
+    <Dialog open={open} onClose={requestClose} fullWidth maxWidth={false} fullScreen={phone} PaperProps={{ sx: phone ? undefined : SPLIT_PAPER_SX }}>
       <DialogTitle>{edit ? "Edit job" : "New job"}</DialogTitle>
       <DialogContent dividers sx={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
         <JobSplitContent
@@ -267,7 +266,7 @@ export default function QuickJobDialog({
               time={form.time}
               allDay={!!form.allDay}
               durationMin={form.durationMin}
-              team={crewDisplay(form.style?.crew, form.style?.team) || null}
+              crew={form.style?.crew ?? null}
               excludeId={edit?.id ?? null}
               orgId={orgFor}
               onPick={(sl) => set(sl.time ? { date: sl.date, time: sl.time, allDay: false } : { date: sl.date, allDay: true })}
@@ -295,17 +294,6 @@ export default function QuickJobDialog({
               {quotation.openDos.map((d) => (
                 <MenuItem key={d.id} value={d.id}>
                   {doOptionLabel(d)}
-                </MenuItem>
-              ))}
-            </TextField>
-          )}
-          {/* Job category (WCT group) after the Quotation (2026-11-18); shown at once while its list loads. */}
-          {!categoryDef && !categoryLoaded && wctForm && <TextField required label="Job category" size="small" fullWidth value="" disabled InputProps={{ endAdornment: <CircularProgress size={14} /> }} data-tour="quick-job-category" />}
-          {categoryDef && (
-            <TextField select required label="Job category" size="small" fullWidth value={form.category ?? categoryDef.defaultValue} onChange={(e) => set({ category: e.target.value })} data-tour="quick-job-category">
-              {categoryDef.options.map((o) => (
-                <MenuItem key={o} value={o}>
-                  {o}
                 </MenuItem>
               ))}
             </TextField>
@@ -403,9 +391,6 @@ export default function QuickJobDialog({
                   </MenuItem>
                 ))}
               </TextField>
-              {form.ptwStatus !== "NOT_NEEDED" && (
-                <TextField label="PTW remark" size="small" fullWidth value={form.ptwRemark} onChange={(e) => set({ ptwRemark: e.target.value })} inputProps={{ maxLength: 300 }} />
-              )}
             </Stack>
           </Box>
           {wctForm && form.style && (
@@ -453,7 +438,7 @@ export default function QuickJobDialog({
             Complete job
           </Button>
         )}
-        <Button onClick={onClose} disabled={saving}>
+        <Button onClick={requestClose} disabled={saving}>
           Cancel
         </Button>
         <Button variant="contained" onClick={() => void save()} disabled={saving}>
@@ -461,6 +446,15 @@ export default function QuickJobDialog({
         </Button>
       </DialogActions>
     </Dialog>
+    <DiscardChangesDialog
+      open={askDiscard}
+      onKeep={() => setAskDiscard(false)}
+      onDiscard={() => {
+        setAskDiscard(false);
+        onClose();
+      }}
+    />
+    </>
   );
 }
 

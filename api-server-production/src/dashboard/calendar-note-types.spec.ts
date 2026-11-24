@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { addMinutes, parseNoteSave, tsvEvent, TSV_NOTE } from './calendar-note-types';
+import { parseNoteSave, tsvEvent, TSV_NOTE } from './calendar-note-types';
 import { CalendarNotesService } from './calendar-notes.service';
 import { CalendarStyleService } from './calendar-style.service';
 import { JobsCalendarService } from './jobs-calendar.service';
@@ -36,31 +36,16 @@ describe('note types: parse', () => {
     expect(() => parseNoteSave({ title: 'x', type: 'HOLIDAY', startDate: '2026-11-10' }, true)).toThrow(BadRequestException);
   });
   it('Site visit is a plain note (title, dates, staff)', () => {
-    expect(parseNoteSave({ title: 'Visit Domino', type: 'site_visit', startDate: '2026-11-10' }, true)).toMatchObject({ title: 'Visit Domino', type: 'SITE_VISIT', endDate: '2026-11-10', details: null });
+    expect(parseNoteSave({ title: 'Visit Domino', type: 'site_visit', startDate: '2026-11-10' }, true)).toMatchObject({ title: 'Visit Domino', type: 'SITE_VISIT', endDate: '2026-11-10' });
   });
-  it('Technician Site Visit: one day, end = time + duration, workers as staff, the rest in details', () => {
-    const n = parseNoteSave(tsvBody({ endDate: '2026-12-20' }), true);
-    expect(n).toMatchObject({ type: TSV_NOTE, startDate: '2026-12-09', endDate: '2026-12-09', allDay: false, startTime: '10:00', endTime: '11:30', staffId: 'w1', staffName: 'Ali, Bala', remark: 'Check the hood' });
-    expect(n.details).toEqual({
-      customerId: CUST,
-      customerName: null,
-      shopName: null,
-      address: '1 Jalan Besar',
-      durationMin: 90,
-      workers: [{ id: 'w1', name: 'Ali' }, { id: 'w2', name: 'Bala' }],
-      team: 'Team A',
-      salesperson: { id: 'u-amy', name: 'Amy' },
-    });
-    expect(parseNoteSave(tsvBody({ customerId: null, shopName: 'Shop 7' }), true).title).toBe('Shop 7');
-    expect(parseNoteSave(tsvBody({ allDay: true }), true)).toMatchObject({ allDay: true, startTime: null, endTime: null });
-  });
-  it('Technician Site Visit: what is refused', () => {
-    expect(() => parseNoteSave(tsvBody({ customerId: null, shopName: '' }), true)).toThrow('Pick a customer or type a shop name');
-    expect(() => parseNoteSave(tsvBody({ customerId: 'not-a-uuid' }), true)).toThrow(/customer/);
-    expect(() => parseNoteSave(tsvBody({ startTime: '' }), true)).toThrow('Pick a time');
-    expect(() => parseNoteSave(tsvBody({ durationMin: 5 }), true)).toThrow(/Duration/);
-    expect(() => parseNoteSave(tsvBody({ startTime: '23:59' }), true)).toThrow('Pick an earlier time');
-    expect(addMinutes('23:00', 120)).toBe('23:59');
+  it('2026-11-25: a Technician Site Visit has the General fields (title, staff, dates / times, remark); details untouched', () => {
+    const n = parseNoteSave({ type: 'TECH_SITE_VISIT', title: ' Visit Domino ', staffId: 'w1', staffName: 'Ali', startDate: '2026-12-09', endDate: '2026-12-10', allDay: false, startTime: '10:00', endTime: '11:30', remark: ' Check the hood ' }, true);
+    expect(n).toEqual({ title: 'Visit Domino', type: TSV_NOTE, staffId: 'w1', staffName: 'Ali', startDate: '2026-12-09', endDate: '2026-12-10', allDay: false, startTime: '10:00', endTime: '11:30', remark: 'Check the hood' });
+    expect(n).not.toHaveProperty('details');
+    // The old job-like fields are ignored (no customer / shop needed, nothing stored from them).
+    expect(parseNoteSave(tsvBody({ title: 'x', endTime: '11:00' }), true)).not.toHaveProperty('details');
+    expect(() => parseNoteSave({ type: 'TECH_SITE_VISIT', title: '', startDate: '2026-12-09' }, true)).toThrow(BadRequestException);
+    expect(parseNoteSave({ type: 'SITE_VISIT', title: 'x', startDate: '2026-12-09' }, true)).not.toHaveProperty('details');
   });
 });
 
@@ -79,31 +64,39 @@ describe('note types: a Technician Site Visit as a calendar event', () => {
     remark: 'Check the hood',
     details: { customerId: CUST, customerName: 'Domino Pizza', shopName: null, address: '1 Jalan Besar', durationMin: 90, workers: [{ id: 'w1', name: 'Ali' }], team: 'Team A', salesperson: { id: 'u-amy', name: 'Amy' } },
   };
-  it('shaped like an AIMS job, with the note for the dialog', () => {
+  it('shaped like an AIMS job card (time + title); the old details are not shown', () => {
     const e = tsvEvent(note);
     expect(e).toMatchObject({
       id: 'tsv:n1',
       source: 'aims',
       kind: 'service',
+      title: 'Domino',
       start: '2026-12-09T02:00:00.000Z',
       end: '2026-12-09T03:30:00.000Z',
       allDay: false,
       href: null,
-      customer: 'Domino Pizza',
-      address: '1 Jalan Besar',
+      customer: null,
+      address: null,
+      site: null,
       remarks: 'Check the hood',
-      team: 'Team A',
+      team: null,
       worker: 'Ali',
-      salesperson: { id: 'u-amy', name: 'Amy' },
-      chipLabel: 'Domino Pizza',
+      crew: [],
+      salesperson: null,
+      chipLabel: 'Domino',
       noteId: 'n1',
       noteKind: 'technician_site_visit',
       category: 'Technician Site Visit',
     });
+    expect(e).not.toHaveProperty('shopName');
     expect(e.status).not.toBe('scheduled'); // never draggable as a job
-    expect(e.note.id).toBe('n1');
-    expect(tsvEvent({ ...note, details: { ...note.details, shopName: 'Shop 7' } })).toMatchObject({ chipLabel: 'Shop 7', shopName: 'Shop 7' });
+    expect(e.note).toEqual({ id: 'n1', title: 'Domino', type: TSV_NOTE, staffId: 'w1', staffName: 'Ali', startDate: '2026-12-09', endDate: '2026-12-09', allDay: false, startTime: '10:00', endTime: '11:30', remark: 'Check the hood' });
+    expect(JSON.stringify(e)).not.toMatch(/Jalan Besar|Team A|Domino Pizza/);
     expect(tsvEvent({ ...note, allDay: true, startTime: null })).toMatchObject({ start: '2026-12-09', end: null, allDay: true });
+    expect(tsvEvent({ ...note, allDay: true, startTime: null, endDate: '2026-12-11' })).toMatchObject({ start: '2026-12-09', end: '2026-12-12', allDay: true });
+    // A note made since 2026-11-25 (no details): its own end time.
+    expect(tsvEvent({ ...note, details: null, endTime: '17:00' })).toMatchObject({ end: '2026-12-09T09:00:00.000Z' });
+    expect(tsvEvent({ ...note, title: '' }).chipLabel).toBe('Technician Site Visit');
   });
 });
 
@@ -184,12 +177,14 @@ function calendar(prisma: any) {
 }
 
 describe('note types: the notes API', () => {
-  it('a Technician Site Visit stores the customer name of this org and the details', async () => {
-    const prisma = fakePrisma({ [ORG]: { ...ON, enableCalendarStyle: true } }, {});
-    const out: any = await new CalendarNotesService(prisma).create(ORG, 'u-amy', tsvBody());
-    expect(prisma.created[0]).toMatchObject({ organizationId: ORG, type: TSV_NOTE, title: 'Domino Pizza', createdById: 'u-amy', details: expect.objectContaining({ customerName: 'Domino Pizza', durationMin: 90 }) });
-    expect(out.details.customerName).toBe('Domino Pizza');
-    await expect(new CalendarNotesService(prisma).create(ORG, null, tsvBody({ customerId: '99999999-2222-4333-8444-555555555555' }))).rejects.toThrow('Customer not found');
+  it('2026-11-25: a Technician Site Visit saves like a General note; an edit never writes (so never clears) details', async () => {
+    const prisma = fakePrisma({ [ORG]: { ...ON, enableCalendarStyle: true } }, { [ORG]: [tsvRow] });
+    await new CalendarNotesService(prisma).create(ORG, 'u-amy', { type: 'TECH_SITE_VISIT', title: 'Visit Domino', startDate: '2026-12-09' });
+    expect(prisma.created[0]).toMatchObject({ organizationId: ORG, type: TSV_NOTE, title: 'Visit Domino', createdById: 'u-amy' });
+    expect(prisma.created[0]).not.toHaveProperty('details');
+    await new CalendarNotesService(prisma).update(ORG, 'n-tsv', { type: 'TECH_SITE_VISIT', title: 'Domino again', startDate: '2026-12-09' });
+    await new CalendarNotesService(prisma).update(ORG, 'n-tsv', { type: 'OTHER', title: 'Now general', startDate: '2026-12-09' });
+    for (const [arg] of prisma.calendarNote.update.mock.calls) expect(arg.data).not.toHaveProperty('details');
   });
   it('another org: an old-type note is written exactly as before (no details key), the new types are refused', async () => {
     const prisma = fakePrisma({ [OTHER]: ON }, {});
@@ -207,10 +202,11 @@ describe('note types: the calendar', () => {
     expect(res.notes.map((n: any) => n.id)).toEqual(['n-leave']);
     expect(res.notes[0]).not.toHaveProperty('details');
     const e = res.events.find((x: any) => x.id === 'tsv:n-tsv');
-    expect(e).toMatchObject({ source: 'aims', noteId: 'n-tsv', noteKind: 'technician_site_visit', customer: 'Domino Pizza', salesperson: { id: 'u-amy', name: 'Amy Yap' }, createdBy: { id: 'u-amy', name: 'Amy Yap' } });
-    // The salesperson's colour, exactly as a job of theirs gets it.
+    expect(e).toMatchObject({ source: 'aims', noteId: 'n-tsv', noteKind: 'technician_site_visit', title: 'Domino Pizza', customer: null, salesperson: null, createdBy: { id: 'u-amy', name: 'Amy Yap' } });
+    // The old (hidden) salesperson's colour, exactly as a job of theirs gets it.
     expect(e.style.fill).toBe('#8e24aa');
-    expect(e.note).toMatchObject({ id: 'n-tsv', details: expect.objectContaining({ team: 'Team A' }) });
+    expect(e.note).toMatchObject({ id: 'n-tsv' });
+    expect(e.note).not.toHaveProperty('details');
   });
   it('another org (no calendar style): notes and events as before', async () => {
     const prisma = fakePrisma({ [OTHER]: ON }, { [OTHER]: [leave] });

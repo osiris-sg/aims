@@ -18,10 +18,11 @@ test("a clicked slot: month day → 09:00, a week slot keeps its time", () => {
   assert.deepEqual(slotOf("2026-12-09T14:30:00+08:00", false), { date: "2026-12-09", time: "14:30" });
 });
 
-test("quick job body: needs a customer and a time; PTW remark only when needed", () => {
+test("quick job body: needs a customer and a time; the stored PTW remark goes back as it was (no field since 2026-11-25)", () => {
   const f = { customerId: "c1", siteAddress: " 1 Tuas ", date: "2026-12-09", time: "10:00", durationMin: 90, workers: [{ id: "w1", name: "Ali" }], remarks: " bring ladder ", ptwStatus: "NOT_NEEDED", ptwRemark: "x" };
-  assert.deepEqual(quickJobBody(f).body, { customerId: "c1", siteAddress: "1 Tuas", scheduledFor: "2026-12-09T02:00:00.000Z", durationMin: 90, workers: [{ id: "w1", name: "Ali" }], remarks: "bring ladder", ptwStatus: "NOT_NEEDED", ptwRemark: "" });
+  assert.deepEqual(quickJobBody(f).body, { customerId: "c1", siteAddress: "1 Tuas", scheduledFor: "2026-12-09T02:00:00.000Z", durationMin: 90, workers: [{ id: "w1", name: "Ali" }], remarks: "bring ladder", ptwStatus: "NOT_NEEDED", ptwRemark: "x" });
   assert.equal(quickJobBody({ ...f, ptwStatus: "REQUIRED" }).body.ptwRemark, "x");
+  assert.equal(quickJobBody({ ...f, ptwRemark: "" }).body.ptwRemark, "");
   assert.equal(quickJobBody({ ...f, customerId: null }).error, "Pick a customer");
   assert.equal(quickJobBody({ ...f, time: "" }).error, "Pick a date and time");
 });

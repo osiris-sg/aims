@@ -12,14 +12,16 @@ test("result date line and debounce", () => {
   assert.equal(SEARCH_DEBOUNCE_MS, 300);
 });
 
-test("wired: only behind the group calendar flag, Companies filter sent, the calendar jumps and opens, never filtered", () => {
+test("wired: only behind the group calendar flag, Companies filter sent, the calendar jumps and opens; at the right end of the filter row", () => {
   const cal = read("components/Dashboard/JobsCalendar.tsx");
   assert.match(cal, /searchJobs=\{isGroupCalendarEnabled \? searchJobs : undefined\}/);
   assert.match(cal, /\/dashboard\/jobs-calendar\/search\?/);
   assert.match(cal, /searchJobs\(q, filters\.companies\)/);
   assert.match(cal, /focus=\{focus\}/);
   const bar = read("components/Dashboard/jobs-calendar/CalendarFilterBar.tsx");
-  assert.match(bar, /data-tour="jobs-calendar-filters">\s*\{search\}/);
+  // 2026-11-25: the search box sits at the right end, just left of "Export list".
+  assert.match(bar, /<Box sx=\{\{ flex: 1 \}\} \/>\s*\{search\}\s*\{onExport && \(/);
+  assert.doesNotMatch(bar, /data-tour="jobs-calendar-filters">\s*\{search\}/);
   const view = read("components/Dashboard/jobs-calendar/CalendarView.tsx");
   assert.match(view, /calRef\.current\?\.getApi\(\)\.gotoDate\(f\.date\)/);
   assert.match(view, /jumpTo\(focus\)/);

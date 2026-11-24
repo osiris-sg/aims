@@ -1234,7 +1234,8 @@ export class DeliveriesService {
         crewWorkers: f.crew,
       },
     });
-    if (f.categoryDef && f.category) await storeJobCategory(this.prisma, organizationId, f.categoryDef, id, f.category);
+    // Job category (2026-11-25: no field on the form for now): an edit that sends none keeps the job's own.
+    if (f.categoryDef && f.category && typeof body?.category === 'string' && body.category.trim()) await storeJobCategory(this.prisma, organizationId, f.categoryDef, id, f.category);
     if (f.styleOn) await this.saveStyleStamped(organizationId, id, f.style, f.ptwStatus);
     await this.redateRunDo(id, organizationId);
     const input = { siteclockWorkerId: f.assignee?.id ?? null, siteclockWorkerName: f.assignee?.name ?? null };
@@ -1251,8 +1252,9 @@ export class DeliveriesService {
     const ptwStatus = parsePtwStatus(body?.ptwStatus);
     const styleOn = await isCalendarStyleEnabled(this.prisma, organizationId);
     await this.assertPtwAllowed(ptwStatus, styleOn);
-    // The calendar panel's PTW pills (2026-11-20) send the status only: a remark not sent is kept.
-    const ptwRemark = ptwStatus ? (body && 'ptwRemark' in body ? parsePtwRemark(body.ptwRemark) : (run.ptwRemark ?? null)) : null;
+    // The calendar panel's PTW pills (2026-11-20) send the status only: a remark not sent is kept. 2026-11-25: the PTW
+    // remark field is gone from the forms; a stored remark is kept (hidden) even when the PTW goes to Not needed.
+    const ptwRemark = body && 'ptwRemark' in body ? (ptwStatus ? parsePtwRemark(body.ptwRemark) : null) : (run.ptwRemark ?? null);
     await this.prisma.delivery.update({ where: { id }, data: { ptwStatus, ptwRemark } });
     // Calendar style: a job that now needs a PTW keeps (or gets) its applicant stored on it.
     if (styleOn) await this.saveStyleStamped(organizationId, id, {}, ptwStatus);

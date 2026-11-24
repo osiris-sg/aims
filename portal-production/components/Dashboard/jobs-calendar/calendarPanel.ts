@@ -46,26 +46,45 @@ export function assignedWorkers(e: Pick<CalendarEvent, "worker" | "crew">): stri
   return out;
 }
 
-/** Hover (2026-11-24): name, time, Salesperson, Created by, PTW applicant, Team / crew, Assigned workers. No order / job numbers. */
+/** "Remarks: <text>" (2026-11-25: side panel, hover, Schedule row and Export list); "" when none. */
+export const remarksLine = (text: string | null | undefined): string => {
+  const t = String(text ?? "").trim();
+  return t ? `Remarks: ${t}` : "";
+};
+
+/**
+ * Hover (2026-11-24): name, job title, time, postponed to / from, Salesperson, Created by, PTW applicant, Team / crew,
+ * Assigned workers, Remarks (2026-11-25). No order / job numbers.
+ */
 export function hoverLines(e: CalendarEvent, time: string, applicant: string | null): string[] {
   const workers = assignedWorkers(e);
   return [
     customerOf(e),
     plain(e.jobTitle),
     time,
+    postponedLabel(e),
     e.salesperson?.name ? `Salesperson: ${e.salesperson.name}` : "",
     e.createdBy?.name ? `Created by: ${e.createdBy.name}` : "",
     applicant ? `PTW applicant: ${applicant}` : "",
     e.team?.trim() ? `Team / crew: ${e.team.trim()}` : "",
     workers.length ? `Assigned workers: ${workers.join(", ")}` : "",
+    remarksLine(plain(jobRemarks(e))),
   ].filter(Boolean);
+}
+
+/** The job's remarks when they say something the subject / job title does not (prefilled from the quotation). */
+export function jobRemarks(e: Pick<CalendarEvent, "remarks" | "subject" | "jobTitle">): string {
+  const r = plain(e.remarks);
+  if (!r) return "";
+  const same = (x: string | null | undefined) => !!plain(x) && plain(x).toLowerCase() === r.toLowerCase();
+  return same(e.subject) || same(e.jobTitle) ? "" : String(e.remarks ?? "").trim();
 }
 
 /**
  * Schedule view row (2026-11-24, the phone format). Line 1: name @ address (subject) - team, then | remarks.
  * Line 2: assigned workers · QO no. · salesperson · created by.
  */
-export function scheduleLines(e: CalendarEvent): { name: string; where: string; subject: string; team: string; remarks: string; line2: string } {
+export function scheduleLines(e: CalendarEvent): { name: string; where: string; subject: string; team: string; remarks: string; line2: string; postponed: string } {
   // Job title (2026-11-24) in the brackets when filled, else the quotation subject.
   const subject = plainText(e.jobTitle) || plainText(e.subject);
   const remarks = plainText(e.remarks);
@@ -77,6 +96,8 @@ export function scheduleLines(e: CalendarEvent): { name: string; where: string; 
     // Remarks prefilled from the quotation's Subject are not repeated.
     remarks: remarks && remarks.toLowerCase() !== subject.toLowerCase() && remarks.toLowerCase() !== plainText(e.subject).toLowerCase() ? remarks : "",
     line2: [assignedWorkers(e).join(", "), e.quotationNumber ?? "", e.salesperson?.name ?? "", e.createdBy?.name ? `Created by ${e.createdBy.name}` : ""].filter(Boolean).join(" · "),
+    // 2026-11-25: the postponed line lives here (and the panel and hover), no longer on the Month / Week / Day chips.
+    postponed: postponedLabel(e),
   };
 }
 const plainText = (s: string | null | undefined) => String(s ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).join(", ").replace(/\s+/g, " ").trim();
@@ -88,22 +109,20 @@ export interface ChipLines {
   /** ✅ (or 2✅), ❌, ⭕, 📌, 🟫 in that order. */
   icons: string;
   customer: string;
-  /** (SV) / (M) / (CC), the PTW status icon, the PTW applicant's colour circle; "" when none (no second row). */
+  /** The PTW status icon and the PTW applicant's colour circle; "" when none (no second row). */
   row2: string;
-  /** Job title (2026-11-24); "" when none. Week / Day chips show it; Month chips only when it fits. */
-  title: string;
 }
 
 /**
- * Round 36: row 1 = time, status icons, customer; row 2 (only when any) = category prefix, PTW status, applicant.
- * The same in every view (Month rows, Week / Day blocks, Schedule rows).
+ * Round 36: row 1 = time, status icons, customer; row 2 (only when any) = PTW status, applicant. The same in Month
+ * rows, Week / Day blocks and Schedule rows. 2026-11-25 (Elroy): no job title, no "Postponed to / from dd/mm" line
+ * and no category tag ((SV) / (M) / (CC)) on the chips; the Schedule row, side panel and hover keep the first two.
  */
 export function chipLines(e: CalendarEvent): ChipLines {
   const icons = [doIcon(e.doCount), e.cancelled ? "❌" : "", e.postponed && !e.cancelled ? "⭕" : "", e.sticker ? "📌" : "", e.cod ? "🟫" : ""].filter(Boolean).join(" ");
   const ptw = ptwStatusIcon(ptwStatusOf(e));
-  // Postponed pair (2026-11-24): "Postponed to dd/mm" on the old record, "Postponed from dd/mm" on the moved job.
-  const row2 = [e.style?.prefix ?? "", ptw, ptw ? e.style?.applicantIcon ?? "" : "", postponedLabel(e)].filter(Boolean).join(" ");
-  return { time: e.allDay ? "" : compactTime(e.start), icons, customer: customerOf(e), row2, title: plain(e.jobTitle) };
+  const row2 = [ptw, ptw ? e.style?.applicantIcon ?? "" : ""].filter(Boolean).join(" ");
+  return { time: e.allDay ? "" : compactTime(e.start), icons, customer: customerOf(e), row2 };
 }
 
 /** The chip's look: cancelled fully grey (greyscale), postponed / on hold faded (greyed). */
@@ -217,7 +236,6 @@ export function applyToggle(e: CalendarEvent, t: PanelToggle, defaultApplicant?:
     case "cod":
       return { ...e, cod: t.on };
     case "category":
-      if (style) style.prefix = categoryPrefix(t.category);
       return { ...e, category: t.category, style };
     case "team":
       return { ...e, team: crewDisplay([], t.team) || null, teamText: t.team?.trim() || null };
@@ -361,10 +379,11 @@ export const durationOf = (e: Pick<CalendarEvent, "start" | "end" | "allDay">): 
 
 /**
  * The jobs on the new day that clash with the moved job: overlapping times (both timed) or the same team. The job
- * itself, cancelled jobs and jobs of another company are never clashes.
+ * itself, cancelled jobs and jobs of another company are never clashes. "Same team" (2026-11-25): only teams and
+ * workers picked from the list compare (crewPicks); free-typed Team / crew text ("+2PT") never does.
  */
 export function rescheduleClashes(events: CalendarEvent[], job: CalendarEvent, target: RescheduleTarget): Clash[] {
-  const team = norm(job.team);
+  const mine = pickKeys(job.crewPicks);
   const start = target.time ? instantOf(target.date, target.time) : null;
   const end = start != null ? start + durationOf(job) * 60_000 : null;
   const out: Clash[] = [];
@@ -377,7 +396,7 @@ export function rescheduleClashes(events: CalendarEvent[], job: CalendarEvent, t
       const f = e.end ? Date.parse(e.end) : s + 60 * 60_000;
       if (s < end && start < f) reasons.push("Same time");
     }
-    if (team && norm(e.team) === team) reasons.push("Same team");
+    if (mine.length && sharedPicks(mine, e.crewPicks).length) reasons.push("Same team");
     if (reasons.length) out.push({ event: e, reasons });
   }
   return out;
@@ -393,8 +412,13 @@ export interface SlotPick {
   /** "HH:mm"; null = no specific time (the whole day). */
   time: string | null;
   durationMin: number;
-  /** The form's Team / crew ("Team A + Guru"); its parts are compared one by one. */
-  team?: string | null;
+  /**
+   * The form's picked teams / workers (2026-11-25): only these compare with the other jobs' picks. Free-typed
+   * Team / crew text is never a clash.
+   */
+  crew?: Array<{ kind: string; id: string; name: string }> | null;
+  /** A picked person by name only (the shared Schedule dialog's SiteClock worker): compared with the jobs' picked names. */
+  pickedName?: string | null;
   /** The job being edited / rescheduled (never a clash with itself): its run id or calendar id. */
   excludeId?: string | null;
 }
@@ -406,6 +430,20 @@ export const crewParts = (team: string | null | undefined): string[] =>
     .map((x) => norm(x))
     .filter(Boolean);
 
+type Pick_ = { kind: string; id: string; name: string };
+/** The keys of picked teams / workers: "team:<id>" and "team~<name>" (a name match counts too). */
+export const pickKeys = (crew: ReadonlyArray<Pick_> | null | undefined): string[] =>
+  (crew ?? []).flatMap((c) => [c.id ? `${c.kind}:${c.id}` : "", norm(c.name) ? `${c.kind}~${norm(c.name)}` : ""]).filter(Boolean);
+/** The picks of `crew` that are also in `mine` (pickKeys), by name. */
+export const sharedPicks = (mine: string[], crew: ReadonlyArray<Pick_> | null | undefined): string[] => {
+  const out: string[] = [];
+  for (const c of crew ?? []) {
+    const hit = pickKeys([c]).some((k) => mine.includes(k));
+    if (hit && !out.includes(c.name)) out.push(c.name);
+  }
+  return out;
+};
+
 /**
  * Round 39 (Elroy 2026-11-20): what the chosen time already has. Overlapping jobs (the whole day for "no specific
  * time") that share a Team / crew part, and a slot with BUSY_SLOT jobs or more. Cancelled jobs and notes never count.
@@ -414,7 +452,8 @@ export function slotHints(events: CalendarEvent[], pick: SlotPick): string[] {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(pick.date)) return [];
   const start = pick.time ? instantOf(pick.date, pick.time) : instantOf(pick.date, "00:00");
   const end = pick.time ? start + Math.max(15, pick.durationMin || 60) * 60_000 : start + 24 * 3600_000;
-  const parts = crewParts(pick.team);
+  const mine = pickKeys(pick.crew);
+  const byName = norm(pick.pickedName);
   const skip = new Set([pick.excludeId, pick.excludeId ? `aims:${pick.excludeId}` : null].filter(Boolean) as string[]);
   const overlapping = events.filter((e) => {
     if (skip.has(e.id) || e.cancelled) return false;
@@ -424,11 +463,11 @@ export function slotHints(events: CalendarEvent[], pick: SlotPick): string[] {
     return s < end && start < f;
   });
   const out: string[] = [];
-  if (parts.length) {
-    for (const e of overlapping) {
-      const shared = crewParts(e.team).filter((x) => parts.includes(x));
-      if (shared.length) out.push(`${e.team} already has a job then: ${customerOf(e)}`);
-    }
+  for (const e of overlapping) {
+    // Only picked teams / workers on both sides; the warning names just the shared picks (never free text).
+    const shared = mine.length ? sharedPicks(mine, e.crewPicks) : [];
+    if (byName) for (const c of e.crewPicks ?? []) if (norm(c.name) === byName && !shared.includes(c.name)) shared.push(c.name);
+    if (shared.length) out.push(`${shared.join(", ")} already ${shared.length > 1 ? "have" : "has"} a job then: ${customerOf(e)}`);
   }
   if (overlapping.length >= BUSY_SLOT) out.push(`${overlapping.length} jobs already at this time`);
   return out.slice(0, 4);
@@ -465,7 +504,8 @@ export function parseFilters(raw: string | null | undefined): CalendarFilters {
       doState: v.doState === "yes" || v.doState === "no" ? v.doState : "",
       ptw: list(v.ptw).filter((s): s is PtwFilter => ["needed", "pending", "approved", "rejected", "none"].includes(s)),
       applicants: list(v.applicants),
-      categories: list(v.categories),
+      // 2026-11-25: the Category filter is gone for now (a stored choice is ignored, like the round 38 chips).
+      categories: [],
       companies: list(v.companies),
     };
   } catch {
@@ -550,7 +590,7 @@ export function exportLine(e: CalendarEvent): string {
     where ? ` @ ${where}` : "",
     subject ? ` (${subject})` : "",
     team ? ` - ${team}` : "",
-    extra ? ` *${extra}*` : "",
+    extra ? ` *${remarksLine(extra)}*` : "",
   ].join("");
 }
 

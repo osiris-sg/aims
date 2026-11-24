@@ -42,6 +42,8 @@ export const noteTypeOptions = (styled: boolean) => (styled ? STYLED_NOTE_TYPES 
 /** A new note's type: General on calendar style orgs, Leave elsewhere (as before). */
 export const defaultNoteType = (styled: boolean): NoteType => (styled ? "OTHER" : "LEAVE");
 export const noteType = (t: string) => NOTE_TYPES.find((n) => n.value === t) ?? STYLED_NOTE_TYPES.find((n) => n.value === t) ?? NOTE_TYPES[3];
+/** A note type's name as the org's form lists it (calendar style orgs: OTHER reads "General"). */
+export const noteTypeLabel = (t: string, styled: boolean): string => (styled ? STYLED_NOTE_TYPES.find((n) => n.value === t)?.label : undefined) ?? noteType(t).label;
 
 /** Technician Site Visit fields (stored in the note's details). */
 export interface TsvDetails {
@@ -197,7 +199,8 @@ export function quickJobBody(f: QuickJobForm): { body?: Record<string, any>; err
       workers: f.workers,
       remarks: f.remarks.trim(),
       ptwStatus: f.ptwStatus,
-      ptwRemark: f.ptwStatus === "NOT_NEEDED" ? "" : f.ptwRemark.trim(),
+      // 2026-11-25: no PTW remark field any more; a job's stored remark goes back as it was (kept, hidden).
+      ptwRemark: f.ptwRemark.trim(),
       ...(f.quotationId ? { quotationId: f.quotationId, ...(f.doId ? { doId: f.doId } : {}) } : {}),
       ...(f.category ? { category: f.category } : {}),
       ...(f.style ? { salesperson: f.style.salesperson, ptwApplicant: f.style.ptwApplicant, cod: f.style.cod, sticker: !!f.style.sticker, ...(f.style.team !== undefined ? { team: f.style.team.trim() || null } : {}), ...(f.style.crew ? { crew: f.style.crew } : {}), ...(f.style.shopName !== undefined ? { shopName: f.style.shopName.trim() || null } : {}), ...(f.style.jobTitle !== undefined ? { jobTitle: f.style.jobTitle.trim() || null } : {}) } : {}),
@@ -216,45 +219,13 @@ export interface NoteForm {
   startTime: string;
   endTime: string;
   remark: string;
-  /** Technician Site Visit (calendar style orgs): sent only for that type. */
-  tsv?: TsvForm;
 }
 
-export interface TsvForm {
-  customerId: string | null;
-  customerName: string;
-  shopName: string;
-  siteAddress: string;
-  durationMin: number;
-  workers: { id: string; name: string }[];
-  team: string;
-  salesperson: { id: string; name: string } | null;
-}
-
-/** The Duration choices (the job form's) and their labels. */
-export const TSV_DURATIONS = [30, 60, 90, 120, 180, 240, 480];
-export const durationLabel = (m: number) => (m % 60 === 0 ? `${m / 60} h` : m > 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
-
-export const blankTsv = (): TsvForm => ({ customerId: null, customerName: "", shopName: "", siteAddress: "", durationMin: 60, workers: [], team: "", salesperson: null });
-
-/** A stored TSV note → the form (dates and time from the note, the rest from its details). */
-export function tsvFormOf(n: Pick<CalendarNote, "details">): TsvForm {
-  const d = n.details;
-  if (!d) return blankTsv();
-  return {
-    customerId: d.customerId ?? null,
-    customerName: d.customerName ?? "",
-    shopName: d.shopName ?? "",
-    siteAddress: d.address ?? "",
-    durationMin: d.durationMin || 60,
-    workers: Array.isArray(d.workers) ? d.workers : [],
-    team: d.team ?? "",
-    salesperson: d.salesperson ? { id: d.salesperson.id, name: d.salesperson.name ?? "" } : null,
-  };
-}
-
+/**
+ * A note's body. 2026-11-25 (Elroy): a Technician Site Visit has the same fields as a General note (title, staff,
+ * dates / times, remark); its old customer / shop / address / team / salesperson details stay stored, hidden.
+ */
 export function noteBody(f: NoteForm): { body?: Record<string, any>; error?: string } {
-  if (f.type === TSV_TYPE) return tsvBody(f);
   if (!f.title.trim()) return { error: "Give the note a title" };
   if (!f.startDate) return { error: "Pick a start date" };
   const endDate = f.endDate || f.startDate;
@@ -270,32 +241,6 @@ export function noteBody(f: NoteForm): { body?: Record<string, any>; error?: str
       endDate,
       allDay: f.allDay,
       ...(f.allDay ? {} : { startTime: f.startTime, endTime: f.endTime }),
-      remark: f.remark.trim(),
-    },
-  };
-}
-
-/** Technician Site Visit: one day, a time + duration (or all day); the title is made by the server. */
-function tsvBody(f: NoteForm): { body?: Record<string, any>; error?: string } {
-  const t = f.tsv ?? blankTsv();
-  if (!t.customerId && !t.shopName.trim()) return { error: "Pick a customer or type a shop name" };
-  if (!f.startDate) return { error: "Pick a date" };
-  if (!f.allDay && !/^\d{2}:\d{2}$/.test(f.startTime)) return { error: "Pick a time" };
-  return {
-    body: {
-      type: TSV_TYPE,
-      title: t.shopName.trim() || t.customerName.trim() || "Technician Site Visit",
-      startDate: f.startDate,
-      endDate: f.startDate,
-      allDay: f.allDay,
-      ...(f.allDay ? {} : { startTime: f.startTime }),
-      durationMin: t.durationMin,
-      customerId: t.customerId,
-      shopName: t.shopName.trim() || null,
-      siteAddress: t.siteAddress.trim() || null,
-      workers: t.workers,
-      team: t.team.trim() || null,
-      salesperson: t.salesperson,
       remark: f.remark.trim(),
     },
   };

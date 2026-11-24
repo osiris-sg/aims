@@ -1,10 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/common/prisma.service';
 import { isCalendarAddEnabled } from '../deliveries/quick-jobs';
 import { isOrgFeatureEnabled } from '../common/org-features';
-import { runAsOrg } from '../common/tenancy/tenant-context';
-import { NoteSave, TSV_NOTE, TsvDetails, parseNoteSave, tsvTitle } from './calendar-note-types';
+import { NoteSave, TsvDetails, parseNoteSave } from './calendar-note-types';
 
 export interface CalendarNoteView {
   id: string;
@@ -70,27 +68,17 @@ export class CalendarNotesService {
 
   /**
    * A note from a form. Calendar style orgs (enableCalendarStyle) also take Site visit and Technician Site Visit
-   * (calendar-note-types.ts); a TSV's customer name comes from the picked customer of this org.
+   * (calendar-note-types.ts); since 2026-11-25 every type has the General fields.
    */
   private async parse(organizationId: string, body: any): Promise<NoteSave> {
     const styled = await isOrgFeatureEnabled(this.prisma, organizationId, 'enableCalendarStyle');
-    const n = parseNoteSave(body, styled);
-    if (n.type === TSV_NOTE && n.details?.customerId) {
-      const c: any = await runAsOrg(organizationId, () => this.prisma.customer.findFirst({ where: { id: n.details!.customerId!, organizationId }, select: { name: true } }));
-      if (!c) throw new BadRequestException('Customer not found');
-      n.details.customerName = c.name;
-      if (!n.details.shopName) n.title = tsvTitle(n.details);
-    } else if (n.type === TSV_NOTE && n.details) {
-      n.details.customerName = null;
-      n.title = tsvTitle(n.details);
-    }
-    return n;
+    return parseNoteSave(body, styled);
   }
 
-  /** The columns to write; `details` is cleared (DB null) when a TSV becomes another type. */
+  /** The columns to write. `details` (a TSV saved before 2026-11-25) is never written: it stays as stored, hidden. */
   private data(n: NoteSave) {
-    const { details, ...rest } = n;
-    return { ...rest, details: details ? (details as any) : Prisma.DbNull };
+    const { details: _kept, ...rest } = n;
+    return rest;
   }
 
   /** Calendar people list: who added each note (noteId -> userId; notes with none are left out). */
@@ -109,8 +97,7 @@ export class CalendarNotesService {
   async create(organizationId: string, userId: string | null, body: any): Promise<CalendarNoteView> {
     await this.assertOn(organizationId);
     const n = await this.parse(organizationId, body);
-    const { details, ...rest } = n;
-    return viewOf(await this.db.create({ data: { organizationId, ...rest, ...(details ? { details: details as any } : {}), createdById: userId }, select: SELECT }));
+    return viewOf(await this.db.create({ data: { organizationId, ...this.data(n), createdById: userId }, select: SELECT }));
   }
 
   async update(organizationId: string, id: string, body: any): Promise<CalendarNoteView> {

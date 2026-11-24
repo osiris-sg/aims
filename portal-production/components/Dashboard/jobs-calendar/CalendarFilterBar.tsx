@@ -1,13 +1,15 @@
 "use client";
 
 // Jobs calendar filter bar (round 36, WCT group, calendar style orgs): DO generated / not, PTW (needed / pending /
-// approved / rejected / not needed), PTW applicant, Category, Company, and the "Export list" button. Round 38: the
-// Cancelled / Postponed / COD / Sticker chips are gone (Export list keeps its own Include cancelled / on hold ticks).
-// Filters only narrow the jobs on screen (notes stay); the people panel keeps working alongside.
+// approved / rejected / not needed), PTW applicant, Company, then on the right the search box, "Export list" and
+// "Settings" (Calendar colours, Org Settings edit only). Round 38: the Cancelled / Postponed / COD / Sticker chips are
+// gone (Export list keeps its own Include cancelled / on hold ticks). 2026-11-25: the Category filter is gone for now
+// and the search moved to the right end. Filters only narrow the jobs on screen (notes stay).
 
 import React from "react";
 import { Box, Button, Checkbox, FormControl, InputLabel, ListItemText, MenuItem, OutlinedInput, Select, Stack } from "@mui/material";
 import IosShareIcon from "@mui/icons-material/IosShare";
+import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import { NO_APPLICANT, NO_FILTERS, filterCount, type CalendarFilters, type PtwFilter } from "./calendarPanel";
 
 const PTW_OPTIONS: Array<{ value: PtwFilter; label: string }> = [
@@ -46,26 +48,26 @@ export default function CalendarFilterBar({
   value,
   onChange,
   applicants,
-  categories,
   companies,
   onExport,
+  onSettings,
   search,
 }: {
   value: CalendarFilters;
   onChange: (f: CalendarFilters) => void;
   applicants: Array<{ id: string; name: string }>;
-  categories: string[];
   /** Group calendar: the companies shown (none = no Company filter). */
   companies: Array<{ id: string; name: string }>;
   onExport?: () => void;
-  /** WCT group calendar (2026-11-23): the search box, first in the row. */
+  /** Calendar colours (2026-11-25): only for Org Settings edit; absent = no button. */
+  onSettings?: () => void;
+  /** WCT group calendar (2026-11-23): the search box; 2026-11-25 at the right end, just left of "Export list". */
   search?: React.ReactNode;
 }) {
   const set = (patch: Partial<CalendarFilters>) => onChange({ ...value, ...patch });
   const n = filterCount(value);
   return (
     <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center" sx={{ mb: 1.5 }} data-tour="jobs-calendar-filters">
-      {search}
       <FormControl size="small" sx={{ minWidth: 140 }}>
         <InputLabel id="jc-filter-do">DO</InputLabel>
         <Select labelId="jc-filter-do" label="DO" value={value.doState} onChange={(e) => set({ doState: e.target.value as CalendarFilters["doState"] })}>
@@ -78,7 +80,6 @@ export default function CalendarFilterBar({
       {applicants.length > 0 && (
         <Multi label="Applicant" value={value.applicants} options={[...applicants.map((a) => ({ value: a.id, label: a.name })), { value: NO_APPLICANT, label: "None" }]} onChange={(v) => set({ applicants: v })} width={140} />
       )}
-      {categories.length > 0 && <Multi label="Category" value={value.categories} options={categories.map((c) => ({ value: c, label: c }))} onChange={(v) => set({ categories: v })} width={140} />}
       {companies.length > 1 && <Multi label="Organisation" value={value.companies} options={companies.map((c) => ({ value: c.id, label: c.name }))} onChange={(v) => set({ companies: v })} width={150} />}
       {n > 0 && (
         <Button size="small" onClick={() => onChange(NO_FILTERS)}>
@@ -86,9 +87,15 @@ export default function CalendarFilterBar({
         </Button>
       )}
       <Box sx={{ flex: 1 }} />
+      {search}
       {onExport && (
         <Button size="small" variant="outlined" startIcon={<IosShareIcon fontSize="small" />} onClick={onExport} data-tour="jobs-calendar-export">
           Export list
+        </Button>
+      )}
+      {onSettings && (
+        <Button size="small" variant="outlined" startIcon={<SettingsOutlinedIcon fontSize="small" />} onClick={onSettings} data-tour="jobs-calendar-settings">
+          Settings
         </Button>
       )}
     </Stack>

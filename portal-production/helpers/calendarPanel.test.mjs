@@ -18,14 +18,15 @@ const ev = (over = {}) => ({
   style: style(), customer: "Acme", ptwStatus: "NOT_NEEDED", doCount: 0, ...over,
 });
 
-test("chip row 1: time, ✅ / 2✅, ❌, ⭕, 📌, 🟫, customer; row 2 only when there is a prefix or a PTW", () => {
+test("chip row 1: time, ✅ / 2✅, ❌, ⭕, 📌, 🟫, customer; row 2 only when there is a PTW", () => {
   const plain = chipLines(ev());
-  assert.deepEqual(plain, { time: "10am", icons: "", customer: "Acme", row2: "", title: "" });
-  // Job title (2026-11-24) rides along for the Week / Day chips.
-  assert.equal(chipLines(ev({ jobTitle: "CD 1 x Air Cleaner" })).title, "CD 1 x Air Cleaner");
-  const busy = chipLines(ev({ doCount: 2, sticker: true, cod: true, ptwStatus: "APPROVED", style: style({ prefix: "(SV)", applicantIcon: "🔴" }) }));
+  assert.deepEqual(plain, { time: "10am", icons: "", customer: "Acme", row2: "" });
+  // 2026-11-25: no job title, no category tag and no postponed line on Month / Week / Day chips.
+  const busy = chipLines(ev({ doCount: 2, sticker: true, cod: true, ptwStatus: "APPROVED", jobTitle: "CD 1 x Air Cleaner", postponedFrom: { id: "a", date: "2026-11-28" }, style: style({ prefix: "(SV)", applicantIcon: "🔴" }) }));
   assert.equal(busy.icons, "2✅ 📌 🟫");
-  assert.equal(busy.row2, "(SV) 👍 🔴");
+  assert.equal(busy.row2, "👍 🔴");
+  assert.equal(JSON.stringify(busy).includes("CD 1"), false);
+  assert.equal(chipLines(ev({ postponed: true, postponedTo: { id: "b", date: "2026-12-05" } })).row2, "");
   assert.equal(chipLines(ev({ doCount: 1, cancelled: true })).icons, "✅ ❌");
   assert.equal(chipLines(ev({ postponed: true })).icons, "⭕");
   // A cancelled job never shows ⭕ as well.
@@ -83,9 +84,8 @@ test("each toggle is one API call and the chip shows the change at once", () => 
   x = applyToggle(x, { kind: "sticker", on: true });
   x = applyToggle(x, { kind: "cod", on: true });
   assert.equal(chipLines(x).icons, "📌 🟫");
+  // 2026-11-25: no category tag on the chip any more.
   x = applyToggle(x, { kind: "category", category: "Collect cheque" });
-  assert.equal(chipLines(x).row2, "(CC)");
-  x = applyToggle(x, { kind: "category", category: "Delivery" });
   assert.equal(chipLines(x).row2, "");
   assert.equal(applyToggle(x, { kind: "team", team: "  " }).team, null);
   // Pending keeps an applied PTW as applied.
@@ -140,12 +140,15 @@ test("panel documents: Order, then Quotation, Invoice(s), DO(s), one line each w
   assert.equal(panelDocsFallback({ quotationNumber: "Q-1", quotationHref: "/q", viewOnly: true })[0].href, null);
 });
 
-test("reschedule: clashes on the new day = same time slot or same team; the job itself, cancelled and other companies never", () => {
-  const job = ev({ id: "aims:9", team: "Team A", start: "2026-11-03T02:00:00.000Z", end: "2026-11-03T03:00:00.000Z" });
+const TA = { kind: "team", id: "t-a", name: "A" };
+const TB = { kind: "team", id: "t-b", name: "B" };
+test("reschedule: clashes on the new day = same time slot or same picked team; the job itself, cancelled and other companies never", () => {
+  const job = ev({ id: "aims:9", team: "Team A, +2PT", crewPicks: [TA], start: "2026-11-03T02:00:00.000Z", end: "2026-11-03T03:00:00.000Z" });
   const events = [
     job,
-    ev({ id: "aims:10", start: "2026-11-05T02:30:00.000Z", end: "2026-11-05T03:30:00.000Z", team: "Team B" }), // 10:30 same slot
-    ev({ id: "aims:11", start: "2026-11-05T06:00:00.000Z", end: "2026-11-05T07:00:00.000Z", team: "team a" }), // 2pm same team
+    ev({ id: "aims:10", start: "2026-11-05T02:30:00.000Z", end: "2026-11-05T03:30:00.000Z", team: "Team B, +2PT", crewPicks: [TB] }), // 10:30 same slot; "+2PT" typed on both never counts
+    ev({ id: "aims:11", start: "2026-11-05T06:00:00.000Z", end: "2026-11-05T07:00:00.000Z", team: "Team A", crewPicks: [TA] }), // 2pm same picked team
+    ev({ id: "aims:16", start: "2026-11-05T08:00:00.000Z", end: "2026-11-05T09:00:00.000Z", team: "Team A" }), // 4pm "Team A" typed only: no clash
     ev({ id: "aims:12", start: "2026-11-05T02:00:00.000Z", end: "2026-11-05T03:00:00.000Z", cancelled: true }),
     ev({ id: "aims:13", start: "2026-11-05T02:00:00.000Z", end: "2026-11-05T03:00:00.000Z", foreign: true, orgId: "o2" }),
     ev({ id: "aims:14", start: "2026-11-06T02:00:00.000Z", end: "2026-11-06T03:00:00.000Z", team: "Team A" }), // other day
@@ -155,8 +158,8 @@ test("reschedule: clashes on the new day = same time slot or same team; the job 
   assert.deepEqual(c.map((x) => [x.event.id, x.reasons]), [["aims:10", ["Same time"]], ["aims:11", ["Same team"]]]);
   // All day: no time clash, the team still counts.
   assert.deepEqual(rescheduleClashes(events, job, { date: "2026-11-05", time: null }).map((x) => x.event.id), ["aims:11"]);
-  // No team on the job: only times.
-  assert.deepEqual(rescheduleClashes(events, { ...job, team: null }, { date: "2026-11-05", time: "14:30" }).map((x) => [x.event.id, x.reasons]), [["aims:11", ["Same time"]]]);
+  // No picked team on the job (free text only): only times.
+  assert.deepEqual(rescheduleClashes(events, { ...job, crewPicks: [] }, { date: "2026-11-05", time: "14:30" }).map((x) => [x.event.id, x.reasons]), [["aims:11", ["Same time"]]]);
 });
 
 test("filters: DO, PTW, applicant, cancelled, postponed, COD, sticker, category, company", () => {
@@ -213,9 +216,9 @@ Workers to sign back all DOs & inform in gc if there's no one to sign off
 
 *SCHEDULE*
 
-4pm - Hood Making @ Warehouse - Team B *Babu Drop & Pickup, Continue Night*
+4pm - Hood Making @ Warehouse - Team B *Remarks: Babu Drop & Pickup, Continue Night*
 
-4pm - Ajiya Okonomiyaki Restaurant @ E!Avenue #02-346 (Troubleshoot Exhaust VSD Issue at Rooftop) - Team A *Please call the management 96420116 upon arrival*`;
+4pm - Ajiya Okonomiyaki Restaurant @ E!Avenue #02-346 (Troubleshoot Exhaust VSD Issue at Rooftop) - Team A *Remarks: Please call the management 96420116 upon arrival*`;
 
 const fixtureDay = [
   ev({ id: "aims:21", title: "#21 Hood Making", start: "2026-10-23T08:00:00.000Z", end: "2026-10-23T10:00:00.000Z", customer: "Hood Making", address: "Warehouse", team: "Team B", remarks: "Babu Drop & Pickup\nContinue Night" }),
@@ -236,7 +239,7 @@ test("export: cancelled / on hold when asked, a range = one block per date, an e
   assert.ok(!withCancelled.includes("On Hold Co"));
   assert.ok(exportText(fixtureDay, { from: "2026-10-23", to: "2026-10-23", header: "", includeOnHold: true }).includes("1pm - On Hold Co"));
   const range = exportText(fixtureDay, { from: "2026-10-23", to: "2026-10-24", header: "" });
-  assert.equal(range, `*23/10/2026, Friday*\n\n*SCHEDULE*\n\n4pm - Hood Making @ Warehouse - Team B *Babu Drop & Pickup, Continue Night*\n\n4pm - Ajiya Okonomiyaki Restaurant @ E!Avenue #02-346 (Troubleshoot Exhaust VSD Issue at Rooftop) - Team A *Please call the management 96420116 upon arrival*\n\n*24/10/2026, Saturday*\n\n*SCHEDULE*\n\n10am - Next Day`);
+  assert.equal(range, `*23/10/2026, Friday*\n\n*SCHEDULE*\n\n4pm - Hood Making @ Warehouse - Team B *Remarks: Babu Drop & Pickup, Continue Night*\n\n4pm - Ajiya Okonomiyaki Restaurant @ E!Avenue #02-346 (Troubleshoot Exhaust VSD Issue at Rooftop) - Team A *Remarks: Please call the management 96420116 upon arrival*\n\n*24/10/2026, Saturday*\n\n*SCHEDULE*\n\n10am - Next Day`);
   assert.equal(exportText(fixtureDay, { from: "2026-10-25", to: "2026-10-25", header: DEFAULT_EXPORT_HEADER }), "");
   assert.equal(tomorrowSgt(new Date("2026-11-19T17:00:00.000Z")), "2026-11-21");
   assert.equal(tomorrowSgt(new Date("2026-11-19T15:00:00.000Z")), "2026-11-20");
@@ -276,26 +279,36 @@ test("panel docs: one line per type (plural when several), quotation shows its r
 // Round 39 #8: the job dialogs' warning above Save (never blocks).
 import { slotHints, crewParts, BUSY_SLOT } from "../components/Dashboard/jobs-calendar/calendarPanel.ts";
 
-test("slot hints: same team at the same time, 3+ jobs in the slot, never the job itself or cancelled ones", () => {
+test("slot hints: same picked team / worker at the same time, 3+ jobs in the slot, never the job itself or cancelled ones", () => {
   // 20 Nov 2026, Singapore time (UTC+8): 10:00-11:00 is 02:00-03:00Z.
   const job = (id, startZ, endZ, over = {}) => ({ id, source: "aims", title: id, start: startZ, end: endZ, allDay: false, cancelled: false, crew: [], ...over });
+  const GURU = { kind: "worker", id: "w-guru", name: "Guru" };
   const events = [
-    job("aims:1", "2026-11-20T02:00:00Z", "2026-11-20T03:00:00Z", { team: "Team A + Guru", customer: "Jewel Changi" }),
-    job("aims:2", "2026-11-20T02:30:00Z", "2026-11-20T03:30:00Z", { team: "Team B", customer: "Ion Orchard" }),
+    job("aims:1", "2026-11-20T02:00:00Z", "2026-11-20T03:00:00Z", { team: "Team A, Guru, +2pt", crewPicks: [TA, GURU], customer: "Jewel Changi" }),
+    job("aims:2", "2026-11-20T02:30:00Z", "2026-11-20T03:30:00Z", { team: "Team B, +2PT", crewPicks: [TB], customer: "Ion Orchard" }),
     job("aims:3", "2026-11-20T02:15:00Z", "2026-11-20T02:45:00Z", { team: null, customer: "Bugis" }),
-    job("aims:4", "2026-11-20T02:00:00Z", "2026-11-20T03:00:00Z", { team: "Team A", customer: "Gone", cancelled: true }),
-    job("aims:5", "2026-11-20T06:00:00Z", "2026-11-20T07:00:00Z", { team: "Team A", customer: "Later" }),
+    job("aims:4", "2026-11-20T02:00:00Z", "2026-11-20T03:00:00Z", { team: "Team A", crewPicks: [TA], customer: "Gone", cancelled: true }),
+    job("aims:5", "2026-11-20T06:00:00Z", "2026-11-20T07:00:00Z", { team: "Team A", crewPicks: [TA], customer: "Later" }),
   ];
   assert.deepEqual(crewParts("Team A + Guru, Ali"), ["team a", "guru", "ali"]);
   assert.equal(BUSY_SLOT, 3);
-  // 10:00 for an hour, Team A: clashes with job 1 (shares "team a"), the slot holds 3 live jobs.
-  assert.deepEqual(slotHints(events, { date: "2026-11-20", time: "10:00", durationMin: 60, team: "Team A" }), ["Team A + Guru already has a job then: Jewel Changi", "3 jobs already at this time"]);
+  // 10:00 for an hour, Team A picked: clashes with job 1 (Team A picked there too); the slot holds 3 live jobs.
+  assert.deepEqual(slotHints(events, { date: "2026-11-20", time: "10:00", durationMin: 60, crew: [TA] }), ["A already has a job then: Jewel Changi", "3 jobs already at this time"]);
+  // Two shared picks: both named, "have".
+  assert.deepEqual(slotHints(events, { date: "2026-11-20", time: "10:00", durationMin: 60, crew: [TA, GURU] })[0], "A, Guru already have a job then: Jewel Changi");
+  // Owner's screenshot (2026-11-25): Team C, Elroy, Team B, Babu picked + "+2PT" typed; Team B is busy, "+2PT" never counts.
+  const mine = [{ kind: "team", id: "t-c", name: "C" }, { kind: "worker", id: "w-elroy", name: "Elroy" }, TB, { kind: "worker", id: "w-babu", name: "Babu" }];
+  assert.deepEqual(slotHints(events.slice(0, 1), { date: "2026-11-20", time: "10:00", durationMin: 60, crew: mine }), []);
+  assert.deepEqual(slotHints(events.slice(1, 2), { date: "2026-11-20", time: "10:00", durationMin: 60, crew: mine }), ["B already has a job then: Ion Orchard"]);
   // Editing job 1 itself: no clash with itself; 2 others left, not busy.
-  assert.deepEqual(slotHints(events, { date: "2026-11-20", time: "10:00", durationMin: 60, team: "Team A", excludeId: "1" }), []);
-  // No team typed: only the busy slot.
+  assert.deepEqual(slotHints(events, { date: "2026-11-20", time: "10:00", durationMin: 60, crew: [TA], excludeId: "1" }), []);
+  // Nothing picked: only the busy slot.
   assert.deepEqual(slotHints(events, { date: "2026-11-20", time: "10:00", durationMin: 60 }), ["3 jobs already at this time"]);
-  // 2pm: job 5 (Team A) overlaps.
-  assert.deepEqual(slotHints(events, { date: "2026-11-20", time: "14:00", durationMin: 30, team: "team a" }), ["Team A already has a job then: Later"]);
+  // 2pm: job 5 (Team A picked) overlaps; picks also match by name (same kind).
+  assert.deepEqual(slotHints(events, { date: "2026-11-20", time: "14:00", durationMin: 30, crew: [{ kind: "team", id: "other-id", name: "a" }] }), ["A already has a job then: Later"]);
+  // The shared Schedule dialog's picked SiteClock worker (a name) against the jobs' picked names only.
+  assert.deepEqual(slotHints(events, { date: "2026-11-20", time: "10:00", durationMin: 60, pickedName: "guru" })[0], "Guru already has a job then: Jewel Changi");
+  assert.deepEqual(slotHints(events, { date: "2026-11-20", time: "10:00", durationMin: 60, pickedName: "+2pt" }), ["3 jobs already at this time"]);
   // No specific time: the whole day (4 live jobs).
   assert.deepEqual(slotHints(events, { date: "2026-11-20", time: null, durationMin: 60 }), ["4 jobs already at this time"]);
   assert.deepEqual(slotHints(events, { date: "", time: "10:00", durationMin: 60 }), []);
@@ -336,7 +349,9 @@ test("hover: name, time, Salesperson, Created by, PTW applicant, Team / crew, As
 
 test("Schedule row (phone format): line 1 name @ address (subject) - team | remarks; line 2 workers · QO · salesperson · created by", () => {
   const l = scheduleLines(ev({ customer: "Gokoku", address: "Vivo City #B2-09, Singapore 098585", subject: "CD 1 x Air Cleaner", team: "Team B", remarks: "Please don't wear uniform", worker: "Ali", quotationNumber: "Q-013776", salesperson: { id: "s", name: "Kherry" }, createdBy: { id: "c", name: "joyna" } }));
-  assert.deepEqual(l, { name: "Gokoku", where: "Vivo City #B2-09", subject: "CD 1 x Air Cleaner", team: "Team B", remarks: "Please don't wear uniform", line2: "Ali · Q-013776 · Kherry · Created by joyna" });
+  assert.deepEqual(l, { name: "Gokoku", where: "Vivo City #B2-09", subject: "CD 1 x Air Cleaner", team: "Team B", remarks: "Please don't wear uniform", line2: "Ali · Q-013776 · Kherry · Created by joyna", postponed: "" });
+  // The postponed line lives on the Schedule row (not the chips) since 2026-11-25.
+  assert.equal(scheduleLines(ev({ postponedFrom: { id: "a", date: "2026-11-28" } })).postponed, "Postponed from 28/11");
 });
 
 test("postponed pair: labels, export line of the old record, records always listed", () => {

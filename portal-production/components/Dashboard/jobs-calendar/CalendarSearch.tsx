@@ -1,9 +1,11 @@
 "use client";
 
-// Jobs calendar search (WCT group, enableGroupCalendar, 2026-11-23): a box at the start of the filter row. Searches
-// every job and note of the companies shown, any date, on the server (300 ms after typing, 20 at most): customer,
-// site, subject, remarks, job no., QO / Order / DO / Invoice nos., team / crew, workers. Upcoming first, then past.
-// A pick jumps the calendar to that day and opens the job. Esc or the x clears it. The calendar is never filtered.
+// Jobs calendar search (WCT group, enableGroupCalendar, 2026-11-23): a box in the filter row (2026-11-25: at its right
+// end, just left of "Export list"). Month / Week / Day: searches every job and note of the companies shown, any date,
+// on the server (300 ms after typing, 20 at most): customer, site, subject, remarks, job no., QO / Order / DO /
+// Invoice nos., team / crew, workers; upcoming first, then past; a pick jumps the calendar to that day and opens it.
+// Schedule view (filterMode, 2026-11-25): no dropdown; the text filters the Schedule list live (onText), the x or Esc
+// clears it and every row shows again.
 
 import React, { useEffect, useRef, useState } from "react";
 import { Box, ClickAwayListener, IconButton, InputAdornment, List, ListItemButton, Paper, Popper, TextField, Typography } from "@mui/material";
@@ -13,8 +15,21 @@ import CloseIcon from "@mui/icons-material/Close";
 import { hitWhen, SEARCH_DEBOUNCE_MS, type CalendarSearchHit } from "@/helpers/calendarSearch";
 export type { CalendarSearchHit } from "@/helpers/calendarSearch";
 
-export default function CalendarSearch({ search, onPick }: { search: (q: string) => Promise<CalendarSearchHit[]>; onPick: (hit: CalendarSearchHit) => void }) {
+export default function CalendarSearch({
+  search,
+  onPick,
+  filterMode = false,
+  onText,
+}: {
+  search: (q: string) => Promise<CalendarSearchHit[]>;
+  onPick: (hit: CalendarSearchHit) => void;
+  /** Schedule view: the text filters the list on screen instead of opening the dropdown. */
+  filterMode?: boolean;
+  /** Every change of the text (also "" when cleared). */
+  onText?: (q: string) => void;
+}) {
   const [q, setQ] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [hits, setHits] = useState<CalendarSearchHit[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
@@ -24,7 +39,7 @@ export default function CalendarSearch({ search, onPick }: { search: (q: string)
   useEffect(() => {
     const term = q.trim();
     latest.current = term;
-    if (term.length < 2) {
+    if (term.length < 2 || filterMode) {
       setHits(null);
       setBusy(false);
       return;
@@ -35,15 +50,17 @@ export default function CalendarSearch({ search, onPick }: { search: (q: string)
       if (latest.current !== term) return;
       setHits(list);
       setBusy(false);
-      setOpen(true);
+      // Opens only while the person is in the box (not when the view changes with text in it).
+      if (typeof document !== "undefined" && document.activeElement === inputRef.current) setOpen(true);
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [q, search]);
+  }, [q, search, filterMode]);
 
   const clear = () => {
     setQ("");
     setHits(null);
     setOpen(false);
+    onText?.("");
   };
 
   return (
@@ -54,11 +71,13 @@ export default function CalendarSearch({ search, onPick }: { search: (q: string)
           fullWidth
           placeholder="Search jobs"
           value={q}
+          inputRef={inputRef}
           onChange={(e) => {
             setQ(e.target.value);
-            setOpen(true);
+            onText?.(e.target.value);
+            if (!filterMode) setOpen(true);
           }}
-          onFocus={() => hits && setOpen(true)}
+          onFocus={() => hits && !filterMode && setOpen(true)}
           onKeyDown={(e) => {
             if (e.key === "Escape") clear();
           }}
@@ -78,7 +97,7 @@ export default function CalendarSearch({ search, onPick }: { search: (q: string)
             ) : undefined,
           }}
         />
-        <Popper open={open && q.trim().length >= 2} anchorEl={anchor.current} placement="bottom-start" sx={{ zIndex: 1300, width: { xs: "calc(100% - 32px)", sm: 440 } }}>
+        <Popper open={open && !filterMode && q.trim().length >= 2} anchorEl={anchor.current} placement="bottom-start" sx={{ zIndex: 1300, width: { xs: "calc(100% - 32px)", sm: 440 } }}>
           <Paper elevation={6} sx={{ mt: 0.5, maxHeight: 420, overflowY: "auto" }}>
             {busy && !hits ? (
               <Typography variant="body2" color="text.secondary" sx={{ p: 1.5 }}>

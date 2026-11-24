@@ -492,6 +492,9 @@ describe('quick job: job category', () => {
     const a: any = await s.createQuickJob(ORG, body({ category: 'Delivery' }));
     await s.updateQuickJob(a.id, ORG, body({ category: 'Others' }));
     expect(db.customFieldValue.find((v: any) => v.entityId === a.id)?.value).toBe('Others');
+    // 2026-11-25: the form has no Category field; an edit that sends none keeps the job's own.
+    await s.updateQuickJob(a.id, ORG, body());
+    expect(db.customFieldValue.find((v: any) => v.entityId === a.id)?.value).toBe('Others');
     db.delivery.push({ id: uid(91), organizationId: ORG, deliveryNumber: 99, status: 'scheduled', isDraft: false, orderId: uid(50) });
     expect(await s.jobCategoryOfRun(uid(91), ORG)).toEqual({ value: 'Service order', options: ['Service order', 'Delivery', 'Site visit', 'Others'], defaultValue: 'Service order' });
     await s.saveJobCategory(uid(91), ORG, 'delivery');
