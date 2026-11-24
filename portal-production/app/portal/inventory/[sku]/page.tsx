@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
@@ -353,7 +354,7 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
               <Skeleton animation="wave" variant="rectangular" width={400} height={300} sx={{ maxWidth: "100%", borderRadius: 2 }} />
             ) : (
               <Avatar
-                src={inventory.asset?.image ? `${process.env.NEXT_PUBLIC_RESOURCE_URL}${inventory.asset.image}` : undefined}
+                src={inventory.asset?.image ? fileSrc(inventory.asset.image) : undefined}
                 alt={inventory.asset?.name ? inventory.asset.name.toString().slice(0, 2).toUpperCase() : "NA"}
                 sx={{ width: 400, height: 300, fontSize: "2rem", maxWidth: "100%", maxHeight: "300px" }}
                 variant="rounded"

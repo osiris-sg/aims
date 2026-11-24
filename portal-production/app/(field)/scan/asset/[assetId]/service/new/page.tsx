@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
@@ -101,8 +102,6 @@ import DateInput from "@/components/DateInput";
  */
 
 // Same prefix the office portal renders S3 keys with.
-const RESOURCE_URL =
-  process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
 
 
 interface CustomerOption {
@@ -1233,7 +1232,7 @@ export default function NewServiceReportPage() {
                   <Box key={key} sx={{ position: "relative" }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={`${RESOURCE_URL}${key}`}
+                      src={fileSrc(key)}
                       alt="Defect"
                       style={{
                         width: 84,

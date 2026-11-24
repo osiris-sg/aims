@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useState } from "react";
 import { Box, Dialog, DialogActions, DialogContent, Button, Link, Typography } from "@mui/material";
 
@@ -13,9 +14,8 @@ import { Box, Dialog, DialogActions, DialogContent, Button, Link, Typography } f
  *  - print: rows of three, each row kept whole across page breaks, the title
  *    travelling with the first row (field Print / Download PDF).
  */
-const RESOURCE_URL = process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
 
-export const photoSrc = (key: string) => (/^(https?:|data:|blob:)/.test(key) ? key : `${RESOURCE_URL}${key}`);
+export const photoSrc = (key: string) => fileSrc(key);
 
 export default function ReportPhotos({
   photos,

@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
+import { fileSrc } from "@/helpers/fileUrl";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { deliveryEndedAt as deliveryEndedAtOf } from "@/helpers/deliveryTimeline";
@@ -92,9 +93,7 @@ const getResourceUrl = (key: string | undefined | null): string | undefined => {
   if (key.startsWith("http://") || key.startsWith("https://") || key.startsWith("data:")) {
     return key;
   }
-  // Otherwise, prepend the S3 base URL
-  const baseUrl = process.env.NEXT_PUBLIC_RESOURCE_URL || "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
-  return `${baseUrl}${key}`;
+  return fileSrc(key);
 };
 
 // Helper: renders a LABEL : VALUE row, hidden when value is empty
@@ -301,9 +300,7 @@ function resolvePhotoSrc(key: string | null | undefined): string {
   if (key.startsWith("data:") || key.startsWith("http://") || key.startsWith("https://")) {
     return key;
   }
-  const base =
-    process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
-  return `${base}${key}`;
+  return fileSrc(key);
 }
 
 export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {

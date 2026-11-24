@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, Divider, FormControlLabel, MenuItem, Select, Switch, TextField, Typography, Grid2, IconButton, Chip, Tabs, Tab } from "@mui/material";
 import { Controller } from "react-hook-form";
@@ -414,7 +415,7 @@ export default function OrganizationSettingsPage() {
                     <>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={`${process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/"}${paynowQrKey}`}
+                        src={fileSrc(paynowQrKey)}
                         alt="PayNow QR"
                         style={{ maxHeight: 110, borderRadius: 8 }}
                       />

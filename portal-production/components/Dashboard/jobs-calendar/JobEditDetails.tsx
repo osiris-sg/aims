@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 // One job form (WCT group, 2026-11-24): what the removed job page showed, inside the Edit job pop-up. Created by,
 // "More details" (collapsed: Location on site, which prints on the job's DO under Deliver To), the Items and the
 // Proof of job (field reports) read only, and the stamped-DO check (Verify / Reject) when the job has one.
@@ -10,8 +11,7 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { toast } from "react-toastify";
 import VerificationPanel from "@/components/delivery/VerificationPanel";
 
-const RESOURCE_URL = (process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/").replace(/\/?$/, "/");
-const imgSrc = (k: string) => (k.startsWith("data:") || k.startsWith("http") ? k : `${RESOURCE_URL}${k}`);
+const imgSrc = (k: string) => fileSrc(k);
 const when = (iso: string | null | undefined) => (iso ? new Intl.DateTimeFormat("en-SG", { timeZone: "Asia/Singapore", day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(iso)) : "");
 const KIND_LABEL: Record<string, string> = { DO_ACK: "Customer sign-off", DO_INSTALL: "Installation", DO_START: "Job started", SERVICE: "Service report" };
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import { useParams, useRouter } from "next/navigation";
@@ -81,8 +82,7 @@ import JobCategoryField, { type RunJobCategory } from "@/components/delivery/Job
  * an invoice — the UI copy is explicit about that (backburnered by design).
  */
 
-const RESOURCE_URL = process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
-const imgSrc = (keyOrData: string) => (keyOrData.startsWith("data:") ? keyOrData : `${RESOURCE_URL}${keyOrData}`);
+const imgSrc = (keyOrData: string) => fileSrc(keyOrData);
 
 type RunStatus = "scheduled" | "in_progress" | "delivered" | "completed" | "cancelled";
 
@@ -1651,7 +1651,7 @@ export default function DeliveryDetailPage() {
                           <Stack direction="row" spacing={1} sx={{ mb: 1, flexWrap: "wrap", gap: 1 }}>
                             {r.photos.map((k, photoIdx) => {
                               const src = imgSrc(k);
-                              const optimizable = src.startsWith(RESOURCE_URL);
+                              const optimizable = false; // signed links: no next/image optimisation
                               return (
                                 <Box
                                   key={k}

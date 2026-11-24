@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -159,7 +160,7 @@ export default function AdminUploadsPage() {
                   <TableCell>{j.docType}</TableCell>
                   <TableCell sx={{ maxWidth: 220 }}>
                     {j.fileUrl ? (
-                      <MuiLink href={j.fileUrl} target="_blank" rel="noopener" sx={{ display: "block", whiteSpace: "normal", wordBreak: "break-all" }}>
+                      <MuiLink href={fileSrc(j.fileUrl)} target="_blank" rel="noopener" sx={{ display: "block", whiteSpace: "normal", wordBreak: "break-all" }}>
                         {j.fileName || "file"}
                       </MuiLink>
                     ) : (

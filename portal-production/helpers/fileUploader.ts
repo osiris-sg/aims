@@ -1,3 +1,4 @@
+import { fileSrc } from "@/helpers/fileUrl";
 import { request } from "./request";
 import { generateShortName } from "./imageUploader";
 
@@ -69,8 +70,5 @@ export async function uploadFile({
 }
 
 export function publicFileUrl(fileKey: string): string {
-  const base =
-    process.env.NEXT_PUBLIC_RESOURCE_URL ??
-    "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
-  return `${base.replace(/\/$/, "")}/${fileKey}`;
+  return fileSrc(fileKey);
 }

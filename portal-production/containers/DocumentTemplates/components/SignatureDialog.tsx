@@ -1,4 +1,5 @@
 "use client";
+import { fileSrc } from "@/helpers/fileUrl";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useRef, useState } from "react";
 import { Dialog, DialogActions, DialogContent, DialogTitle, Button, Box, IconButton, useTheme, Typography } from "@mui/material";
@@ -64,7 +65,8 @@ function SignatureDialogComponent({ label, viewMode, control, name }: SignatureP
                 ) : (
                   // Render S3 URL signature
                   <Image
-                    src={`${process.env.NEXT_PUBLIC_RESOURCE_URL || "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/"}${value}`}
+                    src={fileSrc(value)}
+                    unoptimized
                     alt={`${label} Signature`}
                     width={300}
                     height={80}

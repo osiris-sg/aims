@@ -1,3 +1,4 @@
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useState, useEffect, useRef } from "react";
 import DocumentNameHeader from "./DocumentNameHeader";
 import { Alert, Box, Button, Card, CardContent, Grid2, Typography, useTheme, useMediaQuery, IconButton, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Checkbox, FormControlLabel, Chip, Divider } from "@mui/material";
@@ -464,7 +465,7 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
           }
         }
       };
-      img.src = photos[index].annotations.startsWith("data:image") ? photos[index].annotations : `${process.env.NEXT_PUBLIC_RESOURCE_URL || "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/"}${photos[index].annotations}`;
+      img.src = fileSrc(photos[index].annotations);
     }
   };
 
@@ -641,7 +642,8 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
 
                                   <Box sx={{ position: "relative" }}>
                                     <Image
-                                      src={photo.imageData.startsWith("data:image") ? photo.imageData : `${process.env.NEXT_PUBLIC_RESOURCE_URL || "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/"}${photo.imageData}`}
+                                      src={fileSrc(photo.imageData)}
+                                      unoptimized
                                       alt={`Photo ${index + 1}`}
                                       width={isMobile ? 300 : 400}
                                       height={isMobile ? 200 : 300}
@@ -661,7 +663,7 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                                           left: 0,
                                           width: "100%",
                                           height: "100%",
-                                          backgroundImage: `url(${photo.annotations.startsWith("data:image") ? photo.annotations : `${process.env.NEXT_PUBLIC_RESOURCE_URL || "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/"}${photo.annotations}`})`,
+                                          backgroundImage: `url(${fileSrc(photo.annotations)})`,
                                           backgroundSize: "cover",
                                           pointerEvents: "none",
                                         }}

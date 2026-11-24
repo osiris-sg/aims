@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 import React from "react";
 import {
   Alert,
@@ -27,8 +28,6 @@ import {
   type EssServiceData,
 } from "@/lib/msr-templates";
 
-const RESOURCE_URL =
-  process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
 
 /**
  * SHARED ESS REPORT LAYOUT — one implementation, two screens.
@@ -288,13 +287,13 @@ export function renderEssBody(ess: EssServiceData | null) {
                           {(d.photos ?? []).map((key) => (
                             <a
                               key={key}
-                              href={`${RESOURCE_URL}${key}`}
+                              href={fileSrc(key)}
                               target="_blank"
                               rel="noreferrer"
                             >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
-                                src={`${RESOURCE_URL}${key}`}
+                                src={fileSrc(key)}
                                 alt="Defect"
                                 style={{
                                   width: 48,

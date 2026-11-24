@@ -1,3 +1,4 @@
+import { fileSrc } from "@/helpers/fileUrl";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useRef } from "react";
 import { Box, Button, InputLabel, Paper, Stack, Typography, useTheme } from "@mui/material";
@@ -36,7 +37,7 @@ export default function FormImage(props: Props) {
     () =>
       typedFields.map((field) => {
         if (typeof field.data === "string") {
-          return `${process.env.NEXT_PUBLIC_RESOURCE_URL}${field.data}`;
+          return fileSrc(field.data);
         } else if (field.data) {
           return URL.createObjectURL(field.data);
         }

@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
+import { fileSrc } from "@/helpers/fileUrl";
 
 import { Avatar, Box, Button, Skeleton, Stack, Typography, Grid2, useMediaQuery, useTheme, IconButton } from "@mui/material";
 import { useParams } from "next/navigation";
@@ -62,7 +63,7 @@ export default function ScanInventory() {
                     </Typography>
 
                     <Avatar
-                      src={`${process.env.NEXT_PUBLIC_RESOURCE_URL}${asset?.image}`}
+                      src={fileSrc(asset?.image)}
                       alt={asset?.name?.toString()?.slice(0, 2)?.toUpperCase() || "NA"}
                       sx={{
                         width: "100%",

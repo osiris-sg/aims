@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useCallback, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Box } from "@mui/material";
@@ -104,8 +105,6 @@ const MSR_PRINT_PAGE_STYLE = `
   }
 `;
 
-const RESOURCE_URL =
-  process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
 
 async function waitForPaint(node: HTMLElement): Promise<void> {
   try {
@@ -295,11 +294,11 @@ export function useMsrPrint(): UseMsrPrintResult {
   const templateId = templateFor(sd?.templateId);
   const isEss = templateId === "ESS_V1";
   const checkedSet = new Set<number>(sd?.checklist ?? []);
-  const techSigUrl = sd?.techSignatureKey ? `${RESOURCE_URL}${sd.techSignatureKey}` : null;
-  const clientSigUrl = sd?.clientSignatureKey ? `${RESOURCE_URL}${sd.clientSignatureKey}` : null;
+  const techSigUrl = sd?.techSignatureKey ? fileSrc(sd.techSignatureKey) : null;
+  const clientSigUrl = sd?.clientSignatureKey ? fileSrc(sd.clientSignatureKey) : null;
   const org: any = report?.organization ?? null;
   const orgLogo: string | null = org?.logo ?? null;
-  const logoUrl = orgLogo ? (/^(https?:|data:)/i.test(orgLogo) ? orgLogo : `${RESOURCE_URL}${orgLogo}`) : null;
+  const logoUrl = orgLogo ? fileSrc(orgLogo) : null;
 
   const surface = (
     <OfficeThemeScope>

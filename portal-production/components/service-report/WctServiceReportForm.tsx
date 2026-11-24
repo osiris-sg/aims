@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
@@ -97,8 +98,7 @@ interface Run {
   customer: { id: string; name: string } | null;
 }
 
-const S3 = process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
-const toPhoto = (key: string): CapturedPhoto => ({ key, previewUrl: /^(https?:|data:)/i.test(key) ? key : `${S3}${key}` });
+const toPhoto = (key: string): CapturedPhoto => ({ key, previewUrl: fileSrc(key) });
 const isoDate = (v?: string | null): string => {
   const d = v ? new Date(v) : new Date();
   const x = Number.isNaN(d.getTime()) ? new Date() : d;

@@ -1,3 +1,4 @@
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useState, useEffect } from "react";
 import { Box, Typography, Button, Card, CardContent, Avatar, IconButton, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Grid, Alert, Divider, Switch, FormControlLabel, Tooltip } from "@mui/material";
 import { Add, Edit, Delete, Visibility, AccountTree } from "@mui/icons-material";
@@ -126,7 +127,7 @@ const AssetPartsManager: React.FC<AssetPartsManagerProps> = ({ assetId, assetNam
             </Typography>
           )}
 
-          <Avatar src={part.image ? `${process.env.NEXT_PUBLIC_RESOURCE_URL}${part.image}` : undefined} sx={{ width: 48, height: 48, borderRadius: 1 }}>
+          <Avatar src={part.image ? fileSrc(part.image) : undefined} sx={{ width: 48, height: 48, borderRadius: 1 }}>
             {part.name.substring(0, 2).toUpperCase()}
           </Avatar>
 

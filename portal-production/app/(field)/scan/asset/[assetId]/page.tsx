@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useEffect, useState } from "react";
 import { returnStageCard } from "@/helpers/jobWording";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -154,7 +155,7 @@ export default function AssetActionChooser() {
   }
 
   const { asset, inventory, deliveryStage, resolvedDeliveryOrder } = data;
-  const imageUrl = asset.image ? `${process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/"}${asset.image}` : undefined;
+  const imageUrl = asset.image ? fileSrc(asset.image) : undefined;
 
   // Per-item delivery list (Phase 5). The scanned unit (search param / resolved
   // inventory) is highlighted; every other row shows its status so the tech sees

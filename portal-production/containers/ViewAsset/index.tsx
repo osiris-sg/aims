@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 import Table from "@/components/Table";
 import { Avatar, Box, Button, Card, Grid, IconButton, Skeleton, Stack, Typography, useTheme } from "@mui/material";
 // import Image from "next/image";
@@ -38,7 +39,7 @@ export default function ViewAsset() {
             {isGetAssetLoading ? (
               <Skeleton variant="rectangular" width={400} height={300} sx={{ maxWidth: "100%", borderRadius: 2 }} />
             ) : (
-              <Avatar src={`${process.env.NEXT_PUBLIC_RESOURCE_URL}${asset?.image}`} alt={asset?.name.toString().slice(0, 2).toUpperCase() || "NA"} sx={{ width: 400, height: 300, fontSize: "2rem", maxWidth: "100%", maxHeight: "300px" }} variant="rounded" />
+              <Avatar src={fileSrc(asset?.image)} alt={asset?.name.toString().slice(0, 2).toUpperCase() || "NA"} sx={{ width: 400, height: 300, fontSize: "2rem", maxWidth: "100%", maxHeight: "300px" }} variant="rounded" />
             )}
           </Grid>
           <Grid item xs={12} md={4} sx={{ display: "flex", justifyContent: "flex-end" }}>

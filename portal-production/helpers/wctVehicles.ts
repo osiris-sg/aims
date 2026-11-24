@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 import { request } from "./request";
 import { ACTIVE_ORG_KEY } from "./multiOrg";
 
@@ -96,7 +97,7 @@ export type VehicleDetail = VehicleRow & {
 export const fmtMoney = (n: number | null | undefined) => (n == null ? "-" : `S$${n.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 
 /** An uploaded file's public URL (S3). */
-export const fileUrl = (key: string) => `${(process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/").replace(/\/?$/, "/")}${key}`;
+export const fileUrl = (key: string) => fileSrc(key);
 
 /** The log, filtered as the page shows it (type, date range inclusive). */
 export function filterEntries(entries: VehicleLogEntry[], f: { type?: string; from?: string; to?: string }) {

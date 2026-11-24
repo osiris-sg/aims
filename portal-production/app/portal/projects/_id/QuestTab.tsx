@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 // Project quest (CIEL 09-12): the 10-step client journey, gamified. Steps run
 // IN ORDER — only the first pending step is actionable. Completing needs proof
 // where the step requires it; skipping always needs a reason. Points accrue
@@ -193,7 +194,7 @@ export default function QuestTab({ projectId }: { projectId: string }) {
                           icon={String(a.type || "").startsWith("video") ? <VideocamIcon sx={{ fontSize: 14 }} /> : <PhotoCameraIcon sx={{ fontSize: 14 }} />}
                           label={`${String(a.type || "").startsWith("video") ? "video" : "photo"}${a.at ? ` · ${fmtDate(a.at)}` : ""}${a.via === "whatsapp" ? " · WhatsApp" : ""}`}
                           component="a"
-                          href={a.url}
+                          href={fileSrc(a.url)}
                           target="_blank"
                           rel="noreferrer"
                           clickable
@@ -210,7 +211,7 @@ export default function QuestTab({ projectId }: { projectId: string }) {
                         {s.completedAt ? ` · ${fmtDate(s.completedAt)}` : ""}
                       </Typography>
                       {s.proofUrl && (
-                        <Link href={s.proofUrl} target="_blank" rel="noreferrer" variant="caption" sx={{ display: "inline-flex", alignItems: "center", gap: 0.25 }}>
+                        <Link href={fileSrc(s.proofUrl)} target="_blank" rel="noreferrer" variant="caption" sx={{ display: "inline-flex", alignItems: "center", gap: 0.25 }}>
                           <AttachFileIcon sx={{ fontSize: 13 }} /> proof
                         </Link>
                       )}

@@ -1,3 +1,4 @@
+import { fileSrc } from "@/helpers/fileUrl";
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Avatar, IconButton, Typography } from "@mui/material";
@@ -39,7 +40,7 @@ export default function useAssetsTableHeader() {
       header: "Image",
       cell: ({ row }) => {
         const imageUrl = row.original.image;
-        return <Avatar src={`${process.env.NEXT_PUBLIC_RESOURCE_URL}${imageUrl}`} alt="Image" sx={{ borderRadius: "0.4rem", width: 50, height: 50 }} />;
+        return <Avatar src={fileSrc(imageUrl)} alt="Image" sx={{ borderRadius: "0.4rem", width: 50, height: 50 }} />;
       },
     },
     {

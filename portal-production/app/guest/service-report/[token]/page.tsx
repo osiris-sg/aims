@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 /**
  * Remote customer signature for SERVICE REPORTS (2026-10-26).
  *
@@ -62,8 +63,7 @@ interface View {
 }
 
 const API = (process.env.NEXT_PUBLIC_BACKEND_API_URL || "").replace(/\/$/, "");
-const RESOURCE = process.env.NEXT_PUBLIC_RESOURCE_URL || "";
-const logoSrc = (logo: string | null | undefined) => (!logo ? null : /^(https?:|data:)/i.test(logo) ? logo : `${RESOURCE}${logo}`);
+const logoSrc = (logo: string | null | undefined) => (!logo ? null : fileSrc(logo));
 
 function NeutralMessage() {
   return (

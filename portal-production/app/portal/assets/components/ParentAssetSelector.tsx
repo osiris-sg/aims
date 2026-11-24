@@ -1,3 +1,4 @@
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useState, useEffect } from "react";
 import { Autocomplete, TextField, Box, Typography, Avatar, Chip, Checkbox, FormControlLabel } from "@mui/material";
 import { useAuth } from "@clerk/nextjs";
@@ -93,7 +94,7 @@ const ParentAssetSelector: React.FC<ParentAssetSelectorProps> = ({ value, onChan
           renderInput={(params) => <TextField {...params} label="Parent Asset" placeholder="Search for a parent asset..." error={error} helperText={helperText || "Select the asset this will be a part of"} />}
           renderOption={(props, option) => (
             <Box component="li" {...props} sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-              <Avatar src={option.image ? `${process.env.NEXT_PUBLIC_RESOURCE_URL}${option.image}` : undefined} sx={{ width: 32, height: 32, borderRadius: 1 }}>
+              <Avatar src={option.image ? fileSrc(option.image) : undefined} sx={{ width: 32, height: 32, borderRadius: 1 }}>
                 {option.name.substring(0, 2).toUpperCase()}
               </Avatar>
               <Box sx={{ flex: 1 }}>
@@ -125,7 +126,7 @@ const ParentAssetSelector: React.FC<ParentAssetSelectorProps> = ({ value, onChan
             Selected Parent Asset:
           </Typography>
           <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-            <Avatar src={selectedAsset.image ? `${process.env.NEXT_PUBLIC_RESOURCE_URL}${selectedAsset.image}` : undefined} sx={{ width: 40, height: 40, borderRadius: 1 }}>
+            <Avatar src={selectedAsset.image ? fileSrc(selectedAsset.image) : undefined} sx={{ width: 40, height: 40, borderRadius: 1 }}>
               {selectedAsset.name.substring(0, 2).toUpperCase()}
             </Avatar>
             <Box>

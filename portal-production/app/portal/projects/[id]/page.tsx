@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
@@ -193,8 +194,6 @@ interface FieldReport {
   asset: { id: string; name: string; skuKey: string; image: string | null } | null;
 }
 
-const RESOURCE_URL =
-  process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
 
 // Photo keys may already be data URLs or full URLs — render those as-is and
 // only prefix the S3 base for bare keys.
@@ -203,7 +202,7 @@ const resolveImageSrc = (keyOrUrl: string) => {
   if (keyOrUrl.startsWith("data:") || keyOrUrl.startsWith("http://") || keyOrUrl.startsWith("https://")) {
     return keyOrUrl;
   }
-  return `${RESOURCE_URL}${keyOrUrl}`;
+  return fileSrc(keyOrUrl);
 };
 
 const FIELD_REPORT_KIND_LABEL: Record<FieldReportKind, string> = {
@@ -1333,7 +1332,7 @@ function FieldReportCard({
               // S3 keys go through next/image (resized thumbnail); data: /
               // pass-through URLs fall back to a plain lazy <img>. Click still
               // opens the full-size src in the viewer dialog.
-              const optimizable = src.startsWith(RESOURCE_URL);
+              const optimizable = false; // signed links: no next/image optimisation
               return (
                 <Box
                   key={p}

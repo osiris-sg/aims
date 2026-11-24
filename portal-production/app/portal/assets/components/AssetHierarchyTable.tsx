@@ -1,3 +1,4 @@
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useState } from "react";
 import { Box, Typography, IconButton, Avatar, Chip, Collapse, Table, TableBody, TableCell, TableHead, TableRow, Button, Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material";
 import { ExpandMore, ChevronRight, Add, Visibility, ModeEdit, Delete } from "@mui/icons-material";
@@ -61,7 +62,7 @@ const AssetRow: React.FC<AssetRowProps> = ({ asset, level, onView, onEdit, onDel
               </Typography>
             )}
 
-            <Avatar src={asset.image ? `${process.env.NEXT_PUBLIC_RESOURCE_URL}${asset.image}` : undefined} sx={{ width: 32, height: 32, borderRadius: 1 }}>
+            <Avatar src={asset.image ? fileSrc(asset.image) : undefined} sx={{ width: 32, height: 32, borderRadius: 1 }}>
               {asset.name.substring(0, 2).toUpperCase()}
             </Avatar>
 

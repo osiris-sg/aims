@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 // Monthly Payables (Summer 2026-11-02): the AIMS version of the office's
 // "Bi Weekly Outgoing Payments" Google sheet. Supplier invoices posted in the
 // bills WhatsApp group are AI-read onto this tally as TO PAY; setting a
@@ -953,10 +954,10 @@ function PayableDialog({
           {row?.attachmentUrl && (
             <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1.5, overflow: "hidden", minHeight: 320, bgcolor: "background.default" }}>
               {isPdf ? (
-                <iframe title="Invoice" src={row.attachmentUrl} style={{ width: "100%", height: "100%", minHeight: 420, border: 0 }} />
+                <iframe title="Invoice" src={fileSrc(row.attachmentUrl)} style={{ width: "100%", height: "100%", minHeight: 420, border: 0 }} />
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={row.attachmentUrl} alt={row.filename || "invoice"} style={{ width: "100%", display: "block" }} />
+                <img src={fileSrc(row.attachmentUrl)} alt={row.filename || "invoice"} style={{ width: "100%", display: "block" }} />
               )}
             </Box>
           )}

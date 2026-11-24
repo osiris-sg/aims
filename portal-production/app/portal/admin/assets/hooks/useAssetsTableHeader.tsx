@@ -1,3 +1,4 @@
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useState } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
 import { Avatar, Typography, Chip } from "@mui/material";
@@ -81,7 +82,7 @@ export default function useAssetsTableHeader() {
       header: "Image",
       cell: (info) => {
         const imageUrl = info.getValue();
-        return <Avatar src={`${process.env.NEXT_PUBLIC_RESOURCE_URL}${imageUrl}`} alt="Asset Image" sx={{ borderRadius: "0.4rem", width: 50, height: 50 }} />;
+        return <Avatar src={fileSrc(imageUrl)} alt="Asset Image" sx={{ borderRadius: "0.4rem", width: 50, height: 50 }} />;
       },
     }),
     columnHelper.accessor("organization.name", {

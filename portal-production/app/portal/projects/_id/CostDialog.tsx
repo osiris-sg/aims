@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 // Add / edit one costing-ledger row. "Upload invoice" sends the photo/PDF to
 // the API, which stores it and AI-extracts supplier, invoice no, date and
 // amount into the form for the user to confirm.
@@ -189,7 +190,7 @@ export default function CostDialog({ open, projectId, sections, editing, onClose
               <input ref={fileRef} type="file" hidden accept="image/*,application/pdf" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
               {form.attachmentUrl && (
                 <>
-                  <Button size="small" endIcon={<OpenInNewIcon />} href={form.attachmentUrl} target="_blank" rel="noreferrer" sx={{ textTransform: "none" }}>
+                  <Button size="small" endIcon={<OpenInNewIcon />} href={fileSrc(form.attachmentUrl)} target="_blank" rel="noreferrer" sx={{ textTransform: "none" }}>
                     View attachment
                   </Button>
                   <IconButton size="small" onClick={() => set({ attachmentUrl: "", attachmentKey: "" })}>

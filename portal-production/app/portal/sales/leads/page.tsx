@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 // Sales → Leads (interior-design orgs): every homeowner enquiry from EZiD /
 // Network Singapore (auto-captured from email) or keyed manually. Designers
 // are assigned inline, statuses follow the funnel (unqualified → engaging →
@@ -887,17 +888,17 @@ export default function LeadsPage() {
             )}
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               {detail.floorPlanUrl && (
-                <Button size="small" variant="outlined" href={detail.floorPlanUrl} target="_blank" rel="noreferrer" sx={{ textTransform: "none" }}>
+                <Button size="small" variant="outlined" href={fileSrc(detail.floorPlanUrl)} target="_blank" rel="noreferrer" sx={{ textTransform: "none" }}>
                   Floor plan
                 </Button>
               )}
               {detail.deadProofUrl && (
-                <Button size="small" variant="outlined" color="error" href={detail.deadProofUrl} target="_blank" rel="noreferrer" sx={{ textTransform: "none" }}>
+                <Button size="small" variant="outlined" color="error" href={fileSrc(detail.deadProofUrl)} target="_blank" rel="noreferrer" sx={{ textTransform: "none" }}>
                   No-reply proof
                 </Button>
               )}
               {detail.attachmentUrl && (
-                <Button size="small" variant="outlined" href={detail.attachmentUrl} target="_blank" rel="noreferrer" sx={{ textTransform: "none" }}>
+                <Button size="small" variant="outlined" href={fileSrc(detail.attachmentUrl)} target="_blank" rel="noreferrer" sx={{ textTransform: "none" }}>
                   Lead PDF
                 </Button>
               )}
@@ -968,9 +969,9 @@ export default function LeadsPage() {
                     <Box key={a.id} sx={{ display: "flex", gap: 1, alignItems: "center" }}>
                       {a.mimeType?.startsWith("image/") ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={a.url} alt={a.filename || ""} style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 4, cursor: "pointer", flexShrink: 0 }} onClick={() => window.open(a.url, "_blank")} />
+                        <img src={fileSrc(a.url)} alt={a.filename || ""} style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 4, cursor: "pointer", flexShrink: 0 }} onClick={() => window.open(a.url, "_blank")} />
                       ) : a.mimeType?.startsWith("video/") ? (
-                        <video src={a.url} controls style={{ width: 120, borderRadius: 4, flexShrink: 0 }} />
+                        <video src={fileSrc(a.url)} controls style={{ width: 120, borderRadius: 4, flexShrink: 0 }} />
                       ) : (
                         <DescriptionIcon sx={{ color: "text.secondary", flexShrink: 0 }} />
                       )}

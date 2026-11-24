@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 // Xero-style desktop top navigation (guru 2026-08-30, GLOBAL for every org —
 // the left rail is retired; mobile keeps the drawer). Same data and
 // visibility rules as DynamicSidebarContent (org modules ∩ role allowedModules,
@@ -44,7 +45,7 @@ import { isClientsPath } from "@/helpers/shipmentsNav";
 // it is sized 62x28 to keep the aspect and fit the 52px bar. The S3 domain is
 // already whitelisted in next.config.mjs images.domains.
 const CIEL_ORG_ID = "09e55c23-e031-4254-8152-a373597b2cb3";
-const CIEL_NAV_LOGO = "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/logos/ciel-logo-cream.png";
+const CIEL_NAV_LOGO = fileSrc("logos/ciel-logo-cream.png");
 
 // Org switcher, folded into the bar next to the brand (Xero puts
 // the org name there). Replaces the old below-bar "Viewing organization" row
@@ -263,7 +264,7 @@ export default function TopNavBar() {
         {organization?.id === CIEL_ORG_ID ? (
           // CIEL only: cream mark instead of the AIMS mark. The AIMS wordmark is
           // suppressed because the CIEL logo already contains its own name.
-          <Image src={CIEL_NAV_LOGO} alt="CIEL" width={62} height={28} style={{ display: "block", objectFit: "contain" }} />
+          <Image unoptimized src={CIEL_NAV_LOGO} alt="CIEL" width={62} height={28} style={{ display: "block", objectFit: "contain" }} />
         ) : (
           <>
             <Image src={logo} alt="AIMS" width={26} height={26} style={{ display: "block" }} />

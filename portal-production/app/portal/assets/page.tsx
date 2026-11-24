@@ -1,4 +1,5 @@
 "use client";
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useMemo, useState } from "react";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
@@ -99,7 +100,7 @@ export default function AssetsPage() {
       header: "Image",
       cell: ({ row }: any) => {
         const imageUrl = row.original.image;
-        return <Avatar src={`${process.env.NEXT_PUBLIC_RESOURCE_URL}${imageUrl}`} alt="Image" sx={{ borderRadius: "0.4rem", width: 50, height: 50 }} />;
+        return <Avatar src={fileSrc(imageUrl)} alt="Image" sx={{ borderRadius: "0.4rem", width: 50, height: 50 }} />;
       },
     },
     {

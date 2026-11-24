@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 // Interior-design project page — their "Costing Summary" sheet, live.
 // Header (client / site / designer / stage) · KPI tiles · tabs:
 //   Costing  — subcontractor & supplier ledger (+ upload invoice → AI extract)
@@ -1320,10 +1321,10 @@ export default function IdProjectPage({ id }: { id: string }) {
           {invoicePreview && (/\.(png|jpe?g|gif|webp)(\?|$)/i.test(invoicePreview.url) ? (
             <Box sx={{ display: "flex", justifyContent: "center", p: 2 }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={invoicePreview.url} alt={invoicePreview.title} style={{ maxWidth: "100%", maxHeight: "78vh", objectFit: "contain", background: "#fff" }} />
+              <img src={fileSrc(invoicePreview.url)} alt={invoicePreview.title} style={{ maxWidth: "100%", maxHeight: "78vh", objectFit: "contain", background: "#fff" }} />
             </Box>
           ) : (
-            <iframe title={invoicePreview.title} src={invoicePreview.url} style={{ width: "100%", height: "100%", border: 0 }} />
+            <iframe title={invoicePreview.title} src={fileSrc(invoicePreview.url)} style={{ width: "100%", height: "100%", border: 0 }} />
           ))}
         </DialogContent>
         <DialogActions>

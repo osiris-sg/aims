@@ -1,5 +1,6 @@
 "use client";
 
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
@@ -60,8 +61,6 @@ import { showBackToOrder } from "@/helpers/wctDocUi";
 // never from its asset — an ESS asset's pre-template reports stay GENERIC.
 const CHECKLIST_LABELS = GENERIC_CHECKLIST;
 
-const RESOURCE_URL =
-  process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
 
 interface ServiceData {
   customerName?: string | null;
@@ -284,11 +283,11 @@ export default function MaintenanceReportDetailPage() {
   const isWct = templateId === "WCT_V1";
   const ess = sd.ess ?? null;
   const checkedSet = new Set(sd.checklist ?? []);
-  const techSigUrl = sd.techSignatureKey ? `${RESOURCE_URL}${sd.techSignatureKey}` : null;
-  const clientSigUrl = sd.clientSignatureKey ? `${RESOURCE_URL}${sd.clientSignatureKey}` : null;
+  const techSigUrl = sd.techSignatureKey ? fileSrc(sd.techSignatureKey) : null;
+  const clientSigUrl = sd.clientSignatureKey ? fileSrc(sd.clientSignatureKey) : null;
   const org = report.organization ?? null;
   const orgLogo = org?.logo;
-  const logoUrl = orgLogo ? (/^(https?:|data:)/i.test(orgLogo) ? orgLogo : `${RESOURCE_URL}${orgLogo}`) : null;
+  const logoUrl = orgLogo ? fileSrc(orgLogo) : null;
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>

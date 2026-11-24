@@ -1,3 +1,4 @@
+import { fileSrc } from "@/helpers/fileUrl";
 import React, { useState, useEffect } from "react";
 import DocumentNameHeader from "./DocumentNameHeader";
 import { Alert, Box, Button, Divider, Grid2, Typography, useTheme, useMediaQuery, IconButton } from "@mui/material";
@@ -445,7 +446,8 @@ export default function DeliveryOrderTemplate(props: Props) {
                                   Image {index + 1}
                                 </Typography>
                                 <Image
-                                  src={image.startsWith("data:image") ? image : `${process.env.NEXT_PUBLIC_RESOURCE_URL || "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/"}${image}`}
+                                  src={fileSrc(image)}
+                                  unoptimized
                                   alt={`Captured ${index + 1}`}
                                   width={isMobile ? 300 : 400}
                                   height={300}
