@@ -576,7 +576,7 @@ export default function CalendarView({
           <ListItemIcon>
             <WorkOutlineIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText primary={ADD_MENU_TEXT.job.primary} secondary={ADD_MENU_TEXT.job.secondary} />
+          <ListItemText primary={ADD_MENU_TEXT.job.primary} />
         </MenuItem>
         <MenuItem
           onClick={() => {
@@ -588,7 +588,7 @@ export default function CalendarView({
           <ListItemIcon>
             <StickyNote2OutlinedIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText primary={ADD_MENU_TEXT.note.primary} secondary={ADD_MENU_TEXT.note.secondary} />
+          <ListItemText primary={ADD_MENU_TEXT.note.primary} />
         </MenuItem>
       </Menu>
     </Box>

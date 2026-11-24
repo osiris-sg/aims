@@ -79,9 +79,9 @@ test("quick job body, all-day (2026-11-10): the date only, no time and no durati
   assert.equal("allDay" in timed, false);
 });
 
-test("add menu (calendar add orgs): Job = Create a new task, Note = Others", () => {
-  assert.deepEqual(ADD_MENU_TEXT.job, { primary: "Job", secondary: "Create a new task" });
-  assert.deepEqual(ADD_MENU_TEXT.note, { primary: "Note", secondary: "Others" });
+test("add menu (calendar add orgs): just Job and Note, no line under them", () => {
+  assert.deepEqual(ADD_MENU_TEXT.job, { primary: "Job" });
+  assert.deepEqual(ADD_MENU_TEXT.note, { primary: "Note" });
 });
 
 test("job category: sent only when the org has categories (else the body is as before)", () => {

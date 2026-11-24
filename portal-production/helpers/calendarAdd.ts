@@ -255,7 +255,8 @@ export const LINK_KINDS: { value: LinkKind; label: string; documentTypes?: strin
 ];
 
 /** The calendar's add menu (a click on an empty day / slot; calendar add orgs only, isCalendarAddEnabled). */
-export const ADD_MENU_TEXT: Record<"job" | "note", { primary: string; secondary: string }> = {
-  job: { primary: "Job", secondary: "Create a new task" },
-  note: { primary: "Note", secondary: "Others" },
+// 2026-11-25 (owner): just "Job" and "Note", no grey line under them.
+export const ADD_MENU_TEXT: Record<"job" | "note", { primary: string }> = {
+  job: { primary: "Job" },
+  note: { primary: "Note" },
 };
