@@ -67,6 +67,8 @@ export const crewOptionList = (o: CrewOptions | null | undefined): CrewPick[] =>
 ];
 
 export const crewLabel = (c: CrewChip): string => (typeof c === "string" ? c : c.name);
+/** A chip as shown (2026-11-24): teams written out ("Team D"), workers and other text as typed. The value is unchanged. */
+export const crewChipText = (c: CrewChip): string => (typeof c === "string" ? (/^[a-z][0-9]?$/i.test(c.trim()) ? teamName(c.trim().toUpperCase()) : c) : c.kind === "team" ? teamName(c.name) : c.name);
 export const sameCrew = (a: CrewChip, b: CrewChip): boolean => (typeof a === "string" || typeof b === "string" ? a === b : a.kind === b.kind && a.id === b.id);
 /** A team written out (2026-11-24): "D" -> "Team D"; a name already starting with "Team" is kept. Display only. */
 export const teamName = (name: string): string => {

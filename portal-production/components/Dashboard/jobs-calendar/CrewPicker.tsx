@@ -7,7 +7,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Autocomplete, Chip, TextField } from "@mui/material";
 import { useCalendarApi } from "./calendarAddApi";
-import { chipsToValue, crewChips, crewLabel, crewOptionList, sameCrew, sameValue, type CrewChip, type CrewOptions, type CrewPick } from "@/helpers/crewPicker";
+import { chipsToValue, crewChipText, crewChips, crewLabel, crewOptionList, sameCrew, sameValue, type CrewChip, type CrewOptions, type CrewPick } from "@/helpers/crewPicker";
 
 /** The org's active teams and workers (GET /workers-teams/picker), read once per page. */
 let cached: { at: number; org: string; data: CrewOptions } | null = null;
@@ -91,7 +91,7 @@ export default function CrewPicker({
       renderTags={(chips, getTagProps) =>
         chips.map((c, i) => {
           const { key, ...rest } = getTagProps({ index: i });
-          return <Chip key={key} size="small" label={crewLabel(c)} variant={typeof c === "string" ? "outlined" : "filled"} {...rest} />;
+          return <Chip key={key} size="small" label={crewChipText(c)} variant={typeof c === "string" ? "outlined" : "filled"} {...rest} />;
         })
       }
       renderInput={(params) => <TextField {...params} label={hideLabel ? undefined : label} InputLabelProps={{ shrink: true }} inputProps={{ ...params.inputProps, maxLength: 120, "aria-label": label }} />}

@@ -1,7 +1,7 @@
 // Run: npm test. Round 39 B4: the jobs' Team / crew picker (teams + workers, free text kept).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chipsToValue, crewChips, crewDisplay, crewOptionList, sameCrew, splitFree } from "./crewPicker.ts";
+import { chipsToValue, crewChipText, crewChips, crewDisplay, crewOptionList, sameCrew, splitFree } from "./crewPicker.ts";
 
 test("existing free text stays as typed; picks come first", () => {
   assert.deepEqual(splitFree("Team B + Ah Seng"), ["Team B", "Ah Seng"]);
@@ -15,6 +15,10 @@ test("existing free text stays as typed; picks come first", () => {
   // Teams written out (2026-11-24): "D" -> "Team D", comma separated, workers and other text as typed.
   assert.equal(crewDisplay([], "D, E"), "Team D, Team E");
   assert.equal(crewDisplay([{ kind: "team", id: "t1", name: "D" }], "+2pt"), "Team D, +2pt");
+  // The picker's chips read the same (value unchanged).
+  assert.equal(crewChipText("D"), "Team D");
+  assert.equal(crewChipText("Guru"), "Guru");
+  assert.equal(crewChipText({ kind: "team", id: "t1", name: "E" }), "Team E");
 });
 
 test("options: teams then workers; duplicates and blanks dropped", () => {
