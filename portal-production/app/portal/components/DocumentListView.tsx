@@ -8,8 +8,8 @@ import { request, withActiveOrg } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import StatusChip, { statusChipView } from "@/components/StatusChip";
-import { listExportModel, type ListExportColumn } from "@/helpers/listExport";
-import { exportReportCsv, exportReportPdf } from "@/app/portal/accounting/_lib/report-export";
+import { listExportModel, listExportSheet, listExportXlsx, listSummaryFilename, type ListExportColumn } from "@/helpers/listExport";
+import { exportReportPdf } from "@/app/portal/accounting/_lib/report-export";
 import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import { wctStatusOptionsFor } from "@/helpers/wctStatuses";
@@ -54,6 +54,8 @@ import type { FilterField } from "@/components/FilterDrawer";
 // Invoices (guru 2026-11-14): never "Confirmed" — Unconfirmed, Awaiting
 // Payment, Partially Paid or Paid, nothing else.
 const INVOICE_TYPE_SET = new Set(["INVOICE", "TI", "TI2"]);
+/** Lists with Export summary / Print list (WCT group, enableWctDocNav): Invoices, Quotations, Delivery orders. */
+const LIST_EXPORT_TYPE_SET = new Set([...INVOICE_TYPE_SET, "QUOTATION", "QO1", "DELIVERY_ORDER", "DO"]);
 const DOC_STATUS_OPTIONS = [
   { value: "unconfirmed", label: "Unconfirmed" },
   { value: "confirmed", label: "Confirmed" },
@@ -385,10 +387,11 @@ export default function DocumentListView({
       setBulkDownloading(false);
     }
   };
-  // WCT group Invoices list (enableWctDocNav, 2026-11-24): the ticked rows as CSV, or a printable A4 list (the
-  // report print rule: Print opens a generated PDF with the print dialog, never the raw screen).
-  const listExportOn = !!isWctDocNavEnabled && showPaidDue;
-  const exportModel = () => {
+  // WCT group Invoices / Quotations / DO lists (enableWctDocNav, 2026-11-24; Excel + Quotations + DOs 2026-11-25): the
+  // ticked rows as an Excel summary, or a printable A4 list (the report print rule: Print opens a generated PDF with
+  // the print dialog, never the raw screen). The CSV button left: the .xlsx carries the same columns and rows.
+  const listExportOn = !!isWctDocNavEnabled && documentTypes.length > 0 && documentTypes.every((t) => LIST_EXPORT_TYPE_SET.has(String(t).toUpperCase()));
+  const exportColumns = (): Array<ListExportColumn<any>> => {
     const cols: Array<ListExportColumn<any>> = [
       { header: `${documentLabel} #`, text: (r) => r.name || "" },
       ...(showOrderColumn ? [{ header: "Order", text: (r: any) => r.linkedOrder?.orderNumber || "" }] : []),
@@ -407,13 +410,27 @@ export default function DocumentListView({
       { header: dateHeader, text: (r) => moment(r.issueDate || r.createdAt).format("DD/MM/YYYY") },
       { header: "Status", text: (r) => statusChipView(r.status, r, !!isWctStatusFlowEnabled).label },
     ];
-    return listExportModel({ title: pluralLabel || `${documentLabel}s`, orgName: organization?.name || "", rows: bulk.selectedRows, columns: cols });
+    return cols;
   };
-  const bulkExportCsv = () => {
+  const exportTitle = () => pluralLabel || `${documentLabel}s`;
+  const exportModel = () => listExportModel({ title: exportTitle(), orgName: organization?.name || "", rows: bulk.selectedRows, columns: exportColumns() });
+  const [bulkExporting, setBulkExporting] = useState(false);
+  const bulkExportSummary = async () => {
+    if (bulkExporting) return;
+    setBulkExporting(true);
     try {
-      exportReportCsv(exportModel());
+      const sheet = listExportSheet({ title: exportTitle(), orgName: organization?.name || "", rows: bulk.selectedRows, columns: exportColumns() });
+      const bytes = await listExportXlsx(sheet, exportTitle());
+      const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = listSummaryFilename(exportTitle());
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (e: any) {
       toast.error(e?.message || "Export failed");
+    } finally {
+      setBulkExporting(false);
     }
   };
   const bulkPrintList = async () => {
@@ -924,7 +941,7 @@ export default function DocumentListView({
           },
           ...(listExportOn
             ? [
-                { key: "export-csv", label: "Export CSV", icon: <FileDownloadOutlinedIcon />, tooltip: "The selected rows as a CSV file", onClick: () => bulkExportCsv() },
+                { key: "export-summary", label: bulkExporting ? "Preparing…" : "Export summary", icon: <FileDownloadOutlinedIcon />, disabled: bulkExporting, tooltip: "The selected rows as an Excel file with a TOTAL row", onClick: () => void bulkExportSummary() },
                 { key: "print-list", label: "Print list", icon: <PrintOutlinedIcon />, tooltip: "Print the selected rows as a list", onClick: () => void bulkPrintList() },
               ]
             : []),

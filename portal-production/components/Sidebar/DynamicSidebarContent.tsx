@@ -48,6 +48,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
+import { orgSettingsEditOf, wctSettingsEntry } from "@/helpers/customAccess";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { menuOrderOverride, assetsNavModule, wctMenuModule } from "@/helpers/wctNav";
 import { canVehicles } from "@/helpers/wctVehicles";
@@ -96,7 +97,7 @@ export default function DynamicSidebarContent() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled, isCustomAccessEnabled, isWorkersTeamsEnabled, fieldAreas } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled, isCustomAccessEnabled, isWorkersTeamsEnabled, fieldAreas, features } = useOrganizationFeatures();
   // HR (the Field module): the same group the top bar shows (useNavModules), for the pages this person may open.
   const { me: fieldMe } = useFieldMe();
   const { isCollapsed } = useSidebar();
@@ -489,6 +490,8 @@ export default function DynamicSidebarContent() {
   // off). Mirrored in useNavModules' settingsMenu (top bar + chat home).
   const accountingSetupShown = showAccountingSetup(isModuleEnabled);
   // Module-backed Org Settings entries: the org has the module on and the role may open it.
+  // WCT group (2026-11-25): "Users & roles" (custom access orgs) and "Calendar colours", Org Settings edit only.
+  const wctSettings = { customAccess: !!isCustomAccessEnabled, calendarStyle: features?.enableCalendarStyle === true, orgSettingsEdit: orgSettingsEditOf(userRoles) };
   const settingsModuleOn = (code: string) => modules.some((m: any) => m.moduleCode === code && m.enabled) && isModuleAllowed(code);
 
   // Secondary items (Settings, etc.) — supports nested submenus like main modules
@@ -516,14 +519,16 @@ export default function DynamicSidebarContent() {
         { key: 'masterfiles', label: 'Master Files', path: '/portal/masterfiles' },
         // Custom job fields (enableJobFields orgs only).
         { key: 'job-fields', label: 'Job fields', path: '/portal/settings/job-fields' },
+        // Calendar colours (WCT group, enableCalendarStyle, Org Settings edit only; 2026-11-25).
+        { key: 'calendar-colours', label: 'Calendar colours', path: '/portal/settings/calendar-colours' },
         // Workers & Teams (enableWorkersTeams orgs only; WCT 2026-11-20).
         { key: 'workers-teams', label: 'Workers & Teams', path: '/portal/settings/workers-teams' },
         // Quotation categories for the sales report (enableQuotationCategory orgs only).
         { key: 'quotation-categories', label: 'Quotation categories', path: '/portal/settings/quotation-categories' },
         // Was the Audit module (guru 2026-11-12: "audit should be called audit log").
         { key: 'audit', label: 'Audit Log', path: '/portal/audit' },
-      ].filter((s) => (s.key !== 'users' || (settingsModuleOn('USER_MANAGEMENT') && !isUserMgmtMasterfileEnabled)) && (s.key !== 'audit' || settingsModuleOn('AUDIT')) && (s.key !== 'accounting-setup' || accountingSetupShown) && (s.key !== 'business-rules' || isBusinessRulesEnabled) && (s.key !== 'hotkeys' || isHotkeysEnabled) && ((s.key !== 'shipping' && s.key !== 'customer-profiles') || showShippingSettings(isModuleEnabled)) && (s.key !== 'job-fields' || isJobFieldsEnabled) && (s.key !== 'workers-teams' || !!isWorkersTeamsEnabled) && (s.key !== 'quotation-categories' || isQuotationCategoryEnabled))
-        .map((s) => ({ ...s, label: settingLabel(s) })),
+      ].filter((s) => (wctSettingsEntry(s.path, wctSettings) !== undefined ? wctSettingsEntry(s.path, wctSettings) !== null : true) && (s.key !== 'users' || isCustomAccessEnabled || (settingsModuleOn('USER_MANAGEMENT') && !isUserMgmtMasterfileEnabled)) && (s.key !== 'audit' || settingsModuleOn('AUDIT')) && (s.key !== 'accounting-setup' || accountingSetupShown) && (s.key !== 'business-rules' || isBusinessRulesEnabled) && (s.key !== 'hotkeys' || isHotkeysEnabled) && ((s.key !== 'shipping' && s.key !== 'customer-profiles') || showShippingSettings(isModuleEnabled)) && (s.key !== 'job-fields' || isJobFieldsEnabled) && (s.key !== 'workers-teams' || !!isWorkersTeamsEnabled) && (s.key !== 'quotation-categories' || isQuotationCategoryEnabled))
+        .map((s) => ({ ...s, label: wctSettingsEntry(s.path, wctSettings) ?? settingLabel(s) })),
     },
   ];
 

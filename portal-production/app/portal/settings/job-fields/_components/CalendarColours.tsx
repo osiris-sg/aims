@@ -1,6 +1,7 @@
 "use client";
 
-// Calendar colours (WCT group, 2026-11-18, enableCalendarStyle) on Settings > Job fields: per person, the
+// Calendar colours (WCT group, 2026-11-18, enableCalendarStyle) on Settings > Job fields (orgs WITHOUT a PTW applicants
+// list only since 2026-11-25; the others use Org Settings > Calendar colours): per person, the
 // salesperson colour (a job chip's fill) and the PTW applicant colour (its left bar), and the default PTW applicant.
 // The two palettes never overlap, so a bar never reads as a fill. Shown only when GET /dashboard/calendar-style
 // answers (the flag is on); every other org sees nothing new.
@@ -92,7 +93,9 @@ export default function CalendarColours() {
     });
   }, [data, people]);
 
-  if (!data) return null;
+  // 2026-11-25: an org with a PTW applicants list (every calendar style org today) sets the salesperson colours in
+  // Org Settings > Calendar colours; this table stays only for an org without a list (PTW colour per person).
+  if (!data || data.ptwList) return null;
 
   const set = (id: string, patch: Partial<Person>) => setPeople((list) => list.map((p) => (p.id === id ? { ...p, ...patch } : patch.ptwDefault ? { ...p, ptwDefault: false } : p)));
   const term = filter.trim().toLowerCase();
@@ -109,7 +112,7 @@ export default function CalendarColours() {
   };
 
   return (
-    <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 2, mb: 2 }} data-tour="calendar-colours">
+    <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 2, mb: 2 }} data-tour="calendar-colours-jobfields">
       <Stack direction={{ xs: "column", sm: "row" }} alignItems={{ sm: "center" }} spacing={1} sx={{ mb: 1 }}>
         <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1 }}>
           <Typography variant="subtitle1" fontWeight={700}>

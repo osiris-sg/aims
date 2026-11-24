@@ -275,6 +275,8 @@ interface World {
   /** Round 37: DOs made on orders (config.orderId) and orders' linked documents. */
   orderDos?: any[];
   orderLinks?: Record<string, any>;
+  /** Org Settings > Calendar colours (2026-11-25): PTW stripe colour per status, per org. */
+  ptwColours?: Record<string, Record<string, string>>;
 }
 
 function world(): World {
@@ -352,7 +354,7 @@ function fakePrisma(w: World) {
     },
     customField: {
       findMany: jest.fn(async () => []),
-      findFirst: jest.fn(async ({ where }: any) => where.fieldName === 'salesperson_aliases' ? (w.aliases?.[org(where)] ? { options: w.aliases[org(where)] } : null) : (where.fieldName === 'job_calendar_style' && (org(where) === P || org(where) === C) ? { id: `${STYLE_FIELD}-${org(where)}` } : null)),
+      findFirst: jest.fn(async ({ where }: any) => where.fieldName === 'calendar_ptw_colours' ? (w.ptwColours?.[org(where)] ? { options: w.ptwColours[org(where)] } : null) : where.fieldName === 'salesperson_aliases' ? (w.aliases?.[org(where)] ? { options: w.aliases[org(where)] } : null) : (where.fieldName === 'job_calendar_style' && (org(where) === P || org(where) === C) ? { id: `${STYLE_FIELD}-${org(where)}` } : null)),
     },
     customFieldValue: {
       findMany: jest.fn(async ({ where }: any) => {
@@ -901,5 +903,33 @@ describe('teams written out (2026-11-24)', () => {
     expect(crewText({ team: 'Guru', crew: [{ kind: 'team', id: 't1', name: 'D' }, { kind: 'worker', id: 'w1', name: 'Ali' }] })).toBe('Team D, Ali, Guru');
     expect(crewText({ team: 'D', crew: [{ kind: 'team', id: 't1', name: 'Team D' }] })).toBe('Team D');
     expect(crewText({ team: null, crew: [] })).toBeNull();
+  });
+});
+
+describe('Org Settings > Calendar colours on the calendar (2026-11-25)', () => {
+  it('nothing set: chips, stripes and legend exactly as before (no stripes in the legend)', async () => {
+    const res = await svc(world()).get(P, '2026-11-16', '2026-11-22', { userId: HH });
+    expect(byId(res.events, 'r-order').style.bar).toBe('#d50000');
+    expect(res.style?.stripes).toBeUndefined();
+  });
+
+  it('a PTW status colour draws the stripe of every job with that status, and the legend lists it', async () => {
+    const w = world();
+    w.ptwColours = { [P]: { REQUIRED: '#f4511e' } };
+    const res = await svc(w).get(P, '2026-11-16', '2026-11-22', { userId: HH });
+    const order = byId(res.events, 'r-order');
+    expect(order.style).toMatchObject({ fill: '#039be5', bar: '#f4511e' });
+    expect(order.style.applicantIcon).toBe('🔴');
+    // Approved job: no colour for Approved, keeps the applicant's (Joyna).
+    expect(byId(res.events, 'r-quick').style.bar).toBe('#f6bf26');
+    expect(res.style?.stripes).toEqual([{ label: 'PTW required', colour: '#f4511e' }]);
+  });
+
+  it('an org without the calendar style never reads or shows the colours', async () => {
+    const w = world();
+    w.ptwColours = { [X]: { REQUIRED: '#f4511e' } };
+    const res = await svc(w).get(X, '2026-11-16', '2026-11-22', { userId: HH });
+    expect(res.style).toBeUndefined();
+    expect(res.events.every((e: any) => !e.style)).toBe(true);
   });
 });

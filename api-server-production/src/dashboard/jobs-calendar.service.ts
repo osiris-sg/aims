@@ -16,7 +16,7 @@ import { resolveSalespersonIds, salespersonAliases } from '../sales-report/sales
 import { CALENDAR_STYLE_LEGEND, CalendarColours, StyleInput, mergeColours, quotationSalesmanCode, salespersonFromCode, styleOf } from './calendar-style';
 import { jobCreatorIds, jobStyleValues } from '../deliveries/job-style';
 import type { PanelPerson } from './calendar-style';
-import { isLiveDo, withPanelFills } from './calendar-style';
+import { isLiveDo, ptwStripeLegend, withPanelFills } from './calendar-style';
 import { quotationStatusLabel } from '../orders/quotation-status-label';
 import { crewText } from '../deliveries/job-style';
 import { withSingapore } from '../common/sg-address';
@@ -58,7 +58,7 @@ export interface JobsCalendarResponse {
   /** Group calendar (enableGroupCalendar, parent org with children): the orgs shown, own org first (absent otherwise). */
   group?: { orgs: GroupOrg[] };
   /** Calendar style (enableCalendarStyle, WCT group): events carry `style`; the legend is icons only (absent otherwise). */
-  style?: { legend: typeof CALENDAR_STYLE_LEGEND };
+  style?: { legend: typeof CALENDAR_STYLE_LEGEND; stripes?: Array<{ label: string; colour: string }> };
   /** hideSiteClockJobs on: SiteClock-created jobs are left out (absent otherwise). */
   siteclockJobsHidden?: true;
   /** calendarHqView on: the portal offers the Salesperson filter (absent otherwise). */
@@ -284,8 +284,11 @@ export class JobsCalendarService {
     }
     let events = buildCalendarEvents(runs, links, sc.jobs, { aimsOnly: hideSc });
     let shownNotes = notes;
+    let stripes: Array<{ label: string; colour: string }> = [];
     if (style) {
       const colours = mergeColours(ownColours ?? (await this.style!.colours(organizationId)), style.parent);
+      // Org Settings > Calendar colours (2026-11-25): the legend lists the PTW stripe colours set per status.
+      stripes = ptwStripeLegend(colours);
       events = await this.styled(organizationId, events, runs as any[], ptwOf, quotationIds, colours);
       // Calendar people list: who added each note.
       if (notes?.length && this.notes) {
@@ -310,7 +313,7 @@ export class JobsCalendarService {
       siteclock: sc.status,
       ...(legend ? { legend } : {}),
       ...(shownNotes ? { notes: shownNotes } : {}),
-      ...(style ? { style: { legend: CALENDAR_STYLE_LEGEND } } : {}),
+      ...(style ? { style: { legend: CALENDAR_STYLE_LEGEND, ...(stripes.length ? { stripes } : {}) } } : {}),
       ...(hideSc ? { siteclockJobsHidden: true as const } : {}),
     };
   }

@@ -18,7 +18,7 @@ import { menuOrderOverride, assetsNavModule, wctMenuModule } from "@/helpers/wct
 import { canVehicles } from "@/helpers/wctVehicles";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
 import { booksNavModule, clientsNavModule, visibleSalesSubmenus, withoutSalesMonthly } from "@/helpers/shipmentsNav";
-import { atLeast, jobsSubmenus, salesSubmenuAllowed, settingsAllowed } from "@/helpers/customAccess";
+import { atLeast, jobsSubmenus, orgSettingsEditOf, salesSubmenuAllowed, settingsAllowed, wctSettingsEntry } from "@/helpers/customAccess";
 
 // Mirrors DynamicSidebarContent — keep the two in sync.
 // User Management and Audit left the menu for every org (guru 2026-11-12):
@@ -59,6 +59,8 @@ export const SETTINGS_MENU = [
   { label: "Master Files", path: "/portal/masterfiles" },
   // Custom job fields (enableJobFields orgs only, filtered below).
   { label: "Job fields", path: "/portal/settings/job-fields" },
+  // Calendar colours (WCT group, enableCalendarStyle, Org Settings edit only; 2026-11-25; helpers/customAccess wctSettingsEntry).
+  { label: "Calendar colours", path: "/portal/settings/calendar-colours" },
   // Workers & Teams (enableWorkersTeams orgs only, filtered below; WCT 2026-11-20).
   { label: "Workers & Teams", path: "/portal/settings/workers-teams" },
   // Quotation categories for the sales report (enableQuotationCategory orgs only, filtered below).
@@ -129,15 +131,19 @@ export function useNavModules() {
   const { modules, isModuleEnabled } = useConfiguration();
   const { isModuleAllowed, userRoles, hasPermission, customTabs } = useUserPermissions();
   // Same rule as DynamicSidebarContent's Organization Settings group.
-  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled, isCustomAccessEnabled, isJobsCalendarEnabled, isWorkersTeamsEnabled, fieldAreas } = useOrganizationFeatures();
+  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled, isCustomAccessEnabled, isJobsCalendarEnabled, isWorkersTeamsEnabled, fieldAreas, features } = useOrganizationFeatures();
   // Field module (enableFieldModule + area flags, all default off): the "HR" group, only the pages this person may open.
   const { me: fieldMe } = useFieldMe();
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ADMIN_ROLES.includes((r?.name || "").toLowerCase()));
   const moduleOn = (code: string) => (modules || []).some((m: any) => m.moduleCode === code && m.enabled) && isModuleAllowed(code);
-  const settingsMenu = SETTINGS_MENU.filter(
-    (s) =>
+  // WCT group (2026-11-25): "Users & roles" (custom access orgs) and "Calendar colours", Org Settings edit only.
+  const wct = { customAccess: !!isCustomAccessEnabled, calendarStyle: features?.enableCalendarStyle === true, orgSettingsEdit: orgSettingsEditOf(userRoles) };
+  const settingsMenu = SETTINGS_MENU.filter((s) => {
+    const own = wctSettingsEntry(s.path, wct);
+    if (own !== undefined) return own !== null;
+    return (
       (!SETTINGS_MODULE_OF[s.path] || moduleOn(SETTINGS_MODULE_OF[s.path])) &&
       (s.path !== "/portal/settings/accounting-setup" || showAccountingSetup(isModuleEnabled)) &&
       (s.path !== "/portal/settings/business-rules" || isBusinessRulesEnabled) &&
@@ -151,8 +157,9 @@ export function useNavModules() {
       (s.path !== "/portal/settings/quotation-categories" || isQuotationCategoryEnabled) &&
       // Custom access (enableCustomAccess): a custom-access person sees Org Settings only at View or above.
       // Roles is a tab of User Management since 2026-11-23 (no menu entry of its own).
-      settingsAllowed(customTabs, s.path),
-  );
+      settingsAllowed(customTabs, s.path)
+    );
+  }).map((s) => ({ ...s, label: wctSettingsEntry(s.path, wct) ?? s.label }));
 
   // Custom access orgs: a person on custom access (own or custom roles only) sees Org Settings at
   // View or above; everyone else as before.

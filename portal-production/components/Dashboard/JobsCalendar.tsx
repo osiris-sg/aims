@@ -488,7 +488,7 @@ export function JobsCalendarPanel({
       )}
       {styled && <ExportListDialog open={exportOpen} onClose={() => setExportOpen(false)} loadEvents={exportEvents} loadHeader={loadHeader} />}
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
-      {showPanel && <PeoplePanel rows={rows} legend={data?.style?.legend ?? []} onToggle={(id) => saveHidden(toggleRow(hidden, id))} onAll={() => saveHidden(selectAllRows())} onNone={() => saveHidden(selectNoRows(rows))} />}
+      {showPanel && <PeoplePanel rows={rows} legend={data?.style?.legend ?? []} stripes={data?.style?.stripes ?? []} onToggle={(id) => saveHidden(toggleRow(hidden, id))} onAll={() => saveHidden(selectAllRows())} onNone={() => saveHidden(selectNoRows(rows))} />}
       <Box sx={{ flex: 1, minWidth: 0, width: "100%" }}>
       <CalendarView
         events={shownEvents}

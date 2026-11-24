@@ -15,6 +15,7 @@ export default function PeoplePanel({
   onAll,
   onNone,
   legend = [],
+  stripes = [],
 }: {
   rows: PeopleRow[];
   onToggle: (id: string) => void;
@@ -22,6 +23,8 @@ export default function PeoplePanel({
   onNone: () => void;
   /** The calendar's icon legend (emoji + label). */
   legend?: Array<{ icon: string; label: string }>;
+  /** PTW stripe colours set per status (Org Settings > Calendar colours, 2026-11-25); none = not shown. */
+  stripes?: Array<{ label: string; colour: string }>;
 }) {
   const people = rows.filter((r) => r.kind !== "company");
   const companies = rows.filter((r) => r.kind === "company");
@@ -70,7 +73,7 @@ export default function PeoplePanel({
           <Stack>{companies.map(row)}</Stack>
         </>
       )}
-      {legend.length > 0 && (
+      {(legend.length > 0 || stripes.length > 0) && (
         <>
           <Divider sx={{ my: 1 }} />
           <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
@@ -83,6 +86,14 @@ export default function PeoplePanel({
                   {l.icon}
                 </Box>
                 {l.label}
+              </Typography>
+            ))}
+            {stripes.map((s) => (
+              <Typography key={s.label} variant="body2" sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                <Box component="span" sx={{ width: 22, flexShrink: 0, display: "flex", justifyContent: "center" }}>
+                  <Box component="span" aria-hidden sx={{ width: 6, height: 16, borderRadius: "2px", bgcolor: s.colour }} />
+                </Box>
+                {s.label}
               </Typography>
             ))}
           </Stack>

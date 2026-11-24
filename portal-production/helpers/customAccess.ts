@@ -108,6 +108,35 @@ export const isCustomRole = (r: { description?: string | null } | null | undefin
 /** A custom role's one-line summary ("Sales edit, Orders view"). */
 export const customSummary = (r: { description?: string | null }) => String(r.description ?? "").slice(CUSTOM_PREFIX.length);
 
+/** Roles that always carry Org Settings Edit (mirrors the API's role-guard ORG_SETTINGS_ROLES). */
+const ORG_SETTINGS_ROLE_NAMES = new Set(["superadmin", "admin", "osirisadmin"]);
+
+/**
+ * Org Settings Edit for the signed-in person (mirrors the API's role-guard orgSettingsEditFrom; the server still
+ * checks): own Custom access / custom roles only decide alone; otherwise Admin / superadmin, or any role whose access
+ * map gives Org Settings Edit (no built-in preset below Admin does). No roles = the platform admin's view.
+ */
+export function orgSettingsEditOf(roles: Array<{ name?: string | null; tabAccess?: unknown }> | null | undefined): boolean {
+  const list = roles || [];
+  if (!list.length) return true;
+  const custom = effectiveTabAccess(list);
+  if (custom) return custom.orgSettings === "edit";
+  return list.some((r) => ORG_SETTINGS_ROLE_NAMES.has(String(r?.name ?? "").toLowerCase()) || (!!r?.tabAccess && readTabAccess(r.tabAccess).orgSettings === "edit"));
+}
+
+/**
+ * WCT group Org Settings entries (2026-11-25): "Users & roles" (custom access orgs, enableCustomAccess) and "Calendar
+ * colours" (enableCalendarStyle), each only for Org Settings Edit. Returns the label to show, or null = hidden; any
+ * other path is left to the caller's own rules (undefined).
+ */
+export const USERS_PATH = "/portal/user-management/users";
+export const CALENDAR_COLOURS_PATH = "/portal/settings/calendar-colours";
+export function wctSettingsEntry(path: string, o: { customAccess: boolean; calendarStyle: boolean; orgSettingsEdit: boolean }): string | null | undefined {
+  if (path === CALENDAR_COLOURS_PATH) return o.calendarStyle && o.orgSettingsEdit ? "Calendar colours" : null;
+  if (path === USERS_PATH && o.customAccess) return o.orgSettingsEdit ? "Users & roles" : null;
+  return undefined;
+}
+
 /** Org Settings pages a custom-access person sees: none at No access; at View everything but Roles. */
 export function settingsAllowed(map: TabAccessMap | null, path: string): boolean {
   if (!map) return true;

@@ -1,11 +1,14 @@
-import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { displayNameOf, primaryEmailOf } from '../users/users.service';
-import { isCalendarStyleEnabled } from '../deliveries/job-style';
+import { isCalendarStyleEnabled, jobCreatorIds } from '../deliveries/job-style';
 import { PtwApplicantList, applicantBars, cleanApplicantList, readApplicantList, visibleApplicants, writeApplicantList } from '../deliveries/ptw-applicants';
 import { DEFAULT_EXPORT_HEADER, cleanExportHeader, readExportHeader, writeExportHeader } from './calendar-export';
-import { BAR_PALETTE, CalendarColours, FILL_PALETTE, NEUTRAL_FILL, PanelPerson, colourClash, coloursOf, normHex, panelPeople, personSettingsOf } from './calendar-style';
+import { AUTO_PALETTE, BAR_PALETTE, CalendarColours, FILL_PALETTE, MIN_COLOUR_DISTANCE, NEUTRAL_FILL, PTW_STATUS_COLOUR_KEYS, PTW_STATUS_LABEL, PanelPerson, PtwStatusColours, colourClash, colourDistance, coloursOf, normHex, panelPeople, personSettingsOf } from './calendar-style';
+import { readPtwStatusColours, writePtwStatusColours } from './calendar-ptw-colours';
+import { hasOrgSettingsEdit } from '../access/role-guard';
+import type { AdminActor } from '../auth/admin-scope';
 
 export interface CalendarPerson {
   id: string;
@@ -73,8 +76,9 @@ export class CalendarStyleService {
 
   /** The org's colours (no Clerk call; the default applicant's name is filled by the caller when needed). */
   async colours(organizationId: string): Promise<CalendarColours> {
-    const [members, list] = await Promise.all([this.members(organizationId), readApplicantList(this.prisma, organizationId)]);
-    return withApplicantList(coloursOf(members), list);
+    const [members, list, ptwStatus] = await Promise.all([this.members(organizationId), readApplicantList(this.prisma, organizationId), readPtwStatusColours(this.prisma, organizationId)]);
+    const out = withApplicantList(coloursOf(members), list);
+    return Object.keys(ptwStatus).length ? { ...out, ptwStatus } : out;
   }
 
   /** Salesman code (upper case) -> user id, for quotations' salesman field. */
@@ -162,7 +166,8 @@ export class CalendarStyleService {
     if (all.filter((s) => s.ptwDefault).length > 1) throw new BadRequestException('Pick one default PTW applicant');
     // With a PTW applicants list the bars are the list's colours (the people's own bar colours are unused).
     const ptwList = await readApplicantList(this.prisma, organizationId);
-    const bars = ptwList ? ptwList.entries.filter((e) => !e.hidden).map((e) => e.colour) : all.map((s) => s.bar).filter((x): x is string => !!x);
+    const statusBars = Object.values(await readPtwStatusColours(this.prisma, organizationId));
+    const bars = [...(ptwList ? ptwList.entries.filter((e) => !e.hidden).map((e) => e.colour) : all.map((s) => s.bar).filter((x): x is string => !!x)), ...statusBars];
     const clash = colourClash(all.map((s) => s.fill).filter((x): x is string => !!x), bars);
     if (clash) throw new BadRequestException(`The PTW colour ${clash.bar} is too close to the salesperson colour ${clash.fill}. Pick another.`);
     for (const [id, s] of next) {
@@ -188,6 +193,118 @@ export class CalendarStyleService {
     await this.assertOn(organizationId);
     await writeExportHeader(this.prisma, organizationId, cleanExportHeader(body?.header));
     return this.exportHeader(organizationId);
+  }
+
+  // ── Org Settings > Calendar colours (2026-11-25) ──────────────────────────────────────────────────────────────
+
+  /** Org Settings edit (or the platform admin): who may open and save the Calendar colours page. */
+  async canEditColours(organizationId: string, actor: AdminActor): Promise<boolean> {
+    if (actor.platform) return true;
+    if (!actor.userId) return false;
+    return hasOrgSettingsEdit(this.prisma, organizationId, actor.userId);
+  }
+
+  private async assertColoursEditor(organizationId: string, actor: AdminActor) {
+    await this.assertOn(organizationId);
+    if (!(await this.canEditColours(organizationId, actor))) throw new ForbiddenException('Only someone with Org Settings edit can change the calendar colours');
+  }
+
+  /**
+   * The page: People (the calendar's People list plus anyone with a picked colour) with today's colour (picked or
+   * automatic), the PTW stripe colour per status (null = the applicant's colour), and the colours each may take
+   * (people: not close to a PTW stripe colour; PTW: not close to a picked salesperson colour).
+   */
+  async coloursPage(organizationId: string, actor: AdminActor) {
+    await this.assertColoursEditor(organizationId, actor);
+    const [members, list, ptwStatus, creators] = await Promise.all([
+      this.members(organizationId),
+      readApplicantList(this.prisma, organizationId),
+      readPtwStatusColours(this.prisma, organizationId),
+      this.creatorIds(organizationId),
+    ]);
+    const fills = coloursOf(members).fill;
+    const ids = new Set<string>([...creators, ...Object.keys(fills)]);
+    for (const m of members) if (isSalesMember(m)) ids.add(m.userId);
+    const names = await this.names(ids);
+    const people = panelPeople([...ids].map((id) => ({ id, name: names.get(id)?.name ?? 'Former user' })), fills);
+    const bars = [...(list ? list.entries.filter((e) => !e.hidden).map((e) => e.colour) : Object.values(coloursOf(members).bar)), ...Object.values(ptwStatus)];
+    const far = (c: string, others: string[]) => others.every((o) => colourDistance(c, o) >= MIN_COLOUR_DISTANCE);
+    const uniq = (xs: readonly string[]) => [...new Set(xs.map((x) => x.toLowerCase()))];
+    return {
+      people: people.map((p) => ({ id: p.id, name: p.name, colour: p.colour, auto: p.auto })),
+      ptw: PTW_STATUS_COLOUR_KEYS.map((k) => ({ status: k, label: PTW_STATUS_LABEL[k], colour: ptwStatus[k] ?? null })),
+      applicants: (list?.entries ?? []).filter((e) => !e.hidden).map((e) => ({ name: e.name, colour: e.colour })),
+      palettes: {
+        people: uniq([...FILL_PALETTE, ...AUTO_PALETTE]).filter((c) => far(c, bars)),
+        ptw: uniq([...BAR_PALETTE, '#1e64c8', '#e8b500', '#7b1fa2', '#00838f']).filter((c) => far(c, [...Object.values(fills), NEUTRAL_FILL])),
+      },
+    };
+  }
+
+  /**
+   * Save the page: { people: [{ id, colour }] (null = automatic again), ptw: { REQUIRED: '#…' | null, … } }. People
+   * left out keep theirs. A PTW stripe colour may not be close to a salesperson colour (the stripe must read apart).
+   */
+  async saveColoursPage(organizationId: string, actor: AdminActor, body: any) {
+    await this.assertColoursEditor(organizationId, actor);
+    const sent: any[] = Array.isArray(body?.people) ? body.people : [];
+    const members = await this.members(organizationId);
+    const byId = new Map(members.map((m) => [m.userId, m]));
+    const fills = new Map(members.map((m) => [m.userId, personSettingsOf(m.settings)]));
+    const changed = new Set<string>();
+    for (const p of sent) {
+      const id = typeof p?.id === 'string' ? p.id : '';
+      if (!byId.has(id)) throw new BadRequestException('A person is not a member of this organisation');
+      const colour = p.colour === null || p.colour === '' ? null : normHex(p.colour);
+      if (p.colour && !colour) throw new BadRequestException('Colours are #rrggbb');
+      const cur = fills.get(id)!;
+      if (cur.fill !== colour) {
+        fills.set(id, { ...cur, fill: colour });
+        changed.add(id);
+      }
+    }
+    const current = await readPtwStatusColours(this.prisma, organizationId);
+    let ptw: PtwStatusColours = current;
+    if (body?.ptw && typeof body.ptw === 'object') {
+      ptw = {};
+      for (const k of PTW_STATUS_COLOUR_KEYS) {
+        const v = body.ptw[k];
+        if (v === undefined) {
+          if (current[k]) ptw[k] = current[k];
+          continue;
+        }
+        if (v === null || v === '') continue;
+        const c = normHex(v);
+        if (!c) throw new BadRequestException('Colours are #rrggbb');
+        ptw[k] = c;
+      }
+    }
+    const list = await readApplicantList(this.prisma, organizationId);
+    const allFills = [...fills.values()].map((s) => s.fill).filter((x): x is string => !!x);
+    const applicantBars = list ? list.entries.filter((e) => !e.hidden).map((e) => e.colour) : [...fills.values()].map((s) => s.bar).filter((x): x is string => !!x);
+    const clash = colourClash(allFills, [...applicantBars, ...Object.values(ptw)]);
+    if (clash) throw new BadRequestException(`The PTW colour ${clash.bar} is too close to the salesperson colour ${clash.fill}. Pick another.`);
+    for (const id of changed) {
+      const m = byId.get(id)!;
+      const s = fills.get(id)!;
+      const base = m.settings && typeof m.settings === 'object' ? (m.settings as Record<string, unknown>) : {};
+      await this.prisma.userOrganization.update({
+        where: { userId_organizationId: { userId: id, organizationId } },
+        data: { settings: { ...base, calendar: { fill: s.fill, bar: s.bar, ptwDefault: s.ptwDefault } } as any },
+      });
+    }
+    const sameKeys = (a: PtwStatusColours, b: PtwStatusColours) => PTW_STATUS_COLOUR_KEYS.every((k) => (a[k] ?? null) === (b[k] ?? null));
+    if (!sameKeys(current, ptw)) await writePtwStatusColours(this.prisma, organizationId, ptw);
+    return this.coloursPage(organizationId, actor);
+  }
+
+  /** Everyone who made a job or a calendar note in the org (the same people as the calendar's People list). */
+  private async creatorIds(organizationId: string): Promise<string[]> {
+    const [jobs, notes] = await Promise.all([
+      jobCreatorIds(this.prisma, organizationId),
+      this.prisma.calendarNote.findMany({ where: { organizationId, createdById: { not: null } }, select: { createdById: true }, distinct: ['createdById'] }),
+    ]);
+    return [...new Set([...jobs, ...(notes as any[]).map((n) => n.createdById as string)])];
   }
 
   /**

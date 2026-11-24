@@ -6,7 +6,7 @@
  * Cancelled and postponed jobs stay on the calendar, greyed out.
  *
  * Colours are per person per org (UserOrganization.settings.calendar, edited
- * in Settings > Job fields > Calendar colours). A bar colour must never be a
+ * in Org Settings > Calendar colours, 2026-11-25; was Job fields). A bar colour must never be a
  * fill colour (or close to one), so the two read apart at a glance.
  *
  * Pure helpers; calendar-style.service.ts does the reads and writes.
@@ -124,6 +124,40 @@ export interface CalendarColours {
   defaultApplicant: { id: string; name: string | null } | null;
   /** The org's PTW applicants list (2026-11-19; deliveries/ptw-applicants.ts), when it has one: bars and the default come from it. */
   ptwList?: PtwApplicantList | null;
+  /**
+   * PTW stripe colour per PTW status (Org Settings > Calendar colours, 2026-11-25). A status with a colour draws its
+   * stripe in it; a status without one keeps the applicant's colour (the behaviour before). Absent = none set.
+   */
+  ptwStatus?: PtwStatusColours;
+}
+
+/** The PTW statuses with a stripe colour, as the settings page names them. SUBMITTED (applied) reads "Pending". */
+export const PTW_STATUS_COLOUR_KEYS = ['REQUIRED', 'SUBMITTED', 'APPROVED', 'REJECTED'] as const;
+export type PtwStatusKey = (typeof PTW_STATUS_COLOUR_KEYS)[number];
+export type PtwStatusColours = Partial<Record<PtwStatusKey, string>>;
+export const PTW_STATUS_LABEL: Record<PtwStatusKey, string> = { REQUIRED: 'Required', SUBMITTED: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected' };
+
+/** A stored / sent { REQUIRED: '#rrggbb', … } read back: known statuses with a valid colour only. */
+export function cleanPtwStatusColours(raw: unknown): PtwStatusColours {
+  const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const out: PtwStatusColours = {};
+  for (const k of PTW_STATUS_COLOUR_KEYS) {
+    const c = normHex(src[k]);
+    if (c) out[k] = c;
+  }
+  return out;
+}
+
+/** The stripe colour a PTW status asks for, or null (the applicant's colour then). */
+export function ptwStatusColour(status: string | null | undefined, colours: Pick<CalendarColours, 'ptwStatus'>): string | null {
+  const k = String(status ?? '').toUpperCase() as PtwStatusKey;
+  return colours.ptwStatus?.[k] ?? null;
+}
+
+/** The legend's PTW stripe rows: one per status with a colour, in status order (none when nothing is set). */
+export function ptwStripeLegend(colours: Pick<CalendarColours, 'ptwStatus'> | null | undefined): Array<{ label: string; colour: string }> {
+  const set = colours?.ptwStatus ?? {};
+  return PTW_STATUS_COLOUR_KEYS.filter((k) => set[k]).map((k) => ({ label: `PTW ${PTW_STATUS_LABEL[k].toLowerCase()}`, colour: set[k]! }));
 }
 
 export const NO_COLOURS: CalendarColours = { fill: {}, bar: {}, defaultApplicant: null };
@@ -136,6 +170,7 @@ export function mergeColours(child: CalendarColours, parent: CalendarColours | n
     bar: { ...child.bar, ...parent.bar },
     defaultApplicant: child.defaultApplicant ?? parent.defaultApplicant,
     ...(child.ptwList || parent.ptwList ? { ptwList: child.ptwList ?? parent.ptwList } : {}),
+    ...(child.ptwStatus || parent.ptwStatus ? { ptwStatus: { ...child.ptwStatus, ...parent.ptwStatus } } : {}),
   };
 }
 
@@ -232,7 +267,9 @@ export function styleOf(i: StyleInput, colours: CalendarColours): EventStyle {
   const fill = (i.salespersonId && colours.fill[i.salespersonId]) || NEUTRAL_FILL;
   // The applicant stored on the job only: the default applicant is stamped when a job is saved, never at render.
   const applicant = i.ptwApplicantId;
-  const bar = ptwNeeded(i.ptwStatus) ? (applicant && colours.bar[applicant]) || NEUTRAL_BAR : null;
+  const applicantBar = ptwNeeded(i.ptwStatus) ? (applicant && colours.bar[applicant]) || NEUTRAL_BAR : null;
+  // Org Settings > Calendar colours (2026-11-25): a PTW status colour, when set, draws the stripe; else the applicant's.
+  const bar = applicantBar ? ptwStatusColour(i.ptwStatus, colours) ?? applicantBar : null;
   const icons: EventStyle['icons'] = [];
   if (i.cancelled) icons.push({ icon: ICON.cancelled, label: 'Cancelled' });
   else if (i.postponed) icons.push({ icon: ICON.postponed, label: 'Postponed' });
@@ -243,7 +280,7 @@ export function styleOf(i: StyleInput, colours: CalendarColours): EventStyle {
   if (i.cod) icons.push({ icon: ICON.cod, label: 'COD' });
   if (i.sticker) icons.push({ icon: ICON.sticker, label: 'Generate sticker' });
   // An applicant with no colour (the neutral bar) gets no circle.
-  const applicantIcon = bar && applicant && bar !== NEUTRAL_BAR ? colourCircle(bar) : null;
+  const applicantIcon = applicantBar && applicant && applicantBar !== NEUTRAL_BAR ? colourCircle(applicantBar) : null;
   return { fill, text: textOn(fill), bar, icons, greyed: i.cancelled || i.postponed, prefix: categoryPrefix(i.category), ...(applicantIcon ? { applicantIcon } : {}) };
 }
 
@@ -266,8 +303,8 @@ export function salespersonFromCode(code: string | null, codes: Map<string, stri
 
 /**
  * The calendar's people list (2026-11-19, WCT group): people with no salesperson colour yet get an automatic one,
- * distinct from every colour in use, in name order (stable from load to load). A colour picked in Settings > Job
- * fields > Calendar colours replaces it.
+ * distinct from every colour in use, in name order (stable from load to load). A colour picked in Org Settings >
+ * Calendar colours replaces it.
  */
 export const AUTO_PALETTE = ['#33b679', '#f09300', '#9e69af', '#c0ca33', '#4285f4', '#e4c441', '#616161', '#a79b8e', '#00897b', '#d81b60', '#5d4037', '#7cb342'] as const;
 

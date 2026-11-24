@@ -8,6 +8,7 @@ import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Request } from 'express';
+import { actorOf } from '../auth/admin-scope';
 
 // Extend Request type to include userOrganization
 interface RequestWithOrganization extends Request {
@@ -223,6 +224,23 @@ export class DashboardController {
   @ApiOperation({ summary: 'Jobs calendar style: save people colours and the default PTW applicant' })
   async saveCalendarStyle(@Req() req: RequestWithOrganization, @Body() body: any) {
     return await this.calendarStyle.save(this.orgOf(req), body);
+  }
+
+  // Org Settings > Calendar colours (2026-11-25): people colours + PTW stripe colour per status; Org Settings edit only.
+  @Get('calendar-style/colours')
+  @Permissions('dashboard:read')
+  @ApiOperation({ summary: 'Calendar colours page: People (calendar list) colours and PTW stripe colour per PTW status' })
+  async getCalendarColours(@Req() req: RequestWithOrganization) {
+    const org = this.orgOf(req);
+    return await this.calendarStyle.coloursPage(org, actorOf(req, org));
+  }
+
+  @Put('calendar-style/colours')
+  @Permissions('dashboard:read')
+  @ApiOperation({ summary: 'Calendar colours page: save people colours and PTW stripe colours (Org Settings edit)' })
+  async saveCalendarColours(@Req() req: RequestWithOrganization, @Body() body: any) {
+    const org = this.orgOf(req);
+    return await this.calendarStyle.saveColoursPage(org, actorOf(req, org), body);
   }
 
   @Get('calendar-style/ptw-applicants')
