@@ -105,6 +105,10 @@ export default function EditDocumentPage() {
     email: customer.email || "",
     salesman: customer.salesman || null,
     contacts: customer.contacts || [],
+    // Master-file currency + GST no.: a typed code + Enter must set the
+    // document's currency and rate exactly as the Locate dialog's pick does.
+    currency: customer.currency || null,
+    gstRegNo: customer.gstRegNo || "",
   })) || [];
 
   const projectsList = projects?.map((project: any) => ({

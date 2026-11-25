@@ -165,6 +165,9 @@ export default function ViewDocumentPage() {
     gstRegNo: customer.gstRegNo || "",
     salesman: customer.salesman || null,
     contacts: customer.contacts || [],
+    // Master-file currency + GST no.: a typed code + Enter must set the
+    // document's currency and rate exactly as the Locate dialog's pick does.
+    currency: customer.currency || null,
   })) || [];
 
   const projectsList = projects?.map((project: any) => ({

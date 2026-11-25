@@ -108,6 +108,17 @@ function dropdownOpen(el: HTMLElement): boolean {
   return false;
 }
 
+/**
+ * Multi-line box: the arrows move between its lines, so they only WALK OUT at
+ * the edge — ↑ with the caret on the first line, ↓ with it on the last (guru
+ * 2026-11-25: "when I arrow key up I can't go to the up field" from a one-line
+ * Deliver to). A selection never walks. Pure; tested by enterAdvance.test.mjs.
+ */
+export function textareaEdgeAllowsWalk(value: string, selStart: number, selEnd: number, dir: 1 | -1): boolean {
+  if (selStart !== selEnd) return false;
+  return dir < 0 ? !value.slice(0, selStart).includes("\n") : !value.slice(selEnd).includes("\n");
+}
+
 // Scoped layer: Enter / ↓ = next field, ↑ = previous field (guru 2026-11-18:
 // "allow them to use arrow key up to go up the field"). The arrows step aside
 // wherever they already mean something: an open dropdown, a multi-line box,
@@ -133,7 +144,7 @@ export function enterAdvancesFocus(e: ReactKeyboardEvent<HTMLElement>): void {
   if (dropdownOpen(el)) return;
   if (dir) {
     if (e.isDefaultPrevented?.() || e.nativeEvent?.defaultPrevented) return;
-    if (el instanceof HTMLTextAreaElement) return;
+    if (el instanceof HTMLTextAreaElement && !textareaEdgeAllowsWalk(el.value, el.selectionStart ?? 0, el.selectionEnd ?? 0, dir as 1 | -1)) return;
     if ((el as HTMLInputElement).type?.toLowerCase?.() === "number") return;
     if (el.closest("[data-arrows-ignore]")) return;
   }

@@ -15,9 +15,11 @@ import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } f
 import { Box, CircularProgress, Typography } from "@mui/material";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
+import { installPrintedBy } from "@/helpers/printedBy";
 
 export interface ServerDocumentPreviewHandle {
-  print: () => void;
+  /** Prints the iframe; `printedBy` is the "Printed by … on …" foot line for this print (helpers/printedBy.ts). */
+  print: (printedBy?: string) => void;
 }
 
 interface Props {
@@ -61,10 +63,11 @@ export const WCT_BROWSER_PRINT_CSS = `@media print {
   table.wct-sheet > tfoot > tr.wct-pgbot > td { height: 12mm !important; }
 }`;
 
-/** Prints the iframe; a WCT sheet gets the browser-print CSS just for the print. */
-export function printServerDocument(w: Window): void {
+/** Prints the iframe; a WCT sheet gets the browser-print CSS just for the print, and every layout its "Printed by" foot line. */
+export function printServerDocument(w: Window, printedBy?: string): void {
   const doc = w.document;
   let style: HTMLStyleElement | null = null;
+  let removePrintedBy: (() => void) | null = doc && printedBy ? installPrintedBy(doc, printedBy) : null;
   if (doc?.querySelector("table.wct-sheet") && !doc.getElementById(WCT_PRINT_STYLE_ID)) {
     style = doc.createElement("style");
     style.id = WCT_PRINT_STYLE_ID;
@@ -76,6 +79,8 @@ export function printServerDocument(w: Window): void {
   const cleanup = () => {
     style?.remove();
     style = null;
+    removePrintedBy?.();
+    removePrintedBy = null;
   };
   // Chrome's print() returns once the dialog closes; Safari returns at once and
   // fires afterprint later, so remove the style on afterprint (it is print-only
@@ -151,10 +156,10 @@ const ServerDocumentPreview = forwardRef<ServerDocumentPreviewHandle, Props>(fun
   }, [payload, getToken]);
 
   useImperativeHandle(ref, () => ({
-    print: () => {
+    print: (printedBy?: string) => {
       const w = iframeRef.current?.contentWindow;
       if (!w) return;
-      printServerDocument(w);
+      printServerDocument(w, printedBy);
     },
   }));
 

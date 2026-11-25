@@ -12,13 +12,13 @@ export default function DocRemarksMemo({ value, onChange, disabled, title = "Rem
   // Embedded (WCT QO / DO / Invoice, 2026-11-23): inside the General card's totals column, under Nett Total.
   if (embedded)
     return (
-      <Box sx={{ p: 1, borderTop: 1, borderColor: "divider" }} data-tour="doc-remarks">
+      <Box sx={{ p: 1, borderTop: 1, borderColor: "divider" }} data-tour="doc-remarks" data-enter-ignore>
         <Typography sx={{ fontWeight: 700, fontSize: "0.8125rem", mb: 0.5 }}>{title}</Typography>
         <TextField multiline minRows={4} fullWidth value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} />
       </Box>
     );
   return (
-    <Card sx={{ width: 260, flexShrink: 0, my: 0.5, mr: 0.5, display: "flex", flexDirection: "column" }} data-tour="doc-remarks">
+    <Card sx={{ width: 260, flexShrink: 0, my: 0.5, mr: 0.5, display: "flex", flexDirection: "column" }} data-tour="doc-remarks" data-enter-ignore>
       <CardContent sx={{ p: 1, flex: 1, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
         <Typography sx={{ fontWeight: 700, fontSize: "0.8125rem", mb: 0.5 }}>{title}</Typography>
         <TextField

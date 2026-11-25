@@ -509,6 +509,18 @@ export default function page() {
     }
   }, [hasPrevious, filteredDocuments, currentIndex, router, type, id, checkAndPrefetchMore]);
 
+  // After a delete (guru 2026-11-25): stay in the editor on the PREVIOUS document
+  // (the one the Previous arrow would open), else the next one; with neither the
+  // editor goes back to the list. The nav list is refetched so the deleted number
+  // drops out of the arrows on the document we land on.
+  const handleDeleted = useCallback((): boolean => {
+    const neighbour = filteredDocuments[currentIndex + 1] ?? filteredDocuments[currentIndex - 1];
+    if (!neighbour) return false;
+    router.replace(`/portal/documents/${type}/${neighbour.templateId || id}/${neighbour.id}`);
+    void refetchDocuments?.();
+    return true;
+  }, [filteredDocuments, currentIndex, router, type, id, refetchDocuments]);
+
   const handleNext = useCallback(() => {
     // Prevent rapid clicks
     if (isNavigatingRef.current) return;
@@ -750,6 +762,10 @@ export default function page() {
     email: customer.email || "",
     salesman: customer.salesman || null,
     contacts: customer.contacts || [],
+    // Master-file currency + GST no.: a typed code + Enter must set the
+    // document's currency and rate exactly as the Locate dialog's pick does.
+    currency: customer.currency || null,
+    gstRegNo: customer.gstRegNo || "",
   })) || [];
 
   const projectsList = projects?.map((project: any) => ({
@@ -852,6 +868,7 @@ export default function page() {
       organization={organization}
       onPrevious={handlePrevious}
       onNext={handleNext}
+      onDeleted={handleDeleted}
       hasPrevious={hasPrevious}
       hasNext={hasNext}
       onDocumentCreated={refetchDocuments}

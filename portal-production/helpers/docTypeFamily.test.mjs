@@ -14,3 +14,21 @@ test("an unknown type is its own family; nothing gives nothing", () => {
   assert.deepEqual(docTypeFamily(undefined), []);
   assert.deepEqual(docTypeFamily(""), []);
 });
+
+test("docTypeTitle: one display name per family, own wording for returns/receipts/vouchers, Document when unknown", async () => {
+  const { docTypeTitle } = await import("./docTypeFamily.ts");
+  assert.equal(docTypeTitle("DO"), "Delivery Order");
+  assert.equal(docTypeTitle("DELIVERY_ORDER"), "Delivery Order");
+  assert.equal(docTypeTitle("TI2"), "Invoice");
+  assert.equal(docTypeTitle("invoice"), "Invoice"); // never "Tax Invoice"
+  assert.equal(docTypeTitle("QO1"), "Quotation");
+  assert.equal(docTypeTitle("PO"), "Purchase Order");
+  assert.equal(docTypeTitle("CN"), "Credit Note");
+  assert.equal(docTypeTitle("RDO"), "Return Delivery Order");
+  assert.equal(docTypeTitle("MSR"), "Maintenance Service Report");
+  assert.equal(docTypeTitle("OR"), "Official Receipt");
+  assert.equal(docTypeTitle("PAYMENT_VOUCHER"), "Payment Voucher");
+  assert.equal(docTypeTitle("BILL"), "Supplier Invoice");
+  assert.equal(docTypeTitle(""), "Document");
+  assert.equal(docTypeTitle("WHATEVER"), "Document");
+});

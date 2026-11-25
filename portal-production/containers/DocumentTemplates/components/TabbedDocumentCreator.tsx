@@ -130,12 +130,14 @@ import { useAuth, useUser } from "@clerk/nextjs";
 import { useReactToPrint } from "react-to-print";
 import { installPrintFit } from "@/lib/printScale";
 import { request, withActiveOrg } from "@/helpers/request";
+import { orgBaseCurrency, priceInDocCurrency, standingRateFor } from "@/helpers/orgFx";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { canMenuDelete, checkMenuDelete, deleteConfirmTitle, deleteToast, menuDeleteOn, runMenuDelete, type MenuDeleteVerdict } from "@/helpers/wctMenuDelete";
 import { requestFailed } from "@/helpers/requestOutcome";
 import { categoryChoices } from "@/helpers/salesReport";
 import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import BlockOutlinedIcon from "@mui/icons-material/BlockOutlined";
 import LockOpenOutlinedIcon from "@mui/icons-material/LockOpenOutlined";
 import { useLockDates, isPeriodLockedDocType, lockDayLabel } from "@/app/portal/hooks/useLockDates";
@@ -143,7 +145,7 @@ import EditorRail from "./EditorRail";
 import DebtorStatementDialog from "./DebtorStatementDialog";
 import ViewListOutlinedIcon from "@mui/icons-material/ViewListOutlined";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
-import { enterScopeProps, firstEnterField } from "@/helpers/enterAdvance";
+import { enterScopeProps, firstEnterField, nextEnterField, enterAdvancesFocus } from "@/helpers/enterAdvance";
 import { uploadImage } from "@/helpers/imageUploader";
 import AddAPhotoIcon from "@mui/icons-material/AddAPhoto";
 import BorderColorIcon from "@mui/icons-material/BorderColor";
@@ -156,6 +158,9 @@ import { withDocumentDiscountField, withLineDiscountColumn, wctDiscountsOn, line
 import { roundCents, wctTotalsFromNet } from "@/helpers/moneyRound";
 import DoSignLinkDialog, { doSignCustomerOf } from "@/components/delivery/DoSignLinkDialog";
 import { editorTitleBar, isNarrowSnoCell, lineColumnWidth } from "@/helpers/wctDocUi";
+import { docTypeTitle } from "@/helpers/docTypeFamily";
+import { installPrintedBy, printedByLine, printerName } from "@/helpers/printedBy";
+import { codeColumnWidth, ICON_PX, MAX_MONEY_CHARS, MAX_QTY_CHARS, moneyBoxDisplay, numberBoxInputProps, numberBoxTitle, numberBoxWidthPx, numberColumnWidth, numberTextColumnWidth, withinCharCap } from "@/helpers/lineNumberBox";
 import { doOrderIdOf } from "@/helpers/doOrder";
 import { usesCielSignFlow } from "@/helpers/signLinkWording";
 import { useAppBack } from "@/app/portal/hooks/useAppBack";
@@ -289,12 +294,64 @@ const TABLE_GRID_COLOR = "var(--table-grid)";
 // a CLEARED field stays EMPTY — it is not snapped back to 0 — and legacy NaN
 // values render as empty instead of "NaN" (guru 2026-09-14). The amount maths
 // treats empty as 0 (Number("") || 0), so blank/0 lines are fully allowed.
+// Source-document HEADER for an extract (DO → invoice, quotation → DO / SO).
+// The editor saves the customer under config.customer and the header under
+// config.documentInfo; older and imported documents use flat keys. Read both,
+// else an extracted invoice arrives with no customer code, salesman, currency
+// or rate (guru 2026-11-25).
+const extractHeaderOf = (cfg: any) => ({
+  customerId: cfg?.customerId || cfg?.customer?.id || "",
+  customerName: cfg?.customerName || cfg?.customer?.name || "",
+  customerAddress: cfg?.customerAddress || cfg?.customer?.address || "",
+  customerEmail: cfg?.customerEmail || cfg?.customer?.email || "",
+  customerCode: cfg?.customerCode || cfg?.customer?.customerCode || "",
+  customerGstRegNo: cfg?.customerGstRegNo || cfg?.customer?.gstRegNo || "",
+  salesPerson: cfg?.salesmanCode || cfg?.salesPerson || cfg?.documentInfo?.salesPerson || "",
+  currency: cfg?.currency || cfg?.documentInfo?.currency || "",
+  rate: cfg?.rate || cfg?.documentInfo?.rate || "",
+  poNo: cfg?.poNo || cfg?.documentInfo?.poNo || cfg?.referenceNo || "",
+  paymentTerms: cfg?.paymentTerms || cfg?.documentInfo?.paymentTerms || "",
+  contact: cfg?.contact || cfg?.documentInfo?.contact || "",
+  taxApplicable: cfg?.taxApplicable ?? cfg?.documentInfo?.taxApplicable,
+  absorbTax: cfg?.absorbTax ?? cfg?.documentInfo?.absorbTax,
+  gstPercent: cfg?.gstPercent ?? cfg?.documentInfo?.gstPercent,
+});
 const numFieldValue = (v: any) => (v === "" || v == null || !Number.isFinite(Number(v)) ? "" : v);
 const numFieldParse = (raw: string, min?: number) => {
   if (raw === "") return "";
   const n = parseFloat(raw);
   if (!Number.isFinite(n)) return "";
   return min != null ? Math.max(min, n) : n;
+};
+// Amount cell text: at least 2dp (guru 2026-11-25 "always show 2 dp"), more when
+// the line carries more (guru 2026-11-14 "allow any dp"); float noise past 10dp trimmed.
+// Amount is money: ALWAYS 2dp on every document (guru 2026-11-25: "always
+// amount for any document max is 2dp" — qty × a long price showed
+// 8987306.040000001). The price box may keep more decimals; the amount never.
+const lineAmountText = (item: any): string =>
+  (Number(item?.amount) || 0).toLocaleString("en-US", { useGrouping: false, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Money box (Unit Price / Sale Price), every org — guru 2026-11-25: at rest it
+// shows at least 2dp (500 → 500.00) and keeps more when typed (1.3434 stays);
+// while focused it shows the raw number so typing is untouched. The box grows
+// with its digits (helpers/lineNumberBox.ts) so a long price is never clipped.
+const LineMoneyBox = ({ value, onChange, minPx = 100, sx }: { value: any; onChange: (v: number | "") => void; minPx?: number; sx?: any }) => {
+  const [focused, setFocused] = useState(false);
+  const shown = focused ? numFieldValue(value) : moneyBoxDisplay(value);
+  return (
+    <TextField
+      type="number"
+      size="small"
+      value={shown}
+      // Capped at MAX_MONEY_CHARS: longer typing is ignored (type="number" has no maxLength).
+      onChange={(e) => { if (withinCharCap(e.target.value, MAX_MONEY_CHARS)) onChange(numFieldParse(e.target.value) as number | ""); }}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      // +3: the ".00" the rest state appends past the typing cap.
+      sx={{ width: numberBoxWidthPx(shown, minPx, MAX_MONEY_CHARS + 3), flexShrink: 0, ...sx }}
+      inputProps={{ step: "any", ...numberBoxInputProps }}
+      title={numberBoxTitle(value, true)}
+    />
+  );
 };
 
 // ── Confirmed-document read-only shield ────────────────────────────────────
@@ -388,6 +445,8 @@ interface DocumentCreatorProps {
   organization?: any;
   // Navigation props for Previous/Next document navigation
   onPrevious?: () => void;
+  /** After a delete: open a neighbour in the editor instead of the list (true = handled). guru 2026-11-25 */
+  onDeleted?: () => boolean;
   onNext?: () => void;
   hasPrevious?: boolean;
   hasNext?: boolean;
@@ -450,6 +509,7 @@ export default function TabbedDocumentCreator({
   onCustomerChange,
   organization,
   onPrevious,
+  onDeleted,
   onNext,
   hasPrevious = false,
   hasNext = false,
@@ -458,7 +518,7 @@ export default function TabbedDocumentCreator({
 }: DocumentCreatorProps) {
   const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled, isDocSendMenuEnabled, isDocRemarksEnabled, isQuotationCategoryEnabled, isRackingLayoutEnabled, isQuotationRevisionOnSaveEnabled, features: orgFeatureFlags } = useOrganizationFeatures();
   // RDO free-typed rows + signed-RDO lock (enableRdoFreeTypedRows, Biofuel 2026-11-19).
-  const { isRdoFreeTypedRowsEnabled, isOptionalSaleOrderEnabled, isLineGlAccountsEnabled, isOfficeDoEditsEnabled, isDeliveryShareLinkEnabled } = useOrganizationFeatures();
+  const { isRdoFreeTypedRowsEnabled, isOptionalSaleOrderEnabled, isLineGlAccountsEnabled, isOfficeDoEditsEnabled, isDeliveryShareLinkEnabled, isOfficeDoSignEnabled, isAvgCostFromPoEnabled } = useOrganizationFeatures();
   // enableOfficeDoEdits: a delivered / signed DO is edited by Admins only (the server refuses the rest).
   const roleGate = useRoleGate();
   // In-app Back (enableWctDocNav): history back when opened inside the app, else the parent list; off = the parent list.
@@ -812,10 +872,19 @@ export default function TabbedDocumentCreator({
   // See lib/printScale.ts for why a transform rather than zoom or the print
   // dialog's own scale.
   const printFitCleanup = useRef<(() => void) | null>(null);
+  // "Printed by <user> on <date time>" at the foot of every printed page (guru
+  // 2026-11-25): the line is made the moment Print is pressed (handlePrint) and
+  // added as print-only CSS to this document right before react-to-print copies
+  // the page's styles into its print frame — copied styles land AFTER pageStyle,
+  // so this @page rule outranks the blank margin boxes below. helpers/printedBy.ts
+  const printedByRef = useRef("");
+  const printedByCleanup = useRef<(() => void) | null>(null);
   const handleBrowserPrint = useReactToPrint({
     contentRef: printContentRef,
     documentTitle: printDocumentTitle,
     onBeforePrint: async () => {
+      printedByCleanup.current?.();
+      printedByCleanup.current = installPrintedBy(document, printedByRef.current);
       if (!isDoSheet || !printContentRef.current) return;
       printFitCleanup.current = await installPrintFit(
         printContentRef.current,
@@ -826,6 +895,8 @@ export default function TabbedDocumentCreator({
     onAfterPrint: () => {
       printFitCleanup.current?.();
       printFitCleanup.current = null;
+      printedByCleanup.current?.();
+      printedByCleanup.current = null;
       setPrintStage(false);
     },
     pageStyle: `
@@ -1017,7 +1088,13 @@ export default function TabbedDocumentCreator({
   // unit). The "Rental of N units of…" merge is a render-time concern in the
   // preview's groupDeliveryLines, so a row here always addresses one unit and
   // the photos land in that unit's own strip.
-  const canBackfillPhotos = (isDeliveryOrder || isRDO) && !!(existingData?.id || documentId);
+  // Per-org (enableOfficeDoSign, Biofuel): condition photos are a FIELD idea —
+  // the rider's four shots per unit, printed inline under the item and shown on
+  // the customer's DO link. An org that has no field app and never shares a DO
+  // link has nothing to backfill, so the camera button on every item row was
+  // only clutter there (guru 2026-11-25, seen on Chong Aik). The flag that turns
+  // the office-DO photo + sign flow on is the same one that earns the button.
+  const canBackfillPhotos = !!isOfficeDoSignEnabled && (isDeliveryOrder || isRDO) && !!(existingData?.id || documentId);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const [photoTargetItemId, setPhotoTargetItemId] = useState<any>(null);
   const [photoBusyItemId, setPhotoBusyItemId] = useState<any>(null);
@@ -1751,9 +1828,11 @@ export default function TabbedDocumentCreator({
     ? formData.pvData?.notes || formData.pvData?.remarks || ""
     : isJournalVoucher
     ? formData.jvData?.notes || ""
-    : remarksSplit
-    ? (formData as any).remarks || ""
-    : (formData.documentInfo as any)?.referenceNo || "";
+    // Remarks is its OWN field (config.remarks) for every org — it is NOT the
+    // Reference No (guru 2026-11-25: "if a document has a ref it's not linked to
+    // remarks"). Previously non-WCT orgs bound the memo to documentInfo.referenceNo,
+    // so typing either one changed both.
+    : (formData as any).remarks || "";
   const setDocRemarks = (next: string) =>
     setFormData((prev: any) =>
       isOfficialReceipt
@@ -1762,11 +1841,9 @@ export default function TabbedDocumentCreator({
         ? { ...prev, pvData: { ...(prev.pvData || {}), notes: next, remarks: next } }
         : isJournalVoucher
         ? { ...prev, jvData: { ...(prev.jvData || {}), notes: next } }
-        : remarksSplit
-        ? // WCT QO / DO / Invoice (2026-11-24): the right box is Remarks (config.remarks, printed as Remarks).
-          { ...prev, remarks: next }
-        : // Typed-over refs are no longer a picked quotation (Biofuel DO picker).
-          { ...prev, remarks: next, documentInfo: { ...(prev.documentInfo || {}), referenceNo: next, referenceQuotationDate: null } },
+        : // Remarks writes ONLY to config.remarks — never the Reference No
+          // (guru 2026-11-25: keep them separate on every document).
+          { ...prev, remarks: next },
     );
 
   // Load template field configuration
@@ -2539,7 +2616,7 @@ export default function TabbedDocumentCreator({
         itemCode: "",
         inventoryItemId: "",  // Changed from inventoryId to inventoryItemId
         description: "",
-        quantity: 1,
+        quantity: "", // keyed by the user; empty commits 0 on leaving the box
         unitPrice: 0,
         // Only include tax for non-invoice, non-stock-adjustment, and non-PO types
         tax: isInvoiceType || needsUom ? undefined : 9,
@@ -2555,6 +2632,173 @@ export default function TabbedDocumentCreator({
   };
 
   // Handle item selection from Stock Card dialog
+  // Recompute a line's amount from its qty / price / discount (shared by the
+  // cell editor and the currency re-pricing on a customer change).
+  const withLineAmount = (updated: any) => {
+    // Calculate amount (accounting for discount if present). discountType
+    // is 'amount' for a flat $ discount, otherwise it's a % discount
+    // (default — preserves existing behavior for rows without the field).
+    const qty = Number(updated.quantity) || 0;
+    // Rental+Sales templates (QO1) carry two rates per line: unitPrice
+    // (monthly rental) and salePrice (sales unit rate). The rental rate
+    // prices the line when set; a line with ONLY a sales rate is a sale —
+    // without this fallback its amount stuck at 0 (guru 2026-08-26).
+    const unit = Number(updated.unitPrice) || Number(updated.salePrice) || 0;
+    const disc = Number(updated.discount) || 0;
+    // A line with EMPTY qty AND price is a text/annotation line — its
+    // amount stays blank everywhere (editor cell, preview, PDF), never
+    // 0.00 (guru 2026-09-14). Totals treat "" as 0.
+    const isEmptyLine =
+      (updated.quantity == null || updated.quantity === "") &&
+      (updated.unitPrice == null || updated.unitPrice === "") &&
+      (updated.salePrice == null || updated.salePrice === "");
+    const gross = qty * unit;
+    // MERGED RATE. The anchor's amount IS the shared block price, not this
+    // row's qty x rate, so editing its quantity or its own rate must not
+    // overwrite it. A continuation row's amount stays null for the same
+    // reason — the block is counted once, on the anchor.
+    if (updated.rateMerge) return updated;
+    // Stored to the cent too, so totals add rounded amounts (what prints).
+    const raw = updated.discountType === "amount" ? Math.max(0, gross - disc) : gross * (1 - disc / 100);
+    updated.amount = isEmptyLine ? "" : Math.round(raw * 100) / 100;
+    return updated;
+  };
+
+  // MASTER-FILE PRICES ARE IN THE BASE CURRENCY. A document in the customer's
+  // currency prices each pick at the document's rate (guru 2026-11-25: "when i
+  // select the item it should auto become idr currency"): 550 SGD on an IDR
+  // document at 0.0000700 is 7,857,142.86 IDR. Base-currency documents, and a
+  // foreign one still at par, keep the master price.
+  const toDocPrice = (basePrice: number) =>
+    priceInDocCurrency(basePrice, (formData as any)?.documentInfo?.currency || (formData as any)?.currency, (formData as any)?.documentInfo?.rate);
+
+  // ONE customer handler for the Locate dialog AND the typed code + Enter
+  // (DynamicFormFields' CustomerCodeField), so a keyed code sets the currency,
+  // rate and salesman exactly as a picked one does.
+  const applyPickedCustomer = (customer: any) => {
+    // For regular customer field: store full customer object
+    // Also auto-fill salesman if customer has one assigned
+    const salesmanCode = customer.salesman?.salesmanCode || "";
+    console.log("Customer selected:", customer);
+    console.log("Customer address:", customer.address);
+    // Document trades in the customer's master-file currency — the GL
+    // converts to base at the accountant's standing rate on posting.
+    const customerCurrency = String((customer as any).currency || "").toUpperCase();
+    // THE RATE FOLLOWS THE CUSTOMER (guru 2026-11-25: "when i select
+    // this customer the rate supposed to change"): the accountant's
+    // standing rate for that currency (Accounting Setup → Financial
+    // Settings → Currency rates), 1 for the base currency. A foreign
+    // currency with no rate locked in leaves the box as it is — the
+    // GL refuses to post that document at par anyway.
+    // Only a CHANGE of customer or of currency moves the rate: re-picking
+    // the customer already on the document keeps a rate the user keyed by
+    // hand (guru 2026-11-25).
+    const sameCustomer = !!formData.customer?.id && formData.customer.id === customer.id;
+    const docCurrency = String((formData as any)?.documentInfo?.currency || (formData as any)?.currency || "").toUpperCase();
+    const currencyUnchanged = !customerCurrency || customerCurrency === docCurrency;
+    const customerRate = customerCurrency && !(sameCustomer && currencyUnchanged) ? standingRateFor(customerCurrency) : null;
+    if (customerCurrency && customerCurrency !== orgBaseCurrency() && !customerRate && !(sameCustomer && currencyUnchanged)) {
+      toast.warn(`No standing rate for ${customerCurrency}. Lock one in Accounting Setup → Financial Settings → Currency rates; until then this document stays at par.`);
+    }
+    // LINES FOLLOW THE RATE (guru 2026-11-25: "the price didnt change leh").
+    // Every line price is in the document's currency at the document's rate,
+    // so a pick that moves the rate re-prices what is already there by
+    // old-rate / new-rate: 550.00 at par becomes 7,857,142.86 at 0.0000700,
+    // and back to 550.00 when an SGD customer is picked again. Merged-rate
+    // blocks and text lines are left alone.
+    const oldRate = Number((formData as any)?.documentInfo?.rate) || 1;
+    const newRate = customerRate || oldRate;
+    if (Math.abs(newRate - oldRate) > 1e-12) {
+      const factor = oldRate / newRate;
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+      const priced = (v: any) => v != null && v !== "" && Number.isFinite(Number(v));
+      setItems((prev: any[]) =>
+        prev.map((it: any) => {
+          if (it.rateMerge || (!priced(it.unitPrice) && !priced(it.salePrice))) return it;
+          return withLineAmount({
+            ...it,
+            ...(priced(it.unitPrice) ? { unitPrice: r2(Number(it.unitPrice) * factor) } : {}),
+            ...(priced(it.salePrice) ? { salePrice: r2(Number(it.salePrice) * factor) } : {}),
+          });
+        }),
+      );
+    }
+    // PREVIOUS-CUSTOMER LEFTOVERS. Bill To is rewritten below; the rest
+    // of that block belongs to the old customer too and must go with
+    // it: Deliver To (+ its deliveryAddress mirror, which for DOs can
+    // hold an old site-office id), the Attention / Mobile / Email trio
+    // and the Contact fields that print as "Attn:" under Deliver To.
+    // BI202609101 kept Tenda's "Deliver To" after its customer became
+    // Keller (guru 2026-10-09). Only when a DIFFERENT customer replaces
+    // one already set: re-picking the same customer, or the first pick
+    // on a new document, keeps what is there. Emptied fields are then
+    // re-seeded from the new customer by the fill-once effect (Contact
+    // from its phone). Existing documents are untouched until edited.
+    const previousCustomerId = formData.customer?.id || "";
+    const swapped = !!previousCustomerId && previousCustomerId !== customer.id;
+    const leftoverReset: Record<string, unknown> = swapped
+      ? {
+          deliveryTo: "",
+          deliveryAddress: { ...(formData as any).deliveryAddress, address: "", attention: "", phone: "" },
+          attention: { name: "", email: "", phoneNumber: "" },
+          ...((formData as any).contact !== undefined ? { contact: "" } : {}),
+          ...((formData as any).contactName !== undefined ? { contactName: "" } : {}),
+          ...((formData as any).contactNumber !== undefined ? { contactNumber: "" } : {}),
+        }
+      : {};
+    const contactReset = swapped ? { contact: "", contactName: "", contactNumber: "" } : {};
+    setFormData({
+      ...formData,
+      ...leftoverReset,
+      customer: {
+        id: customer.id || "",
+        name: customer.name || "",
+        address: customer.address || "",
+        email: customer.email || "",
+        customerCode: customer.customerCode || "",
+        gstRegNo: (customer as any).gstRegNo || "",
+      },
+      // BILL TO FOLLOWS THE CUSTOMER. Every renderer prefers billTo over
+      // customerAddress —
+      //   {data.billTo || data.customer?.address || data.customerAddress}
+      // in all ten CleanDocumentPreview branches and in the server-side
+      // PDF (document-html/invoice.ts) — so a billTo left behind by the
+      // previous customer keeps printing their name and address while
+      // every other field shows the new one. BI202609066 sat with
+      // "Sunpower Grand Holdings" over a Tenda invoice for exactly this
+      // reason, and it is invisible in the header fields: you only catch
+      // it by reading the rendered Bill To block.
+      //
+      // Written as the address is STORED on the Customer record, with no
+      // decoration — no name line, no appended "Attn:". 80 of 196
+      // customer addresses (41%) already end with their own Attn line,
+      // and appending another is how BI202609066 ended up printing
+      // "Attn: Accounts Dept." twice. The three backend writers
+      // (ingestion, sow, api-v1) all do plain `billTo: customer.address`;
+      // this matches them.
+      //
+      // An empty address writes "", which is correct: the renderers then
+      // fall through to customerAddress, and the fill-if-empty effect
+      // below has nothing better to offer either.
+      billTo: addressToBillTo(customer.address),
+      documentInfo: {
+        ...formData.documentInfo,
+        ...contactReset,
+        ...(salesmanCode ? { salesPerson: salesmanCode } : {}),
+        ...(customerCurrency ? { currency: customerCurrency } : {}),
+        ...(customerRate ? { rate: customerRate } : {}),
+      },
+      ...(customerCurrency ? { currency: customerCurrency } : {}),
+      // Official Receipt: a customer switch invalidates the offset
+      // allocations and pulls the receipt currency from the master.
+      ...(isOfficialReceipt ? { orData: receiptCustomerPatch(formData, customer).orData } : {}),
+    });
+    // Call the customer change handler to fetch related data
+    if (onCustomerChange && customer.id) {
+      onCustomerChange(customer.id);
+    }
+  };
+
   const handleStockCardItemSelect = (selectedItem: any) => {
     const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
     const isStockAdjustmentIn = documentType === "SAI" || documentType === "STOCK_ADJUSTMENT_IN";
@@ -2585,6 +2829,7 @@ export default function TabbedDocumentCreator({
       const pts = Number(selectedItem.asset?.points || 0);
       if (pts > 0) unitPrice = Math.max(0, Number(unitPrice) - pts);
     }
+    unitPrice = toDocPrice(Number(unitPrice) || 0);
     const uom = selectedItem.uom || selectedItem.asset?.uom || "";
 
     const newItem: any = {
@@ -2592,9 +2837,12 @@ export default function TabbedDocumentCreator({
       itemCode: selectedItem.sku || "",
       inventoryItemId: selectedItem.id || "",
       description: description,
-      quantity: 1,
+      // Quantity starts EMPTY so the user keys it (the cursor lands there);
+      // leaving the box empty commits 0 (guru 2026-11-25: "make the qty empty
+      // so they can key in themselves, if they enter and go past it its auto 0").
+      quantity: "",
       unitPrice: unitPrice,
-      amount: unitPrice, // quantity is 1, so amount equals unitPrice
+      amount: 0,
       // GL account from the Stock Card Rental/Sales tab → line self-codes for posting.
       ...(selectedItem.accountCode ? { accountCode: selectedItem.accountCode } : {}),
       // Editor-only tag (rental/sale/service) — shown in the editor, never in the preview/PDF.
@@ -2667,6 +2915,32 @@ export default function TabbedDocumentCreator({
       }
     }
 
+    // Purchase docs (Chong Aik, enableAvgCostFromPo): prefill the Unit Price
+    // with the LAST purchase price for this item (the most recent confirmed
+    // PO's unit price), not the stored cost (guru 2026-11-25). Async + best
+    // effort: the line already carries the cost-price default, so if the item
+    // has never been purchased, or the lookup fails, that default stays.
+    if (isAvgCostFromPoEnabled && isPurePurchaseType && editingItemId == null) {
+      const assetIdForLookup = selectedItem.id;
+      const lineId = newItem.id;
+      if (assetIdForLookup) {
+        void (async () => {
+          try {
+            const token = await getToken();
+            const resp = await request(
+              { path: `/documents/last-purchase-price/${assetIdForLookup}`, method: "GET", quiet: true },
+              {},
+              token ?? undefined,
+            );
+            const price = Number(resp?.price ?? resp?.data?.price);
+            if (price > 0) updateItem(lineId, "unitPrice", toDocPrice(price));
+          } catch {
+            /* keep the cost-price default */
+          }
+        })();
+      }
+    }
+
     // Prefetch price history for this asset if available
     if (selectedItem.assetId) {
       prefetchPriceHistory(selectedItem.assetId);
@@ -2714,7 +2988,7 @@ export default function TabbedDocumentCreator({
     setItems([...items, makeServiceItem()]);
   };
   const addRevenueItemLine = (rev: any) => {
-    const up = rev.unitPrice != null ? Number(rev.unitPrice) : 0;
+    const up = toDocPrice(rev.unitPrice != null ? Number(rev.unitPrice) : 0);
     if (editingItemId != null) {
       // Re-coding an EXISTING row (picking a service to set its GL account).
       // The row's description / qty / price are the user's own work — a
@@ -2758,7 +3032,7 @@ export default function TabbedDocumentCreator({
     // synchronous loop, and duplicate ids break delete / reorder.
     const base = Date.now();
     const lines = revs.map((rev, i) => {
-      const up = rev.unitPrice != null ? Number(rev.unitPrice) : 0;
+      const up = toDocPrice(rev.unitPrice != null ? Number(rev.unitPrice) : 0);
       return makeServiceItem({ id: base + i, itemCode: rev.code || "", description: rev.name, unitPrice: up, amount: up, accountCode: rev.accountCode, isService: rev.type === "SERVICE" });
     });
     setItems([...items, ...lines]);
@@ -2773,44 +3047,7 @@ export default function TabbedDocumentCreator({
   };
 
   const updateItem = (id: number, field: string, value: any) => {
-    setItems((prevItems: any[]) => {
-      const newItems = prevItems.map((item: any) => {
-        if (item.id === id) {
-          const updated = { ...item, [field]: value };
-          // Calculate amount (accounting for discount if present). discountType
-          // is 'amount' for a flat $ discount, otherwise it's a % discount
-          // (default — preserves existing behavior for rows without the field).
-          const qty = Number(updated.quantity) || 0;
-          // Rental+Sales templates (QO1) carry two rates per line: unitPrice
-          // (monthly rental) and salePrice (sales unit rate). The rental rate
-          // prices the line when set; a line with ONLY a sales rate is a sale —
-          // without this fallback its amount stuck at 0 (guru 2026-08-26).
-          const unit = Number(updated.unitPrice) || Number(updated.salePrice) || 0;
-          const disc = Number(updated.discount) || 0;
-          // A line with EMPTY qty AND price is a text/annotation line — its
-          // amount stays blank everywhere (editor cell, preview, PDF), never
-          // 0.00 (guru 2026-09-14). Totals treat "" as 0.
-          const isEmptyLine =
-            (updated.quantity == null || updated.quantity === "") &&
-            (updated.unitPrice == null || updated.unitPrice === "") &&
-            (updated.salePrice == null || updated.salePrice === "");
-          const gross = qty * unit;
-          // MERGED RATE. The anchor's amount IS the shared block price, not this
-          // row's qty x rate, so editing its quantity or its own rate must not
-          // overwrite it. A continuation row's amount stays null for the same
-          // reason — the block is counted once, on the anchor.
-          if (updated.rateMerge) return updated;
-          updated.amount = isEmptyLine
-            ? ""
-            : updated.discountType === "amount"
-            ? Math.max(0, gross - disc)
-            : gross * (1 - disc / 100);
-          return updated;
-        }
-        return item;
-      });
-      return newItems;
-    });
+    setItems((prevItems: any[]) => prevItems.map((item: any) => (item.id === id ? withLineAmount({ ...item, [field]: value }) : item)));
   };
 
   // ─── Merged rate cell ───────────────────────────────────────────────────
@@ -3425,28 +3662,8 @@ export default function TabbedDocumentCreator({
     return shown.join(" \u00b7 ") + (parts.length > 8 ? ` \u00b7 +${parts.length - 8} more` : "");
   };
 
-  const getDocumentTitle = () => {
-    const titles: Record<string, string> = {
-      QO1: "Quotation",
-      QUOTATION: "Quotation",
-      QT: "Quotation",
-      QO: "Quotation",
-      DO: "Delivery Order",
-      DELIVERY_ORDER: "Delivery Order",
-      RDO: "Return Delivery Order",
-      RETURN_DELIVERY_ORDER: "Return Delivery Order",
-      TI: "Tax Invoice",
-      TI2: "Tax Invoice",
-      INVOICE: "Tax Invoice",
-      MSR: "Maintenance Service Report",
-      OFFICIAL_RECEIPT: "Official Receipt",
-      OR: "Official Receipt",
-      PAYMENT_VOUCHER: "Payment Voucher",
-      JOURNAL_VOUCHER: "Journal Voucher",
-      PV: "Payment Voucher",
-    };
-    return titles[documentType] || "Document";
-  };
+  // Every type, whichever spelling it is stored under (helpers/docTypeFamily.ts).
+  const getDocumentTitle = () => docTypeTitle(actualDocumentType || documentType);
 
   // Generate PDF and upload to S3
   const generatePdf = async () => {
@@ -3516,9 +3733,11 @@ export default function TabbedDocumentCreator({
   };
 
   const handlePrint = () => {
+    // The foot line is the moment of printing and the person printing.
+    printedByRef.current = printedByLine(printerName(user), new Date());
     // Already on the preview: print what is on screen.
     if (previewMode) {
-      if (usesServerPreview) serverPreviewRef.current?.print();
+      if (usesServerPreview) serverPreviewRef.current?.print(printedByRef.current);
       else handleBrowserPrint();
       return;
     }
@@ -3536,7 +3755,7 @@ export default function TabbedDocumentCreator({
     if (!printWhenLoadedRef.current) return;
     printWhenLoadedRef.current = false;
     // contentWindow.print() blocks until the dialog closes.
-    serverPreviewRef.current?.print();
+    serverPreviewRef.current?.print(printedByRef.current);
     setPrintStage(false);
   };
 
@@ -4073,7 +4292,7 @@ export default function TabbedDocumentCreator({
       reloadAfterCommit();
     } catch (error: any) {
       console.error("Error confirming Invoice:", error);
-      if (!error?.reported) toast.error("Failed to confirm Invoice");
+      if (!error?.reported) toast.error(error?.message || "Failed to confirm Invoice");
       makeRecurringAfterConfirmRef.current = false;
     } finally {
       setIsConfirming(false);
@@ -4559,6 +4778,611 @@ export default function TabbedDocumentCreator({
       toast.error("Failed to fetch documents");
     }
   };
+
+  // EXTRACT LANDS ON A NEW DOCUMENT (guru 2026-11-25: "when u extract it will
+  // auto add and extract, do this for all extract feature" … "dont auto create
+  // first, only when they click smth then create and extract"), as in the
+  // legacy software. Pressing Extract only opens the dialog (every source
+  // document listed, not just the current customer's). The PICK decides: on a
+  // document that already has a customer or lines it creates a NEW document
+  // (the Add button's path), stashes the picked sources for it and navigates;
+  // the new editor applies them on arrival (below, after the apply functions).
+  // On a still-blank document the pick fills it in place, so Add → Extract
+  // never leaves an extra blank document behind.
+  type ExtractKind = "do" | "quotation" | "so";
+  const documentIsBlank = () =>
+    !formData.customer?.id &&
+    !(items || []).some(
+      (it: any) => String(it.itemCode || "").trim() || String(it.description || "").replace(/<[^>]*>/g, "").trim() || Number(it.unitPrice) || Number(it.amount),
+    );
+  const createDocumentForExtract = async (): Promise<string | null> => {
+    const token = await getToken();
+    if (!token) { toast.error("Authentication required"); return null; }
+    const templateId = existingData?.documentTemplateId || pathSegments[3] || documentId;
+    const docTypeForCreate = actualDocumentType || existingData?.type || "INVOICE";
+    if (!templateId) { toast.error("Could not find document template."); return null; }
+    const response = await request(
+      { path: "/documents/basic", method: "POST", ownError: true },
+      { type: docTypeForCreate, config: {}, documentTemplateId: templateId, organizationId: organization?.id },
+      token,
+    );
+    if (!response?.success || !response?.data?.id) { toast.error(response?.message || "Failed to create document"); return null; }
+    onDocumentCreated?.();
+    return `/portal/documents/${docTypeForCreate}/${templateId}/${response.data.id}|${response.data.id}`;
+  };
+  const extractPick = async (kind: ExtractKind, sources: any[], applyHere: () => void) => {
+    if (documentIsBlank()) { applyHere(); return; }
+    const created = await createDocumentForExtract();
+    if (!created) return;
+    const [path, newId] = created.split("|");
+    try { sessionStorage.setItem(`aims-extract-pending:${newId}`, JSON.stringify({ kind, sources })); } catch { /* storage full or blocked: the new document opens blank */ }
+    router.push(path);
+  };
+  const [pendingExtract, setPendingExtract] = useState<{ kind: ExtractKind; sources: any[] } | null>(null);
+  useEffect(() => {
+    const id = String(existingData?.id || documentId || "");
+    if (!id || typeof window === "undefined") return;
+    try {
+      const raw = sessionStorage.getItem(`aims-extract-pending:${id}`);
+      if (!raw) return;
+      sessionStorage.removeItem(`aims-extract-pending:${id}`);
+      setPendingExtract(JSON.parse(raw));
+    } catch { /* ignore */ }
+  }, [existingData?.id, documentId]);
+
+  // Extract dialog picks — one apply function per dialog and per single /
+  // multiple pick, so a pick can run here OR on the new document it lands on.
+  const applyExtractedQuotationToDO = (quotation: any) => {
+    // Populate DO with data from the selected quotation
+    const quotationConfig = quotation.config || {};
+
+    // Look up customer address from customers list if not in quotation config
+    const hdr = extractHeaderOf(quotationConfig);
+    const customerId = hdr.customerId;
+    const customerFromList = customers.find((c: any) => c.id === customerId);
+    const customerAddress = hdr.customerAddress || customerFromList?.address || "";
+
+    // Update form data with quotation info
+    setFormData({
+      ...formData,
+      customer: {
+        id: customerId,
+        name: hdr.customerName || customerFromList?.name || "",
+        address: customerAddress,
+        email: hdr.customerEmail || customerFromList?.email || "",
+        customerCode: hdr.customerCode || customerFromList?.customerCode || "",
+        gstRegNo: hdr.customerGstRegNo || customerFromList?.gstRegNo || "",
+      },
+      documentInfo: {
+        ...formData.documentInfo,
+        salesPerson: hdr.salesPerson,
+        // P/O comes over only if the quotation actually had one — the
+        // quotation's Reference No is NOT a P/O (was wrongly used as a
+        // fallback here).
+        poNo: quotationConfig.poNo || "",
+        contact: hdr.contact,
+        paymentTerms: hdr.paymentTerms,
+        currency: hdr.currency,
+        rate: hdr.rate,
+        taxApplicable: hdr.taxApplicable,
+        absorbTax: hdr.absorbTax,
+        gstPercent: hdr.gstPercent,
+        // Biofuel DO: pre-fill "Our Ref" with the source quotation
+        // (number only in the editor; the confirm date prints as
+        // " dated dd/mm/yyyy" on the DO).
+        ...(isBiofuel && !isInvoiceType
+          ? {
+              referenceNo: refQuotationLabel(quotation),
+              referenceQuotationDate: null,
+            }
+          : {}),
+      },
+      deliveryTo: quotationConfig.deliveryTo || "",
+      // Carry the Attn To contact trio — without this the combined
+      // "Name - Phone" contact string lands in the phone box.
+      attention: {
+        name: quotationConfig.attention?.name || "",
+        phoneNumber: quotationConfig.attention?.phoneNumber || "",
+        email: quotationConfig.attention?.email || "",
+      },
+      // Carry the quotation's project link onto this document — the
+      // save-time link-project PATCH persists it (mandatory on DOs).
+      projectId: quotation.projectId || quotationConfig.projectId || formData.projectId || "",
+      sourceDocumentId: quotation.id,
+      sourceDocumentType: "QUOTATION",
+      sourceDocumentNumber: quotation.name,
+    });
+
+    // Populate items from quotation
+    if (quotationConfig.items && Array.isArray(quotationConfig.items)) {
+      const newItems = quotationConfig.items.filter((it: any) => !it.isGroupHeader).map((item: any, index: number) => ({
+        id: Date.now() + index,
+        itemCode: item.itemCode || "",
+        inventoryItemId: item.inventoryItemId || "",
+        description: item.description || "",
+        quantity: item.quantity || 1,
+        unitPrice: item.unitPrice || 0,
+        uom: item.uom || "",
+        discount: item.discount || 0,
+        // MERGED RATE markers ride along, so an extracted SALES_ORDER keeps
+        // both the shared price and every member's own itemCode +
+        // unitPrice — the pricing ladder (buildCodeMap) reads those off
+        // the SO months later, and dropping them would silently re-price
+        // the eventual invoice at asset list price.
+        ...(item.rateMerge ? { rateMerge: item.rateMerge } : {}),
+        // A merged row's amount is carried VERBATIM — the block price on
+        // the first of them, null on the rest. Without this branch the
+        // fallback re-prices every one from qty x unitPrice (`null` is
+        // falsy), and the invoice would carry the block price AND each
+        // row underneath it.
+        amount: item.rateMerge
+          ? item.amount ?? null
+          : item.amount || (item.quantity || 1) * (item.unitPrice || 0),
+      }));
+      setItems(newItems);
+    }
+
+    toast.success(`Quotation ${quotation.name} extracted to ${isInvoiceType ? "Invoice" : "Delivery Order"}`);
+  };
+
+  const applyExtractedQuotationsToDO = (quotations: any[]) => {
+    // Merge multiple quotations into the delivery order
+    if (!quotations.length) return;
+
+    // Use the first quotation for customer/header info (they should all have the same customer)
+    const firstQuotation = quotations[0];
+    const quotationConfig = firstQuotation.config || {};
+
+    // Look up customer address from customers list if not in quotation config
+    const hdr = extractHeaderOf(quotationConfig);
+    const customerId = hdr.customerId;
+    const customerFromList = customers.find((c: any) => c.id === customerId);
+    const customerAddress = hdr.customerAddress || customerFromList?.address || "";
+
+    // Collect all source document references
+    const sourceDocumentNumbers = quotations.map(q => q.name).join(", ");
+    const sourceDocumentIds = quotations.map(q => q.id);
+
+    // Update form data with quotation info from first quotation
+    setFormData({
+      ...formData,
+      customer: {
+        id: customerId,
+        name: hdr.customerName || customerFromList?.name || "",
+        address: customerAddress,
+        email: hdr.customerEmail || customerFromList?.email || "",
+        customerCode: hdr.customerCode || customerFromList?.customerCode || "",
+        gstRegNo: hdr.customerGstRegNo || customerFromList?.gstRegNo || "",
+      },
+      documentInfo: {
+        ...formData.documentInfo,
+        salesPerson: hdr.salesPerson,
+        // P/O comes over only if the quotation actually had one — the
+        // quotation's Reference No is NOT a P/O (was wrongly used as a
+        // fallback here).
+        poNo: quotationConfig.poNo || "",
+        contact: hdr.contact,
+        paymentTerms: hdr.paymentTerms,
+        currency: hdr.currency,
+        rate: hdr.rate,
+        taxApplicable: hdr.taxApplicable,
+        absorbTax: hdr.absorbTax,
+        gstPercent: hdr.gstPercent,
+        // Biofuel DO: pre-fill "Our Ref" with the FIRST source quotation.
+        ...(isBiofuel && !isInvoiceType
+          ? {
+              referenceNo: refQuotationLabel(firstQuotation),
+              referenceQuotationDate: null,
+            }
+          : {}),
+      },
+      deliveryTo: quotationConfig.deliveryTo || "",
+      // Attn To trio from the FIRST quotation (merged quotations share a
+      // customer, so the contact is the same in practice).
+      attention: {
+        name: quotationConfig.attention?.name || "",
+        phoneNumber: quotationConfig.attention?.phoneNumber || "",
+        email: quotationConfig.attention?.email || "",
+      },
+      // Project link from the FIRST quotation (merged quotations share a
+      // customer and, in practice, a project).
+      projectId: firstQuotation.projectId || quotationConfig.projectId || formData.projectId || "",
+      sourceDocumentId: sourceDocumentIds.join(","), // Store multiple IDs as comma-separated
+      sourceDocumentType: "QUOTATION",
+      sourceDocumentNumber: sourceDocumentNumbers,
+    });
+
+    // Merge items from all quotations
+    let allItems: any[] = [];
+    let itemIdCounter = Date.now();
+
+    quotations.forEach((quotation) => {
+      const config = quotation.config || {};
+      if (config.items && Array.isArray(config.items)) {
+        const newItems = config.items.map((item: any) => ({
+          id: itemIdCounter++,
+          itemCode: item.itemCode || "",
+          inventoryItemId: item.inventoryItemId || "",
+          description: item.description || "",
+          quantity: item.quantity || 1,
+          unitPrice: item.unitPrice || 0,
+          uom: item.uom || "",
+          discount: item.discount || 0,
+          amount: item.amount || (item.quantity || 1) * (item.unitPrice || 0),
+          sourceQuotationNumber: quotation.name, // Track which quotation this item came from
+        }));
+        allItems = [...allItems, ...newItems];
+      }
+    });
+
+    setItems(allItems);
+
+    toast.success(`${quotations.length} Quotations extracted to ${isInvoiceType ? "Invoice" : "Delivery Order"}`);
+  };
+
+  const applyExtractedDO = (deliveryOrder: any) => {
+    // Populate Invoice with data from the selected Delivery Order
+    const doConfig = deliveryOrder.config || {};
+
+    // Look up customer address from customers list if not in DO config
+    const hdr = extractHeaderOf(doConfig);
+    const customerId = hdr.customerId;
+    const customerFromList = customers.find((c: any) => c.id === customerId);
+    const customerAddress = hdr.customerAddress || customerFromList?.address || "";
+
+    // Update form data with DO info
+    setFormData({
+      ...formData,
+      customer: {
+        id: customerId,
+        name: hdr.customerName || customerFromList?.name || "",
+        address: customerAddress,
+        email: hdr.customerEmail || customerFromList?.email || "",
+        customerCode: hdr.customerCode || customerFromList?.customerCode || "",
+        gstRegNo: hdr.customerGstRegNo || customerFromList?.gstRegNo || "",
+      },
+      documentInfo: {
+        ...formData.documentInfo,
+        doNo: deliveryOrder.name || "", // Fill in D/O Number from the extracted DO
+        salesPerson: hdr.salesPerson,
+        poNo: hdr.poNo,
+        contact: hdr.contact,
+        paymentTerms: hdr.paymentTerms,
+        currency: hdr.currency,
+        rate: hdr.rate,
+        taxApplicable: hdr.taxApplicable,
+        absorbTax: hdr.absorbTax,
+        gstPercent: hdr.gstPercent,
+      },
+      deliveryTo: doConfig.deliveryTo || "",
+      // Carry the Attn To contact trio — without this the combined
+      // "Name - Phone" contact string lands in the phone box.
+      attention: {
+        name: doConfig.attention?.name || "",
+        phoneNumber: doConfig.attention?.phoneNumber || "",
+        email: doConfig.attention?.email || "",
+      },
+      sourceDocumentId: deliveryOrder.id,
+      sourceDocumentType: "DELIVERY_ORDER",
+      sourceDocumentNumber: deliveryOrder.name,
+    });
+
+    // Populate items from delivery order
+    if (doConfig.items && Array.isArray(doConfig.items)) {
+      const newItems = doConfig.items.filter((it: any) => !it.isGroupHeader).map((item: any, index: number) => ({
+        id: Date.now() + index,
+        itemCode: item.itemCode || "",
+        inventoryItemId: item.inventoryItemId || "",
+        description: item.description || "",
+        quantity: item.quantity || 1,
+        unitPrice: item.unitPrice || 0,
+        uom: item.uom || "",
+        discount: item.discount || 0,
+        // MERGED RATE markers ride along, so an extracted SALES_ORDER keeps
+        // both the shared price and every member's own itemCode +
+        // unitPrice — the pricing ladder (buildCodeMap) reads those off
+        // the SO months later, and dropping them would silently re-price
+        // the eventual invoice at asset list price.
+        ...(item.rateMerge ? { rateMerge: item.rateMerge } : {}),
+        // A merged row's amount is carried VERBATIM — the block price on
+        // the first of them, null on the rest. Without this branch the
+        // fallback re-prices every one from qty x unitPrice (`null` is
+        // falsy), and the invoice would carry the block price AND each
+        // row underneath it.
+        amount: item.rateMerge
+          ? item.amount ?? null
+          : item.amount || (item.quantity || 1) * (item.unitPrice || 0),
+      }));
+      setItems(newItems);
+    }
+
+    toast.success(`Delivery Order ${deliveryOrder.name} extracted to Invoice`);
+  };
+
+  const applyExtractedDOs = (deliveryOrders: any[]) => {
+    // Merge multiple delivery orders into the invoice
+    if (!deliveryOrders.length) return;
+
+    // Use the first DO for customer/header info (they should all have the same customer)
+    const firstDO = deliveryOrders[0];
+    const doConfig = firstDO.config || {};
+
+    // Look up customer address from customers list if not in DO config
+    const hdr = extractHeaderOf(doConfig);
+    const customerId = hdr.customerId;
+    const customerFromList = customers.find((c: any) => c.id === customerId);
+    const customerAddress = hdr.customerAddress || customerFromList?.address || "";
+
+    // Collect all source document references
+    const sourceDocumentNumbers = deliveryOrders.map(d => d.name).join(", ");
+    const sourceDocumentIds = deliveryOrders.map(d => d.id);
+
+    // Update form data with DO info from first delivery order
+    setFormData({
+      ...formData,
+      customer: {
+        id: customerId,
+        name: hdr.customerName || customerFromList?.name || "",
+        address: customerAddress,
+        email: hdr.customerEmail || customerFromList?.email || "",
+        customerCode: hdr.customerCode || customerFromList?.customerCode || "",
+        gstRegNo: hdr.customerGstRegNo || customerFromList?.gstRegNo || "",
+      },
+      documentInfo: {
+        ...formData.documentInfo,
+        doNo: sourceDocumentNumbers, // Fill in D/O Number(s) from the extracted DOs
+        salesPerson: hdr.salesPerson,
+        poNo: hdr.poNo,
+        contact: hdr.contact,
+        paymentTerms: hdr.paymentTerms,
+        currency: hdr.currency,
+        rate: hdr.rate,
+        taxApplicable: hdr.taxApplicable,
+        absorbTax: hdr.absorbTax,
+        gstPercent: hdr.gstPercent,
+      },
+      deliveryTo: doConfig.deliveryTo || "",
+      // Attn To trio from the FIRST DO (merged DOs share a customer).
+      attention: {
+        name: doConfig.attention?.name || "",
+        phoneNumber: doConfig.attention?.phoneNumber || "",
+        email: doConfig.attention?.email || "",
+      },
+      sourceDocumentId: sourceDocumentIds.join(","), // Store multiple IDs as comma-separated
+      sourceDocumentType: "DELIVERY_ORDER",
+      sourceDocumentNumber: sourceDocumentNumbers,
+    });
+
+    // Merge items from all delivery orders
+    let allItems: any[] = [];
+    let itemIdCounter = Date.now();
+
+    deliveryOrders.forEach((deliveryOrder) => {
+      const config = deliveryOrder.config || {};
+      if (config.items && Array.isArray(config.items)) {
+        const newItems = config.items.map((item: any) => ({
+          id: itemIdCounter++,
+          itemCode: item.itemCode || "",
+          inventoryItemId: item.inventoryItemId || "",
+          description: item.description || "",
+          quantity: item.quantity || 1,
+          unitPrice: item.unitPrice || 0,
+          uom: item.uom || "",
+          discount: item.discount || 0,
+          amount: item.amount || (item.quantity || 1) * (item.unitPrice || 0),
+          sourceDoNumber: deliveryOrder.name, // Track which DO this item came from
+        }));
+        allItems = [...allItems, ...newItems];
+      }
+    });
+
+    setItems(allItems);
+
+    toast.success(`${deliveryOrders.length} Delivery Orders extracted to Invoice`);
+  };
+
+  const applyExtractedQuotationToSO = (quotation: any) => {
+    // Populate SO with data from the selected quotation
+    const quotationConfig = quotation.config || {};
+
+    // Look up customer address from customers list if not in quotation config
+    const hdr = extractHeaderOf(quotationConfig);
+    const customerId = hdr.customerId;
+    const customerFromList = customers.find((c: any) => c.id === customerId);
+    const customerAddress = hdr.customerAddress || customerFromList?.address || "";
+
+    // Update form data with quotation info
+    setFormData({
+      ...formData,
+      customer: {
+        id: customerId,
+        name: hdr.customerName || customerFromList?.name || "",
+        address: customerAddress,
+        email: hdr.customerEmail || customerFromList?.email || "",
+        customerCode: hdr.customerCode || customerFromList?.customerCode || "",
+        gstRegNo: hdr.customerGstRegNo || customerFromList?.gstRegNo || "",
+      },
+      documentInfo: {
+        ...formData.documentInfo,
+        salesPerson: hdr.salesPerson,
+        // P/O comes over only if the quotation actually had one — the
+        // quotation's Reference No is NOT a P/O (was wrongly used as a
+        // fallback here).
+        poNo: quotationConfig.poNo || "",
+        contact: hdr.contact,
+        paymentTerms: hdr.paymentTerms,
+        currency: hdr.currency,
+        rate: hdr.rate,
+        taxApplicable: hdr.taxApplicable,
+        absorbTax: hdr.absorbTax,
+        gstPercent: hdr.gstPercent,
+        // Biofuel DO: pre-fill "Our Ref" with the source quotation
+        // (number only in the editor; the confirm date prints as
+        // " dated dd/mm/yyyy" on the DO).
+        ...(isBiofuel && !isInvoiceType
+          ? {
+              referenceNo: refQuotationLabel(quotation),
+              referenceQuotationDate: null,
+            }
+          : {}),
+      },
+      deliveryTo: quotationConfig.deliveryTo || "",
+      // Carry the Attn To contact trio — without this the combined
+      // "Name - Phone" contact string lands in the phone box.
+      attention: {
+        name: quotationConfig.attention?.name || "",
+        phoneNumber: quotationConfig.attention?.phoneNumber || "",
+        email: quotationConfig.attention?.email || "",
+      },
+      // Carry the quotation's project link onto this document — the
+      // save-time link-project PATCH persists it (mandatory on DOs).
+      projectId: quotation.projectId || quotationConfig.projectId || formData.projectId || "",
+      sourceDocumentId: quotation.id,
+      sourceDocumentType: "QUOTATION",
+      sourceDocumentNumber: quotation.name,
+    });
+
+    // Populate items from quotation
+    if (quotationConfig.items && Array.isArray(quotationConfig.items)) {
+      const newItems = quotationConfig.items.filter((it: any) => !it.isGroupHeader).map((item: any, index: number) => ({
+        id: Date.now() + index,
+        itemCode: item.itemCode || "",
+        inventoryItemId: item.inventoryItemId || "",
+        description: item.description || "",
+        quantity: item.quantity || 1,
+        unitPrice: item.unitPrice || 0,
+        uom: item.uom || "",
+        discount: item.discount || 0,
+        // MERGED RATE markers ride along, so an extracted SALES_ORDER keeps
+        // both the shared price and every member's own itemCode +
+        // unitPrice — the pricing ladder (buildCodeMap) reads those off
+        // the SO months later, and dropping them would silently re-price
+        // the eventual invoice at asset list price.
+        ...(item.rateMerge ? { rateMerge: item.rateMerge } : {}),
+        // A merged row's amount is carried VERBATIM — the block price on
+        // the first of them, null on the rest. Without this branch the
+        // fallback re-prices every one from qty x unitPrice (`null` is
+        // falsy), and the invoice would carry the block price AND each
+        // row underneath it.
+        amount: item.rateMerge
+          ? item.amount ?? null
+          : item.amount || (item.quantity || 1) * (item.unitPrice || 0),
+      }));
+      setItems(newItems);
+    }
+
+    toast.success(`Quotation ${quotation.name} extracted to Sales Order`);
+  };
+
+  const applyExtractedQuotationsToSO = (quotations: any[]) => {
+    // Merge multiple quotations into the sales order
+    if (!quotations.length) return;
+
+    // Use the first quotation for customer/header info (they should all have the same customer)
+    const firstQuotation = quotations[0];
+    const quotationConfig = firstQuotation.config || {};
+
+    // Look up customer address from customers list if not in quotation config
+    const hdr = extractHeaderOf(quotationConfig);
+    const customerId = hdr.customerId;
+    const customerFromList = customers.find((c: any) => c.id === customerId);
+    const customerAddress = hdr.customerAddress || customerFromList?.address || "";
+
+    // Collect all source document references
+    const sourceDocumentNumbers = quotations.map(q => q.name).join(", ");
+    const sourceDocumentIds = quotations.map(q => q.id);
+
+    // Update form data with quotation info from first quotation
+    setFormData({
+      ...formData,
+      customer: {
+        id: customerId,
+        name: hdr.customerName || customerFromList?.name || "",
+        address: customerAddress,
+        email: hdr.customerEmail || customerFromList?.email || "",
+        customerCode: hdr.customerCode || customerFromList?.customerCode || "",
+        gstRegNo: hdr.customerGstRegNo || customerFromList?.gstRegNo || "",
+      },
+      documentInfo: {
+        ...formData.documentInfo,
+        salesPerson: hdr.salesPerson,
+        // P/O comes over only if the quotation actually had one — the
+        // quotation's Reference No is NOT a P/O (was wrongly used as a
+        // fallback here).
+        poNo: quotationConfig.poNo || "",
+        contact: hdr.contact,
+        paymentTerms: hdr.paymentTerms,
+        currency: hdr.currency,
+        rate: hdr.rate,
+        taxApplicable: hdr.taxApplicable,
+        absorbTax: hdr.absorbTax,
+        gstPercent: hdr.gstPercent,
+        // Biofuel DO: pre-fill "Our Ref" with the FIRST source quotation.
+        ...(isBiofuel && !isInvoiceType
+          ? {
+              referenceNo: refQuotationLabel(firstQuotation),
+              referenceQuotationDate: null,
+            }
+          : {}),
+      },
+      deliveryTo: quotationConfig.deliveryTo || "",
+      // Attn To trio from the FIRST quotation (merged quotations share a
+      // customer, so the contact is the same in practice).
+      attention: {
+        name: quotationConfig.attention?.name || "",
+        phoneNumber: quotationConfig.attention?.phoneNumber || "",
+        email: quotationConfig.attention?.email || "",
+      },
+      // Project link from the FIRST quotation (merged quotations share a
+      // customer and, in practice, a project).
+      projectId: firstQuotation.projectId || quotationConfig.projectId || formData.projectId || "",
+      sourceDocumentId: sourceDocumentIds.join(","), // Store multiple IDs as comma-separated
+      sourceDocumentType: "QUOTATION",
+      sourceDocumentNumber: sourceDocumentNumbers,
+    });
+
+    // Merge items from all quotations
+    let allItems: any[] = [];
+    let itemIdCounter = Date.now();
+
+    quotations.forEach((quotation) => {
+      const config = quotation.config || {};
+      if (config.items && Array.isArray(config.items)) {
+        const newItems = config.items.map((item: any) => ({
+          id: itemIdCounter++,
+          itemCode: item.itemCode || "",
+          inventoryItemId: item.inventoryItemId || "",
+          description: item.description || "",
+          quantity: item.quantity || 1,
+          unitPrice: item.unitPrice || 0,
+          uom: item.uom || "",
+          discount: item.discount || 0,
+          amount: item.amount || (item.quantity || 1) * (item.unitPrice || 0),
+          sourceQuotationNumber: quotation.name, // Track which quotation this item came from
+        }));
+        allItems = [...allItems, ...newItems];
+      }
+    });
+
+    setItems(allItems);
+
+    toast.success(`${quotations.length} Quotations extracted to Sales Order`);
+  };
+
+  // Arrival on a document created by extractPick: apply the stashed pick once
+  // the form belongs to this document (its number is in).
+  useEffect(() => {
+    if (!pendingExtract || !formData?.documentInfo?.documentNumber) return;
+    const { kind, sources } = pendingExtract;
+    setPendingExtract(null);
+    if (!Array.isArray(sources) || sources.length === 0) return;
+    const many = sources.length > 1;
+    if (kind === "do") many ? applyExtractedDOs(sources) : applyExtractedDO(sources[0]);
+    else if (kind === "so") many ? applyExtractedQuotationsToSO(sources) : applyExtractedQuotationToSO(sources[0]);
+    else many ? applyExtractedQuotationsToDO(sources) : applyExtractedQuotationToDO(sources[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingExtract, formData?.documentInfo?.documentNumber]);
+
 
   const handleShareDeliveryLink = async () => {
     const token = await getToken();
@@ -5198,6 +6022,11 @@ export default function TabbedDocumentCreator({
         }
       }
 
+      // Stay in the editor: the page opens the previous document (or the next
+      // one) in its place; only with nothing left does it fall back to the list
+      // (guru 2026-11-25: "don't go back to the list, just delete and go to the
+      // previous one on the same page").
+      if (onDeleted?.()) return;
       router.push(resolveBackRoute(documentType));
     } catch (error) {
       console.error("Error deleting document:", error);
@@ -5528,6 +6357,21 @@ export default function TabbedDocumentCreator({
               )}
             </Box>
           )}
+          {/* A receipt / voucher saved as typed but NOT in the books (guru 2026-11-25: UOBOR2610-004 was
+              allocated in full, saved without its deposit-to bank, and the invoice stayed Awaiting Payment
+              while the pill read "Saved"). The pill still just says Saved; this chip says what is missing. */}
+          {isSettlementType && !isTemplateEditMode && !!(existingData as any)?.incompleteReason && (
+            <Tooltip title={`Saved, but not posted to the ledger: ${(existingData as any).incompleteReason}. Complete it and it posts on the next save.`}>
+              <Chip
+                size="small"
+                color="warning"
+                icon={<WarningAmberIcon />}
+                label={`Not posted — ${(existingData as any).incompleteReason}`}
+                data-tour="editor-not-posted"
+                sx={{ fontWeight: 600, flexShrink: 0, maxWidth: 420, "& .MuiChip-label": { overflow: "hidden", textOverflow: "ellipsis" } }}
+              />
+            </Tooltip>
+          )}
           {/* Lock dates: dated on or before the lock date that binds this user. */}
           {periodLocked && effectiveLockDay && (
             <Tooltip title={`Dated on or before the lock date ${lockDayLabel(effectiveLockDay)}. Move the lock date in Accounting Setup, Financial Settings, Lock Dates to change it.`}>
@@ -5589,6 +6433,20 @@ export default function TabbedDocumentCreator({
             <Button size="small" variant="contained" disabled={!hasUnsavedChanges || saveStatus === "saving"} onClick={() => setRevisionSave({})} data-testid="revision-save" sx={{ flexShrink: 0 }}>
               Save
             </Button>
+          )}
+          {/* DOCUMENT TYPE, big, at the right end of the number row — every org
+              (guru 2026-11-25: "there is no indication of document type I'm
+              editing in"). Reads Delivery Order / Invoice / Quotation… from
+              the stored type, whichever spelling (helpers/docTypeFamily.ts). */}
+          {!isTemplateEditMode && (
+            <Typography
+              variant="h3"
+              data-tour="editor-doc-type"
+              // "put it a lot bigger" (guru 2026-11-25): about 2.5x the number's size on desktop.
+              sx={{ ml: "auto", pl: 2, fontSize: { xs: "1.6rem", md: "2.6rem" }, lineHeight: 1.1, fontWeight: 800, letterSpacing: 0.2, color: "text.secondary", whiteSpace: "nowrap", flexShrink: 0 }}
+            >
+              {getDocumentTitle()}
+            </Typography>
           )}
         </Box>
         {/* Phone: the cluster must be allowed to shrink (flexShrink 0 sized it to
@@ -6436,6 +7294,33 @@ export default function TabbedDocumentCreator({
             // Enter walks the form like the legacy software: next field, not
             // Tab (guru 2026-11-08). Covers the header rows and the body grid.
             {...enterScopeProps}
+            // …and at the END of the header (no next field — the Rate/totals
+            // column and Remarks are data-enter-ignore) Enter opens Add Item, so
+            // an empty document adds its first line by keyboard instead of Enter
+            // going nowhere or into Remarks (guru 2026-11-25). Item-grid cells
+            // are handled by the grid's own onKeyDown (which stops propagation).
+            onKeyDown={(e) => {
+              if (
+                e.key === "Enter" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey &&
+                !confirmedReadOnly && !isSettlementDoc && !isTemplateEditMode
+              ) {
+                const el = e.target as HTMLElement | null;
+                if (
+                  (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) &&
+                  !el.closest("[data-enter-ignore]") &&
+                  el.getAttribute("aria-expanded") !== "true" && !el.getAttribute("aria-activedescendant")
+                ) {
+                  const scope = el.closest("[data-enter-scope]") as HTMLElement | null;
+                  if (scope && !nextEnterField(scope, el)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (isFcuCuVariant) { addFcuCuRow(); } else { setStockCardMode("add"); setStockCardDialogOpen(true); }
+                    return;
+                  }
+                }
+              }
+              enterAdvancesFocus(e);
+            }}
             // Invoice (guru 2026-11-14): a margin on BOTH sides of the document
             // and the legacy module buttons at the top-left of that margin.
             sx={{ flex: 1, minWidth: 0, overflow: "visible", position: "relative", display: "flex", flexDirection: "column", ...((invoiceRailButtons.length || (isSettlementDoc && legacyLayout)) ? { pl: "204px", pr: "204px" } : {}) }}
@@ -6627,6 +7512,7 @@ export default function TabbedDocumentCreator({
                       and hosts the Contact Person / No. / Email trio on that row,
                       same as invoices. */}
                   <DynamicFormFields
+                    onCustomerResolved={applyPickedCustomer}
                     /* SHOW / HIDE THE PRINTED TOTALS — first row of the RIGHT
                        (summary) column, directly above the Rate / Gross Total /
                        Disc / Sub-total / Tax / GST / Nett Total rows it governs.
@@ -7691,6 +8577,10 @@ export default function TabbedDocumentCreator({
                   >
                     <Box sx={{ display: "flex", flexDirection: "column" }}>
                       <TableContainer
+                        // Enter walks the row's cells (Qty → Unit Price …); at the
+                        // last cell the editor-scope handler opens Add Item. No
+                        // per-cell override here (guru 2026-11-25: "let it go to the
+                        // right field until the end, then Add Item").
                         sx={{
                           // Phone: the items grid scrolls sideways inside its own
                           // container (fixed-layout columns are unusable squeezed
@@ -7706,6 +8596,11 @@ export default function TabbedDocumentCreator({
                           sx={{
                             tableLayout: 'fixed',
                             minWidth: { xs: 720, md: 0 },
+                            // No up/down spinner on any number box in the grid (guru
+                            // 2026-11-25): the arrows ate the digits' space and nobody
+                            // steps a price by 1. Typing and arrow keys still work.
+                            "& input[type=number]::-webkit-inner-spin-button, & input[type=number]::-webkit-outer-spin-button": { WebkitAppearance: "none", margin: 0 },
+                            "& input[type=number]": { MozAppearance: "textfield" },
                             // Tighten body-cell padding so rows sit at ~36px like
                             // Xero. The TableHead sx below still owns its own
                             // typography rules; this rule only sets padding.
@@ -7835,7 +8730,41 @@ export default function TabbedDocumentCreator({
                                     // columns — which inflated the 24px drag-handle
                                     // column. One auto column absorbs it all instead.
                                     // WCT group (enableWctDocNav): S/No is narrow (about 4 characters) and its header wraps.
-                                    width: lineColumnWidth(columnId, isWctDocNavEnabled),
+                                    // Quantity / Unit Price / Sale Price: the column holds the
+                                    // widest box in it (plus the price icons), so a long number is
+                                    // never clipped (guru 2026-11-25, every org). helpers/lineNumberBox.ts
+                                    width:
+                                      columnId === "item"
+                                        ? codeColumnWidth(
+                                            items.map((it: any) =>
+                                              isServiceRow(it)
+                                                ? it.itemCode
+                                                : (it.inventoryItemId ? inventoriesForDocument.find((x: any) => x.id === it.inventoryItemId)?.sku : null) || it.itemCode,
+                                            ),
+                                            String(lineColumnWidth(columnId, isWctDocNavEnabled)),
+                                          )
+                                        : columnId === "amount"
+                                        ? numberTextColumnWidth(
+                                            items.map((it: any) => lineAmountText(it)),
+                                            parseInt(String(lineColumnWidth(columnId, isWctDocNavEnabled)), 10) || 112,
+                                          )
+                                        : columnId === "unitPrice" || columnId === "salePrice" || columnId === "quantity"
+                                        ? numberColumnWidth(
+                                            items.map((it: any) => (columnId === "quantity" ? it[columnId] : moneyBoxDisplay(it[columnId]))),
+                                            columnId === "quantity" ? 80 : 100,
+
+                                            parseInt(String(lineColumnWidth(columnId, isWctDocNavEnabled)), 10) || 112,
+                                            columnId === "unitPrice"
+                                              ? (items.some((it: any) => it.itemCode) ? ICON_PX : 0) +
+                                                (items.some((it: any) => {
+                                                  const inv = it.inventoryItemId ? inventoriesForDocument.find((x: any) => x.id === it.inventoryItemId) : null;
+                                                  return Array.isArray(inv?.asset?.customPrices) && inv.asset.customPrices.length > 0;
+                                                })
+                                                  ? ICON_PX
+                                                  : 0)
+                                              : 0,
+                                          )
+                                        : lineColumnWidth(columnId, isWctDocNavEnabled),
                                     ...(isNarrowSnoCell(columnId, isWctDocNavEnabled) ? { whiteSpace: "normal", overflowWrap: "anywhere", px: "4px !important" } : {}),
                                   }}
                                 >
@@ -8030,7 +8959,7 @@ export default function TabbedDocumentCreator({
                                       }}
                                     >
                                       <Tooltip title={isSvcRow ? "Click to change service" : "Click to change item / stock"} placement="top-start">
-                                        <Typography variant="body2" className="aims-item-code" sx={{ minWidth: 120, wordBreak: "break-word", color: rowCode ? "text.primary" : "text.disabled" }}>
+                                        <Typography variant="body2" className="aims-item-code" sx={{ overflowWrap: "anywhere", color: rowCode ? "text.primary" : "text.disabled" }}>
                                           {rowCode || "—"}
                                         </Typography>
                                       </Tooltip>
@@ -8039,13 +8968,14 @@ export default function TabbedDocumentCreator({
                                           which account it hits, so a mis-picked item is
                                           invisible until the ledger is wrong. Display only:
                                           clicking it re-picks the row like the code above. */}
-                                      {/* In "Accounts to Credit" mode the HEADER account takes the
-                                          whole net, so the per-line chip is hidden — but only while an
-                                          account is actually chosen up there. With the header blank the
-                                          LINES decide what posts, so the chip comes back: the office
-                                          could not see that a line coded 202 was about to post
-                                          (guru 2026-11-23: "how come i cant see gl name?"). */}
-                                      {(isInvoiceTypeDoc || isNoteTypeDoc) && (!headerGlMode || !String(formData.glAccountCode || "").trim()) && (() => {
+                                      {/* In "Accounts to Credit" mode (header account, no per-line
+                                          accounts — enableLineGlAccounts OFF) the per-line chip is never
+                                          shown, header chosen or blank (guru 2026-11-25: "i made chong
+                                          aik flag to not have account code per item but how come still
+                                          have"). It used to come back while the header was blank
+                                          (2026-11-23); the posting rule is unchanged — a blank header
+                                          still lets each line post to its own account. */}
+                                      {(isInvoiceTypeDoc || isNoteTypeDoc) && !headerGlMode && (() => {
                                         // Clickable when the row is tied to an item the account can be
                                         // SAVED ON (a product, or a coded service) and the document is
                                         // editable: the pick maps the item, not just this line.
@@ -8164,10 +9094,13 @@ export default function TabbedDocumentCreator({
                                       <TextField
                                         type="number"
                                         value={numFieldValue(item.quantity)}
-                                        onChange={(e) => updateItem(item.id, "quantity", numFieldParse(e.target.value, 0))}
+                                        onChange={(e) => { if (withinCharCap(e.target.value, MAX_QTY_CHARS)) updateItem(item.id, "quantity", numFieldParse(e.target.value, 0)); }}
+                                        // Enter / Tab / click past an EMPTY quantity commits 0.
+                                        onBlur={() => { if (item.quantity === "" || item.quantity == null) updateItem(item.id, "quantity", 0); }}
                                         size="small"
-                                        sx={{ width: 80 }}
-                                        inputProps={{ min: 0 }}
+                                        sx={{ width: numberBoxWidthPx(item.quantity, 80, MAX_QTY_CHARS) }}
+                                        inputProps={{ min: 0, ...numberBoxInputProps, "data-qty-cell": item.id }}
+                                        title={numberBoxTitle(item.quantity)}
                                       />
                                     </TableCell>
                                   );
@@ -8270,17 +9203,8 @@ export default function TabbedDocumentCreator({
                                   return (
                                     <TableCell key={columnId} align="center">
                                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
-                                        <TextField
-                                          type="number"
-                                          // Never render NaN — docs saved before the
-                                          // onChange guard can carry NaN unit prices
-                                          // (guru 2026-09-14: blank/0 lines are fine,
-                                          // "NaN" is not).
-                                          value={numFieldValue(item.unitPrice)}
-                                          onChange={(e) => updateItem(item.id, "unitPrice", numFieldParse(e.target.value))}
-                                          size="small"
-                                          sx={{ width: 100 }}
-                                        />
+                                        {/* Never renders NaN (guru 2026-09-14) — numFieldValue inside. */}
+                                        <LineMoneyBox value={item.unitPrice} onChange={(v) => updateItem(item.id, "unitPrice", v)} />
                                         {tierPickerVisible && (
                                           <IconButton
                                             size="small"
@@ -8318,13 +9242,7 @@ export default function TabbedDocumentCreator({
                                   // items[].salePrice; unitPrice stays the rental rate.
                                   return (
                                     <TableCell key={columnId} align="center">
-                                      <TextField
-                                        type="number"
-                                        value={numFieldValue(item.salePrice)}
-                                        onChange={(e) => updateItem(item.id, "salePrice", numFieldParse(e.target.value))}
-                                        size="small"
-                                        sx={{ width: 100 }}
-                                      />
+                                      <LineMoneyBox value={item.salePrice} onChange={(v) => updateItem(item.id, "salePrice", v)} />
                                     </TableCell>
                                   );
                                 } else if (columnId === "uom") {
@@ -8406,12 +9324,12 @@ export default function TabbedDocumentCreator({
                                     (item.amount == null || item.amount === "") &&
                                     (item.quantity == null || item.quantity === "") &&
                                     (item.unitPrice == null || item.unitPrice === "");
+                                  // The column grows with its widest amount (header sx); a
+                                  // value wider still wraps inside the cell instead of
+                                  // spilling over Actions (guru 2026-11-25).
                                   return (
-                                    <TableCell key={columnId} align="right">
-                                      {/* Any number of decimals (guru 2026-11-14:
-                                          "allow any dp"), not forced to 2 — trailing
-                                          zeros and float noise are trimmed. */}
-                                      {isTextLine ? "" : (Number(item.amount) || 0).toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: 10 })}
+                                    <TableCell key={columnId} align="right" sx={{ whiteSpace: "normal", overflowWrap: "anywhere" }}>
+                                      {isTextLine ? "" : lineAmountText(item)}
                                     </TableCell>
                                   );
                                 } else if (columnId === "taggedAsset") {
@@ -9795,9 +10713,9 @@ export default function TabbedDocumentCreator({
           if (stockCardMode === "tag") {
             // Don't commit yet — open the pending-tag dialog so the user can
             // set the CU's own qty + price before the tag group is created.
-            const defaultPrice = Number(
+            const defaultPrice = toDocPrice(Number(
               picked.unitPrice ?? picked.asset?.price ?? picked.price ?? 0,
-            );
+            ));
             setPendingTag({
               asset: picked,
               rows: [...selectedItemIds],
@@ -9809,6 +10727,14 @@ export default function TabbedDocumentCreator({
             return;
           }
           handleStockCardItemSelect(picked);
+          // Land the cursor on the new row's Quantity (guru 2026-11-25: "the
+          // cursor must go to qty of that row added"). Delay past the dialog's
+          // own focus-restore on close; the new line is appended last.
+          setTimeout(() => {
+            const qtys = editorScopeRef.current?.querySelectorAll<HTMLInputElement>('input[data-qty-cell]');
+            const last = qtys && qtys[qtys.length - 1];
+            if (last) { last.focus(); try { last.select(); } catch { /* ignore */ } }
+          }, 140);
         }}
         inventoryItems={inventoriesForDocument}
         // A product missing from the catalogue can be created right here
@@ -10076,192 +11002,8 @@ export default function TabbedDocumentCreator({
         open={extractQuotationDialogOpen}
         onClose={() => setExtractQuotationDialogOpen(false)}
         quotations={quotationsForExtract}
-        selectedCustomerId={formData.customer?.id}
-        selectedCustomerName={formData.customer?.name}
-        onSelectQuotation={(quotation) => {
-          // Populate DO with data from the selected quotation
-          const quotationConfig = quotation.config || {};
-
-          // Look up customer address from customers list if not in quotation config
-          const customerId = quotationConfig.customerId || "";
-          const customerFromList = customers.find((c: any) => c.id === customerId);
-          const customerAddress = quotationConfig.customerAddress || customerFromList?.address || "";
-
-          // Update form data with quotation info
-          setFormData({
-            ...formData,
-            customer: {
-              id: customerId,
-              name: quotationConfig.customerName || customerFromList?.name || "",
-              address: customerAddress,
-              email: quotationConfig.customerEmail || customerFromList?.email || "",
-              customerCode: quotationConfig.customerCode || customerFromList?.customerCode || "",
-              gstRegNo: quotationConfig.customerGstRegNo || customerFromList?.gstRegNo || "",
-            },
-            documentInfo: {
-              ...formData.documentInfo,
-              salesPerson: quotationConfig.salesmanCode || quotationConfig.salesPerson || "",
-              // P/O comes over only if the quotation actually had one — the
-              // quotation's Reference No is NOT a P/O (was wrongly used as a
-              // fallback here).
-              poNo: quotationConfig.poNo || "",
-              contact: quotationConfig.contact || "",
-              paymentTerms: quotationConfig.paymentTerms || "",
-              currency: quotationConfig.currency || "",
-              rate: quotationConfig.rate || "",
-              taxApplicable: quotationConfig.taxApplicable,
-              absorbTax: quotationConfig.absorbTax,
-              gstPercent: quotationConfig.gstPercent,
-              // Biofuel DO: pre-fill "Our Ref" with the source quotation
-              // (number only in the editor; the confirm date prints as
-              // " dated dd/mm/yyyy" on the DO).
-              ...(isBiofuel && !isInvoiceType
-                ? {
-                    referenceNo: refQuotationLabel(quotation),
-                    referenceQuotationDate: null,
-                  }
-                : {}),
-            },
-            deliveryTo: quotationConfig.deliveryTo || "",
-            // Carry the Attn To contact trio — without this the combined
-            // "Name - Phone" contact string lands in the phone box.
-            attention: {
-              name: quotationConfig.attention?.name || "",
-              phoneNumber: quotationConfig.attention?.phoneNumber || "",
-              email: quotationConfig.attention?.email || "",
-            },
-            // Carry the quotation's project link onto this document — the
-            // save-time link-project PATCH persists it (mandatory on DOs).
-            projectId: quotation.projectId || quotationConfig.projectId || formData.projectId || "",
-            sourceDocumentId: quotation.id,
-            sourceDocumentType: "QUOTATION",
-            sourceDocumentNumber: quotation.name,
-          });
-
-          // Populate items from quotation
-          if (quotationConfig.items && Array.isArray(quotationConfig.items)) {
-            const newItems = quotationConfig.items.filter((it: any) => !it.isGroupHeader).map((item: any, index: number) => ({
-              id: Date.now() + index,
-              itemCode: item.itemCode || "",
-              inventoryItemId: item.inventoryItemId || "",
-              description: item.description || "",
-              quantity: item.quantity || 1,
-              unitPrice: item.unitPrice || 0,
-              uom: item.uom || "",
-              discount: item.discount || 0,
-              // MERGED RATE markers ride along, so an extracted SALES_ORDER keeps
-              // both the shared price and every member's own itemCode +
-              // unitPrice — the pricing ladder (buildCodeMap) reads those off
-              // the SO months later, and dropping them would silently re-price
-              // the eventual invoice at asset list price.
-              ...(item.rateMerge ? { rateMerge: item.rateMerge } : {}),
-              // A merged row's amount is carried VERBATIM — the block price on
-              // the first of them, null on the rest. Without this branch the
-              // fallback re-prices every one from qty x unitPrice (`null` is
-              // falsy), and the invoice would carry the block price AND each
-              // row underneath it.
-              amount: item.rateMerge
-                ? item.amount ?? null
-                : item.amount || (item.quantity || 1) * (item.unitPrice || 0),
-            }));
-            setItems(newItems);
-          }
-
-          toast.success(`Quotation ${quotation.name} extracted to ${isInvoiceType ? "Invoice" : "Delivery Order"}`);
-        }}
-        onSelectMultipleQuotations={(quotations) => {
-          // Merge multiple quotations into the delivery order
-          if (!quotations.length) return;
-
-          // Use the first quotation for customer/header info (they should all have the same customer)
-          const firstQuotation = quotations[0];
-          const quotationConfig = firstQuotation.config || {};
-
-          // Look up customer address from customers list if not in quotation config
-          const customerId = quotationConfig.customerId || "";
-          const customerFromList = customers.find((c: any) => c.id === customerId);
-          const customerAddress = quotationConfig.customerAddress || customerFromList?.address || "";
-
-          // Collect all source document references
-          const sourceDocumentNumbers = quotations.map(q => q.name).join(", ");
-          const sourceDocumentIds = quotations.map(q => q.id);
-
-          // Update form data with quotation info from first quotation
-          setFormData({
-            ...formData,
-            customer: {
-              id: customerId,
-              name: quotationConfig.customerName || customerFromList?.name || "",
-              address: customerAddress,
-              email: quotationConfig.customerEmail || customerFromList?.email || "",
-              customerCode: quotationConfig.customerCode || customerFromList?.customerCode || "",
-              gstRegNo: quotationConfig.customerGstRegNo || customerFromList?.gstRegNo || "",
-            },
-            documentInfo: {
-              ...formData.documentInfo,
-              salesPerson: quotationConfig.salesmanCode || quotationConfig.salesPerson || "",
-              // P/O comes over only if the quotation actually had one — the
-              // quotation's Reference No is NOT a P/O (was wrongly used as a
-              // fallback here).
-              poNo: quotationConfig.poNo || "",
-              contact: quotationConfig.contact || "",
-              paymentTerms: quotationConfig.paymentTerms || "",
-              currency: quotationConfig.currency || "",
-              rate: quotationConfig.rate || "",
-              taxApplicable: quotationConfig.taxApplicable,
-              absorbTax: quotationConfig.absorbTax,
-              gstPercent: quotationConfig.gstPercent,
-              // Biofuel DO: pre-fill "Our Ref" with the FIRST source quotation.
-              ...(isBiofuel && !isInvoiceType
-                ? {
-                    referenceNo: refQuotationLabel(firstQuotation),
-                    referenceQuotationDate: null,
-                  }
-                : {}),
-            },
-            deliveryTo: quotationConfig.deliveryTo || "",
-            // Attn To trio from the FIRST quotation (merged quotations share a
-            // customer, so the contact is the same in practice).
-            attention: {
-              name: quotationConfig.attention?.name || "",
-              phoneNumber: quotationConfig.attention?.phoneNumber || "",
-              email: quotationConfig.attention?.email || "",
-            },
-            // Project link from the FIRST quotation (merged quotations share a
-            // customer and, in practice, a project).
-            projectId: firstQuotation.projectId || quotationConfig.projectId || formData.projectId || "",
-            sourceDocumentId: sourceDocumentIds.join(","), // Store multiple IDs as comma-separated
-            sourceDocumentType: "QUOTATION",
-            sourceDocumentNumber: sourceDocumentNumbers,
-          });
-
-          // Merge items from all quotations
-          let allItems: any[] = [];
-          let itemIdCounter = Date.now();
-
-          quotations.forEach((quotation) => {
-            const config = quotation.config || {};
-            if (config.items && Array.isArray(config.items)) {
-              const newItems = config.items.map((item: any) => ({
-                id: itemIdCounter++,
-                itemCode: item.itemCode || "",
-                inventoryItemId: item.inventoryItemId || "",
-                description: item.description || "",
-                quantity: item.quantity || 1,
-                unitPrice: item.unitPrice || 0,
-                uom: item.uom || "",
-                discount: item.discount || 0,
-                amount: item.amount || (item.quantity || 1) * (item.unitPrice || 0),
-                sourceQuotationNumber: quotation.name, // Track which quotation this item came from
-              }));
-              allItems = [...allItems, ...newItems];
-            }
-          });
-
-          setItems(allItems);
-
-          toast.success(`${quotations.length} Quotations extracted to ${isInvoiceType ? "Invoice" : "Delivery Order"}`);
-        }}
+        onSelectQuotation={(quotation) => extractPick("quotation", [quotation], () => applyExtractedQuotationToDO(quotation))}
+        onSelectMultipleQuotations={(quotations) => extractPick("quotation", quotations, () => applyExtractedQuotationsToDO(quotations))}
       />
 
       {/* Extract DO to Invoice Dialog - for Invoice */}
@@ -10269,165 +11011,8 @@ export default function TabbedDocumentCreator({
         open={extractDODialogOpen}
         onClose={() => setExtractDODialogOpen(false)}
         deliveryOrders={deliveryOrdersForExtract}
-        selectedCustomerId={formData.customer?.id}
-        selectedCustomerName={formData.customer?.name}
-        onSelectDO={(deliveryOrder) => {
-          // Populate Invoice with data from the selected Delivery Order
-          const doConfig = deliveryOrder.config || {};
-
-          // Look up customer address from customers list if not in DO config
-          const customerId = doConfig.customerId || "";
-          const customerFromList = customers.find((c: any) => c.id === customerId);
-          const customerAddress = doConfig.customerAddress || customerFromList?.address || "";
-
-          // Update form data with DO info
-          setFormData({
-            ...formData,
-            customer: {
-              id: customerId,
-              name: doConfig.customerName || customerFromList?.name || "",
-              address: customerAddress,
-              email: doConfig.customerEmail || customerFromList?.email || "",
-              customerCode: doConfig.customerCode || customerFromList?.customerCode || "",
-              gstRegNo: doConfig.customerGstRegNo || customerFromList?.gstRegNo || "",
-            },
-            documentInfo: {
-              ...formData.documentInfo,
-              doNo: deliveryOrder.name || "", // Fill in D/O Number from the extracted DO
-              salesPerson: doConfig.salesmanCode || doConfig.salesPerson || "",
-              poNo: doConfig.poNo || doConfig.referenceNo || "",
-              contact: doConfig.contact || "",
-              paymentTerms: doConfig.paymentTerms || "",
-              currency: doConfig.currency || "",
-              rate: doConfig.rate || "",
-              taxApplicable: doConfig.taxApplicable,
-              absorbTax: doConfig.absorbTax,
-              gstPercent: doConfig.gstPercent,
-            },
-            deliveryTo: doConfig.deliveryTo || "",
-            // Carry the Attn To contact trio — without this the combined
-            // "Name - Phone" contact string lands in the phone box.
-            attention: {
-              name: doConfig.attention?.name || "",
-              phoneNumber: doConfig.attention?.phoneNumber || "",
-              email: doConfig.attention?.email || "",
-            },
-            sourceDocumentId: deliveryOrder.id,
-            sourceDocumentType: "DELIVERY_ORDER",
-            sourceDocumentNumber: deliveryOrder.name,
-          });
-
-          // Populate items from delivery order
-          if (doConfig.items && Array.isArray(doConfig.items)) {
-            const newItems = doConfig.items.filter((it: any) => !it.isGroupHeader).map((item: any, index: number) => ({
-              id: Date.now() + index,
-              itemCode: item.itemCode || "",
-              inventoryItemId: item.inventoryItemId || "",
-              description: item.description || "",
-              quantity: item.quantity || 1,
-              unitPrice: item.unitPrice || 0,
-              uom: item.uom || "",
-              discount: item.discount || 0,
-              // MERGED RATE markers ride along, so an extracted SALES_ORDER keeps
-              // both the shared price and every member's own itemCode +
-              // unitPrice — the pricing ladder (buildCodeMap) reads those off
-              // the SO months later, and dropping them would silently re-price
-              // the eventual invoice at asset list price.
-              ...(item.rateMerge ? { rateMerge: item.rateMerge } : {}),
-              // A merged row's amount is carried VERBATIM — the block price on
-              // the first of them, null on the rest. Without this branch the
-              // fallback re-prices every one from qty x unitPrice (`null` is
-              // falsy), and the invoice would carry the block price AND each
-              // row underneath it.
-              amount: item.rateMerge
-                ? item.amount ?? null
-                : item.amount || (item.quantity || 1) * (item.unitPrice || 0),
-            }));
-            setItems(newItems);
-          }
-
-          toast.success(`Delivery Order ${deliveryOrder.name} extracted to Invoice`);
-        }}
-        onSelectMultipleDOs={(deliveryOrders) => {
-          // Merge multiple delivery orders into the invoice
-          if (!deliveryOrders.length) return;
-
-          // Use the first DO for customer/header info (they should all have the same customer)
-          const firstDO = deliveryOrders[0];
-          const doConfig = firstDO.config || {};
-
-          // Look up customer address from customers list if not in DO config
-          const customerId = doConfig.customerId || "";
-          const customerFromList = customers.find((c: any) => c.id === customerId);
-          const customerAddress = doConfig.customerAddress || customerFromList?.address || "";
-
-          // Collect all source document references
-          const sourceDocumentNumbers = deliveryOrders.map(d => d.name).join(", ");
-          const sourceDocumentIds = deliveryOrders.map(d => d.id);
-
-          // Update form data with DO info from first delivery order
-          setFormData({
-            ...formData,
-            customer: {
-              id: customerId,
-              name: doConfig.customerName || customerFromList?.name || "",
-              address: customerAddress,
-              email: doConfig.customerEmail || customerFromList?.email || "",
-              customerCode: doConfig.customerCode || customerFromList?.customerCode || "",
-              gstRegNo: doConfig.customerGstRegNo || customerFromList?.gstRegNo || "",
-            },
-            documentInfo: {
-              ...formData.documentInfo,
-              doNo: sourceDocumentNumbers, // Fill in D/O Number(s) from the extracted DOs
-              salesPerson: doConfig.salesmanCode || doConfig.salesPerson || "",
-              poNo: doConfig.poNo || doConfig.referenceNo || "",
-              contact: doConfig.contact || "",
-              paymentTerms: doConfig.paymentTerms || "",
-              currency: doConfig.currency || "",
-              rate: doConfig.rate || "",
-              taxApplicable: doConfig.taxApplicable,
-              absorbTax: doConfig.absorbTax,
-              gstPercent: doConfig.gstPercent,
-            },
-            deliveryTo: doConfig.deliveryTo || "",
-            // Attn To trio from the FIRST DO (merged DOs share a customer).
-            attention: {
-              name: doConfig.attention?.name || "",
-              phoneNumber: doConfig.attention?.phoneNumber || "",
-              email: doConfig.attention?.email || "",
-            },
-            sourceDocumentId: sourceDocumentIds.join(","), // Store multiple IDs as comma-separated
-            sourceDocumentType: "DELIVERY_ORDER",
-            sourceDocumentNumber: sourceDocumentNumbers,
-          });
-
-          // Merge items from all delivery orders
-          let allItems: any[] = [];
-          let itemIdCounter = Date.now();
-
-          deliveryOrders.forEach((deliveryOrder) => {
-            const config = deliveryOrder.config || {};
-            if (config.items && Array.isArray(config.items)) {
-              const newItems = config.items.map((item: any) => ({
-                id: itemIdCounter++,
-                itemCode: item.itemCode || "",
-                inventoryItemId: item.inventoryItemId || "",
-                description: item.description || "",
-                quantity: item.quantity || 1,
-                unitPrice: item.unitPrice || 0,
-                uom: item.uom || "",
-                discount: item.discount || 0,
-                amount: item.amount || (item.quantity || 1) * (item.unitPrice || 0),
-                sourceDoNumber: deliveryOrder.name, // Track which DO this item came from
-              }));
-              allItems = [...allItems, ...newItems];
-            }
-          });
-
-          setItems(allItems);
-
-          toast.success(`${deliveryOrders.length} Delivery Orders extracted to Invoice`);
-        }}
+        onSelectDO={(deliveryOrder) => extractPick("do", [deliveryOrder], () => applyExtractedDO(deliveryOrder))}
+        onSelectMultipleDOs={(deliveryOrders) => extractPick("do", deliveryOrders, () => applyExtractedDOs(deliveryOrders))}
       />
 
       {/* Extract Quotation to Sales Order Dialog - for SO */}
@@ -10435,192 +11020,8 @@ export default function TabbedDocumentCreator({
         open={extractQuotationToSODialogOpen}
         onClose={() => setExtractQuotationToSODialogOpen(false)}
         quotations={quotationsForExtract}
-        selectedCustomerId={formData.customer?.id}
-        selectedCustomerName={formData.customer?.name}
-        onSelectQuotation={(quotation) => {
-          // Populate SO with data from the selected quotation
-          const quotationConfig = quotation.config || {};
-
-          // Look up customer address from customers list if not in quotation config
-          const customerId = quotationConfig.customerId || "";
-          const customerFromList = customers.find((c: any) => c.id === customerId);
-          const customerAddress = quotationConfig.customerAddress || customerFromList?.address || "";
-
-          // Update form data with quotation info
-          setFormData({
-            ...formData,
-            customer: {
-              id: customerId,
-              name: quotationConfig.customerName || customerFromList?.name || "",
-              address: customerAddress,
-              email: quotationConfig.customerEmail || customerFromList?.email || "",
-              customerCode: quotationConfig.customerCode || customerFromList?.customerCode || "",
-              gstRegNo: quotationConfig.customerGstRegNo || customerFromList?.gstRegNo || "",
-            },
-            documentInfo: {
-              ...formData.documentInfo,
-              salesPerson: quotationConfig.salesmanCode || quotationConfig.salesPerson || "",
-              // P/O comes over only if the quotation actually had one — the
-              // quotation's Reference No is NOT a P/O (was wrongly used as a
-              // fallback here).
-              poNo: quotationConfig.poNo || "",
-              contact: quotationConfig.contact || "",
-              paymentTerms: quotationConfig.paymentTerms || "",
-              currency: quotationConfig.currency || "",
-              rate: quotationConfig.rate || "",
-              taxApplicable: quotationConfig.taxApplicable,
-              absorbTax: quotationConfig.absorbTax,
-              gstPercent: quotationConfig.gstPercent,
-              // Biofuel DO: pre-fill "Our Ref" with the source quotation
-              // (number only in the editor; the confirm date prints as
-              // " dated dd/mm/yyyy" on the DO).
-              ...(isBiofuel && !isInvoiceType
-                ? {
-                    referenceNo: refQuotationLabel(quotation),
-                    referenceQuotationDate: null,
-                  }
-                : {}),
-            },
-            deliveryTo: quotationConfig.deliveryTo || "",
-            // Carry the Attn To contact trio — without this the combined
-            // "Name - Phone" contact string lands in the phone box.
-            attention: {
-              name: quotationConfig.attention?.name || "",
-              phoneNumber: quotationConfig.attention?.phoneNumber || "",
-              email: quotationConfig.attention?.email || "",
-            },
-            // Carry the quotation's project link onto this document — the
-            // save-time link-project PATCH persists it (mandatory on DOs).
-            projectId: quotation.projectId || quotationConfig.projectId || formData.projectId || "",
-            sourceDocumentId: quotation.id,
-            sourceDocumentType: "QUOTATION",
-            sourceDocumentNumber: quotation.name,
-          });
-
-          // Populate items from quotation
-          if (quotationConfig.items && Array.isArray(quotationConfig.items)) {
-            const newItems = quotationConfig.items.filter((it: any) => !it.isGroupHeader).map((item: any, index: number) => ({
-              id: Date.now() + index,
-              itemCode: item.itemCode || "",
-              inventoryItemId: item.inventoryItemId || "",
-              description: item.description || "",
-              quantity: item.quantity || 1,
-              unitPrice: item.unitPrice || 0,
-              uom: item.uom || "",
-              discount: item.discount || 0,
-              // MERGED RATE markers ride along, so an extracted SALES_ORDER keeps
-              // both the shared price and every member's own itemCode +
-              // unitPrice — the pricing ladder (buildCodeMap) reads those off
-              // the SO months later, and dropping them would silently re-price
-              // the eventual invoice at asset list price.
-              ...(item.rateMerge ? { rateMerge: item.rateMerge } : {}),
-              // A merged row's amount is carried VERBATIM — the block price on
-              // the first of them, null on the rest. Without this branch the
-              // fallback re-prices every one from qty x unitPrice (`null` is
-              // falsy), and the invoice would carry the block price AND each
-              // row underneath it.
-              amount: item.rateMerge
-                ? item.amount ?? null
-                : item.amount || (item.quantity || 1) * (item.unitPrice || 0),
-            }));
-            setItems(newItems);
-          }
-
-          toast.success(`Quotation ${quotation.name} extracted to Sales Order`);
-        }}
-        onSelectMultipleQuotations={(quotations) => {
-          // Merge multiple quotations into the sales order
-          if (!quotations.length) return;
-
-          // Use the first quotation for customer/header info (they should all have the same customer)
-          const firstQuotation = quotations[0];
-          const quotationConfig = firstQuotation.config || {};
-
-          // Look up customer address from customers list if not in quotation config
-          const customerId = quotationConfig.customerId || "";
-          const customerFromList = customers.find((c: any) => c.id === customerId);
-          const customerAddress = quotationConfig.customerAddress || customerFromList?.address || "";
-
-          // Collect all source document references
-          const sourceDocumentNumbers = quotations.map(q => q.name).join(", ");
-          const sourceDocumentIds = quotations.map(q => q.id);
-
-          // Update form data with quotation info from first quotation
-          setFormData({
-            ...formData,
-            customer: {
-              id: customerId,
-              name: quotationConfig.customerName || customerFromList?.name || "",
-              address: customerAddress,
-              email: quotationConfig.customerEmail || customerFromList?.email || "",
-              customerCode: quotationConfig.customerCode || customerFromList?.customerCode || "",
-              gstRegNo: quotationConfig.customerGstRegNo || customerFromList?.gstRegNo || "",
-            },
-            documentInfo: {
-              ...formData.documentInfo,
-              salesPerson: quotationConfig.salesmanCode || quotationConfig.salesPerson || "",
-              // P/O comes over only if the quotation actually had one — the
-              // quotation's Reference No is NOT a P/O (was wrongly used as a
-              // fallback here).
-              poNo: quotationConfig.poNo || "",
-              contact: quotationConfig.contact || "",
-              paymentTerms: quotationConfig.paymentTerms || "",
-              currency: quotationConfig.currency || "",
-              rate: quotationConfig.rate || "",
-              taxApplicable: quotationConfig.taxApplicable,
-              absorbTax: quotationConfig.absorbTax,
-              gstPercent: quotationConfig.gstPercent,
-              // Biofuel DO: pre-fill "Our Ref" with the FIRST source quotation.
-              ...(isBiofuel && !isInvoiceType
-                ? {
-                    referenceNo: refQuotationLabel(firstQuotation),
-                    referenceQuotationDate: null,
-                  }
-                : {}),
-            },
-            deliveryTo: quotationConfig.deliveryTo || "",
-            // Attn To trio from the FIRST quotation (merged quotations share a
-            // customer, so the contact is the same in practice).
-            attention: {
-              name: quotationConfig.attention?.name || "",
-              phoneNumber: quotationConfig.attention?.phoneNumber || "",
-              email: quotationConfig.attention?.email || "",
-            },
-            // Project link from the FIRST quotation (merged quotations share a
-            // customer and, in practice, a project).
-            projectId: firstQuotation.projectId || quotationConfig.projectId || formData.projectId || "",
-            sourceDocumentId: sourceDocumentIds.join(","), // Store multiple IDs as comma-separated
-            sourceDocumentType: "QUOTATION",
-            sourceDocumentNumber: sourceDocumentNumbers,
-          });
-
-          // Merge items from all quotations
-          let allItems: any[] = [];
-          let itemIdCounter = Date.now();
-
-          quotations.forEach((quotation) => {
-            const config = quotation.config || {};
-            if (config.items && Array.isArray(config.items)) {
-              const newItems = config.items.map((item: any) => ({
-                id: itemIdCounter++,
-                itemCode: item.itemCode || "",
-                inventoryItemId: item.inventoryItemId || "",
-                description: item.description || "",
-                quantity: item.quantity || 1,
-                unitPrice: item.unitPrice || 0,
-                uom: item.uom || "",
-                discount: item.discount || 0,
-                amount: item.amount || (item.quantity || 1) * (item.unitPrice || 0),
-                sourceQuotationNumber: quotation.name, // Track which quotation this item came from
-              }));
-              allItems = [...allItems, ...newItems];
-            }
-          });
-
-          setItems(allItems);
-
-          toast.success(`${quotations.length} Quotations extracted to Sales Order`);
-        }}
+        onSelectQuotation={(quotation) => extractPick("so", [quotation], () => applyExtractedQuotationToSO(quotation))}
+        onSelectMultipleQuotations={(quotations) => extractPick("so", quotations, () => applyExtractedQuotationsToSO(quotations))}
       />
 
       {/* Customer/Supplier Select Dialog */}
@@ -10656,87 +11057,7 @@ export default function TabbedDocumentCreator({
             updatedFormData = setNestedValue(updatedFormData, "documentInfo.supplierAddress", customer.address || "");
             setFormData(updatedFormData);
           } else {
-            // For regular customer field: store full customer object
-            // Also auto-fill salesman if customer has one assigned
-            const salesmanCode = customer.salesman?.salesmanCode || "";
-            console.log("Customer selected:", customer);
-            console.log("Customer address:", customer.address);
-            // Document trades in the customer's master-file currency — the GL
-            // converts to base at the accountant's standing rate on posting.
-            const customerCurrency = (customer as any).currency || "";
-            // PREVIOUS-CUSTOMER LEFTOVERS. Bill To is rewritten below; the rest
-            // of that block belongs to the old customer too and must go with
-            // it: Deliver To (+ its deliveryAddress mirror, which for DOs can
-            // hold an old site-office id), the Attention / Mobile / Email trio
-            // and the Contact fields that print as "Attn:" under Deliver To.
-            // BI202609101 kept Tenda's "Deliver To" after its customer became
-            // Keller (guru 2026-10-09). Only when a DIFFERENT customer replaces
-            // one already set: re-picking the same customer, or the first pick
-            // on a new document, keeps what is there. Emptied fields are then
-            // re-seeded from the new customer by the fill-once effect (Contact
-            // from its phone). Existing documents are untouched until edited.
-            const previousCustomerId = formData.customer?.id || "";
-            const swapped = !!previousCustomerId && previousCustomerId !== customer.id;
-            const leftoverReset: Record<string, unknown> = swapped
-              ? {
-                  deliveryTo: "",
-                  deliveryAddress: { ...(formData as any).deliveryAddress, address: "", attention: "", phone: "" },
-                  attention: { name: "", email: "", phoneNumber: "" },
-                  ...((formData as any).contact !== undefined ? { contact: "" } : {}),
-                  ...((formData as any).contactName !== undefined ? { contactName: "" } : {}),
-                  ...((formData as any).contactNumber !== undefined ? { contactNumber: "" } : {}),
-                }
-              : {};
-            const contactReset = swapped ? { contact: "", contactName: "", contactNumber: "" } : {};
-            setFormData({
-              ...formData,
-              ...leftoverReset,
-              customer: {
-                id: customer.id || "",
-                name: customer.name || "",
-                address: customer.address || "",
-                email: customer.email || "",
-                customerCode: customer.customerCode || "",
-                gstRegNo: (customer as any).gstRegNo || "",
-              },
-              // BILL TO FOLLOWS THE CUSTOMER. Every renderer prefers billTo over
-              // customerAddress —
-              //   {data.billTo || data.customer?.address || data.customerAddress}
-              // in all ten CleanDocumentPreview branches and in the server-side
-              // PDF (document-html/invoice.ts) — so a billTo left behind by the
-              // previous customer keeps printing their name and address while
-              // every other field shows the new one. BI202609066 sat with
-              // "Sunpower Grand Holdings" over a Tenda invoice for exactly this
-              // reason, and it is invisible in the header fields: you only catch
-              // it by reading the rendered Bill To block.
-              //
-              // Written as the address is STORED on the Customer record, with no
-              // decoration — no name line, no appended "Attn:". 80 of 196
-              // customer addresses (41%) already end with their own Attn line,
-              // and appending another is how BI202609066 ended up printing
-              // "Attn: Accounts Dept." twice. The three backend writers
-              // (ingestion, sow, api-v1) all do plain `billTo: customer.address`;
-              // this matches them.
-              //
-              // An empty address writes "", which is correct: the renderers then
-              // fall through to customerAddress, and the fill-if-empty effect
-              // below has nothing better to offer either.
-              billTo: addressToBillTo(customer.address),
-              documentInfo: {
-                ...formData.documentInfo,
-                ...contactReset,
-                ...(salesmanCode ? { salesPerson: salesmanCode } : {}),
-                ...(customerCurrency ? { currency: customerCurrency } : {}),
-              },
-              ...(customerCurrency ? { currency: customerCurrency } : {}),
-              // Official Receipt: a customer switch invalidates the offset
-              // allocations and pulls the receipt currency from the master.
-              ...(isOfficialReceipt ? { orData: receiptCustomerPatch(formData, customer).orData } : {}),
-            });
-            // Call the customer change handler to fetch related data
-            if (onCustomerChange && customer.id) {
-              onCustomerChange(customer.id);
-            }
+            applyPickedCustomer(customer);
           }
         }}
       />
