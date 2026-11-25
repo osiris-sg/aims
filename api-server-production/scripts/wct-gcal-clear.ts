@@ -1,7 +1,7 @@
 /**
  * WCT group Google Calendar import, STEP 2 (owner 2026-11-25): CLEAR the group calendar before the import.
  * DELETES every job (Delivery) and every calendar note (CalendarNote) of WCT (S), BC Air, Racking and YMM, with what
- * hangs off a job: job lines (DeliveryItem), proof rows (DO_START / DO_ACK / DO_INSTALL reports and their sign links),
+ * hangs off a job, and every repeating series (CalendarSeries + exceptions) of those orgs: job lines (DeliveryItem), proof rows (DO_START / DO_ACK / DO_INSTALL reports and their sign links),
  * job field values (CustomFieldValue: calendar style, category, job fields, gcal import ids), job notifications,
  * share links, op leases and unsent group posts.
  *
@@ -48,6 +48,9 @@ const confirmProd = process.argv.includes('--confirm-prod');
     const jobIds = jobs.map((j) => j.id);
     const notes = await q(`select id, "organizationId" org, type, title, "startDate" s, "endDate" e from "CalendarNote" where "organizationId" = any($1) order by "organizationId", "startDate"`, [ORG_IDS]);
     const noteIds = notes.map((n) => n.id);
+    // Repeating jobs / notes (2026-11-25): their series and exceptions go with the jobs and notes they draw from.
+    const seriesRows = await q(`select id from "CalendarSeries" where "organizationId" = any($1)`, [ORG_IDS]).catch(() => [] as any[]);
+    const seriesExc = await q(`select id from "CalendarSeriesException" where "organizationId" = any($1)`, [ORG_IDS]).catch(() => [] as any[]);
     const items = await q(`select id::text id, "inventoryId" inv from "DeliveryItem" where "deliveryId"::text = any($1)`, [jobIds]);
     if (items.some((i) => i.inv)) throw new Error(`Refusing: ${items.filter((i) => i.inv).length} job line(s) hold a stock unit`);
     const reports = await q(`select id::text id, kind::text kind from "MaintenanceServiceReport" where "deliveryId"::text = any($1)`, [jobIds]);
@@ -75,6 +78,7 @@ const confirmProd = process.argv.includes('--confirm-prod');
       ['MaintenanceServiceReport', new Set(proofIds)], ['CustomFieldValue', new Set(cfvs.map((x) => x.id))], ['Notification', new Set(notifs.map((x) => x.id))],
       ['DeliveryGroupPost', new Set(postsDel.map((x) => x.id))], ['DeliveryShareLink', new Set(shareLinks.map((x) => x.id))], ['DeliveryOpLease', new Set(leases.map((x) => x.id))],
       ['ServiceReportSignLink', new Set(signLinks.map((x) => x.id))], ['DeliveryLocationPing', new Set(pings.map((x) => x.id))],
+      ['CalendarSeries', new Set(seriesRows.map((x) => x.id))], ['CalendarSeriesException', new Set(seriesExc.map((x) => x.id))],
     ]);
     // Kept on purpose (listed): the service reports' job pointer is set to null by the database; history rows.
     const keptOk = new Set(['MaintenanceServiceReport.deliveryId', 'DeliverySiteClockJob.deliveryId', 'FieldJob.deliveryId', 'JobPhoto.deliveryId', 'DeliveryGroupPost.deliveryId', 'DeliveryLocationPing.deliveryId', 'Delivery.id']);
@@ -108,6 +112,15 @@ const confirmProd = process.argv.includes('--confirm-prod');
     if (strays.length) throw new Error(`Refusing: other rows still point at jobs / notes:\n  ${strays.join('\n  ')}`);
 
     const counters = async () => q(`select "organizationId", "documentType", "nextSerial" from "DocumentNumberFormat" where "organizationId" = any($1) order by 1, 2, id`, [ORG_IDS]);
+    // Guard (owner 2026-11-25): no quotation / order / DO / invoice / service report / customer may go.
+    const kept = async () =>
+      (await q(
+        `select (select count(*) from "Document" where "organizationId" = any($1))::int docs, (select count(*) from "Order" where "organizationId" = any($1))::int orders,
+                (select count(*) from "Customer" where "organizationId" = any($1))::int customers, (select count(*) from "MaintenanceServiceReport" where "organizationId" = any($1) and kind::text = 'SERVICE')::int reports,
+                (select count(*) from "FieldPublicHoliday" where "organizationId" = any($1))::int holidays`,
+        [ORG_IDS],
+      ))[0];
+    const keptBefore = await kept();
     const before = await counters();
 
     // ── print ──
@@ -122,6 +135,7 @@ const confirmProd = process.argv.includes('--confirm-prod');
       ns.forEach((n) => (nt[n.type] = (nt[n.type] || 0) + 1));
       console.log(`  ${ORGS[org].padEnd(8)} jobs ${String(js.length).padStart(5)} (${Object.entries(st).map(([k, v]) => `${k} ${v}`).join(', ') || '-'}; on an order ${js.filter((j) => j.orderId).length})   notes ${String(ns.length).padStart(4)} (${Object.entries(nt).map(([k, v]) => `${k} ${v}`).join(', ') || '-'})`);
     }
+    console.log(`Repeating series ${seriesRows.length}, series exceptions ${seriesExc.length}`);
     console.log(`With the jobs: job lines ${items.length}, proof rows ${proofIds.length}, proof sign links ${signLinks.length}, proof location pings ${pings.length}, field values ${cfvs.length}, notifications ${notifs.length}, share links ${shareLinks.length}, op leases ${leases.length}, unsent group posts ${postsDel.length}`);
     console.log(`KEPT: service reports on these jobs ${serviceKept} (job pointer set to null), sent group posts ${posts.length - postsDel.length}, job photos ${photos.length}, SiteClock sync rows ${scJobs.length} (${scJobs.filter((s) => s.siteclockJobId && s.workerId).length} live in SiteClock: NOT cancelled there), attendance rows ${fieldJobs.length}`);
     if (keptRefs.length) console.log(`  kept rows that point at a deleted job: ${keptRefs.join('; ')}`);
@@ -132,6 +146,7 @@ const confirmProd = process.argv.includes('--confirm-prod');
       for (const n of notes.filter((x) => x.org === org).slice(0, 4)) console.log(`  ${ORGS[org].padEnd(8)} note ${n.type} ${n.s}..${n.e} | ${String(n.title).slice(0, 60)}`);
     }
 
+    console.log(`GUARD: documents (quotations, DOs, invoices...) ${keptBefore.docs}, orders ${keptBefore.orders}, customers ${keptBefore.customers}, service reports ${keptBefore.reports}, public holidays ${keptBefore.holidays}: none of them is deleted (the script has no delete on those tables; checked again after the deletes, before commit).`);
     if (!apply) {
       await c.query('ROLLBACK');
       console.log('Dry run: nothing written. --apply --confirm-prod to delete.');
@@ -147,6 +162,8 @@ const confirmProd = process.argv.includes('--confirm-prod');
     await c.query(`delete from "CustomFieldValue" where id = any($1)`, [cfvs.map((v) => v.id)]);
     await c.query(`delete from "Notification" where id = any($1)`, [notifs.map((x) => x.id)]);
     await c.query(`delete from "DeliveryItem" where "deliveryId"::text = any($1)`, [jobIds]);
+    if (seriesExc.length) await c.query(`delete from "CalendarSeriesException" where "organizationId" = any($1)`, [ORG_IDS]);
+    if (seriesRows.length) await c.query(`delete from "CalendarSeries" where "organizationId" = any($1)`, [ORG_IDS]);
     const dj = await c.query(`delete from "Delivery" where id::text = any($1) and "organizationId" = any($2)`, [jobIds, ORG_IDS]);
     const dn = await c.query(`delete from "CalendarNote" where id = any($1) and "organizationId" = any($2)`, [noteIds, ORG_IDS]);
     if (dj.rowCount !== jobIds.length || dn.rowCount !== noteIds.length) throw new Error('Row count changed while deleting: rolled back');
@@ -160,6 +177,8 @@ const confirmProd = process.argv.includes('--confirm-prod');
     }
     const after = await counters();
     if (JSON.stringify(after) !== JSON.stringify(before)) throw new Error('A numbering counter moved: rolled back');
+    const keptAfter = await kept();
+    if (JSON.stringify(keptAfter) !== JSON.stringify(keptBefore)) throw new Error(`Refusing: documents / orders / customers / service reports / holidays changed (${JSON.stringify(keptBefore)} -> ${JSON.stringify(keptAfter)}): rolled back`);
     await c.query('COMMIT');
     committed = true;
     console.log(`Database: committed. Deleted jobs ${dj.rowCount}, notes ${dn.rowCount}.`);
