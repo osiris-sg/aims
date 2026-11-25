@@ -40,6 +40,8 @@ describe('wct-ng: the $1 placeholder rule', () => {
   });
   it('acts: remove placeholders, move zero (or remove) and real, keep linked unless asked', () => {
     expect(ngActionOf('placeholder')).toBe('remove');
+    expect(ngActionOf('placeholder', { placeholders: 'move', zero: 'remove' })).toBe('move');
+    expect(ngActionOf('zero', { placeholders: 'move', zero: 'remove' })).toBe('remove');
     expect(ngActionOf('zero')).toBe('move');
     expect(ngActionOf('zero', { zero: 'remove' })).toBe('remove');
     expect(ngActionOf('real')).toBe('move');

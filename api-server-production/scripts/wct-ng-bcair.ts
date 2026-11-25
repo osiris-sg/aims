@@ -36,6 +36,7 @@ import { Client, types } from 'pg';
 import { ListObjectsV2Command, GetObjectCommand, PutObjectCommand, DeleteObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { classifyNgInvoice, ngActionOf, ngSubjectOf, mapAccount, ngR2 as R2, NgClass, CoaRow } from '../src/common/wct-ng';
 import { grossOf, owedOf, amountPaidOf, outstandingOf } from '../src/common/document-money';
+import { ngPlaceholderMarker, NG_PLACEHOLDER_KEY } from '../src/orders/imported-orders';
 import { erpImportOf } from '../src/common/erp-import';
 import { matchCustomer } from '../src/gst-switch/gst-switch';
 import { loadImportedOrderInputs, importedStatusFrom, crossOrgInvoiceRefsOf, isImportedOrder, IMPORTED_ORDER_SOURCE } from '../src/orders/imported-orders';
@@ -64,9 +65,20 @@ const KEEP_ABSS = !argv.includes('--no-keep-abss-balances');
 // held by default; --detach-ledger keeps those journals posted (detached from the document) and removes the document.
 const DETACH = argv.includes('--detach-ledger');
 const ONLY_BATCH = one('--batch');
+// Owner 25 Nov (final rules): --placeholders move moves the $1 placeholders to BC Air (marked config.ngPlaceholder, never
+// counted there) instead of removing them; --twins delete removes a WCT (S) copy BC Air already has a twin for;
+// --frozen-held <csv> leaves the invoices of an earlier held list untouched (their action under these rules is listed).
+const PLACEHOLDERS = one('--placeholders', 'remove') as 'move' | 'remove';
+// --twins delete: every NG invoice with a BC Air twin; --twins delete-except-placeholders: $0 / real ones only (a $1
+// placeholder then moves, marked, even when BC Air's real bill names it).
+const TWINS_MODE = one('--twins');
+const TWINS_DELETE = TWINS_MODE === 'delete' || TWINS_MODE === 'delete-except-placeholders';
+if (TWINS_MODE && !TWINS_DELETE) throw new Error('--twins delete|delete-except-placeholders');
+const FROZEN = one('--frozen-held');
+if (!['move', 'remove'].includes(PLACEHOLDERS)) throw new Error('--placeholders move|remove');
 const DAY = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10); // Singapore date (file names)
 const OUT_DIR = one('--out', path.join(os.homedir(), 'Desktop/aims-agents/logs/wct'))!;
-const STEM = `wct-ng-bcair-${APPLY ? 'APPLY' : 'DRYRUN'}-${DAY}${ONLY_BATCH ? '-' + ONLY_BATCH : ''}${ZERO === 'remove' ? '-zero-remove' : ''}${one('--tag') ? '-' + one('--tag') : ''}`;
+const STEM = `wct-ng-bcair-${APPLY ? 'APPLY' : 'DRYRUN'}-${DAY}${ONLY_BATCH ? '-' + ONLY_BATCH : ''}${one('--tag') ? '-' + one('--tag') : ''}`;
 const CSV_DIR = path.join(OUT_DIR, STEM);
 // The ERP's own invoice -> quotation links: the round 8 read, every catch-up's merged list and every pulled invoice
 // export (a later pull wins). --erp-links adds one more file (invoice_no, erp_quotation_no).
@@ -147,6 +159,9 @@ type Inv = {
   linkedQuote: string | null;
   linkedQuoteOrg: string | null;
   holds: string[];
+  frozen?: string;
+  twins?: string;
+  newAction?: string;
 };
 
 (async () => {
@@ -223,7 +238,7 @@ type Inv = {
         date: String(cfg.date ?? cfg.documentInfo?.date ?? '').slice(0, 10),
         customerName: String(cfg.customerName ?? cfg.customer?.name ?? ''),
         cls,
-        action: ngActionOf(cls, { zero: ZERO, includeLinked: INCLUDE_LINKED }),
+        action: ngActionOf(cls, { zero: ZERO, includeLinked: INCLUDE_LINKED, placeholders: PLACEHOLDERS }),
         linkedQuote: lq,
         linkedQuoteOrg: lqOrg,
         holds: [],
@@ -322,17 +337,22 @@ type Inv = {
         .filter(Boolean) as Array<{ j: any; why: string }>;
     for (const d of invs) {
       if (d.action === 'keep') continue;
+      const tw0 = twinOf.get(d.name) ?? [];
+      if (tw0.length) d.twins = tw0.map((t) => `${t.name} ($${money(Number(t.total))})`).join(', ');
+      if (tw0.length && TWINS_DELETE && !(TWINS_MODE === 'delete-except-placeholders' && d.cls === 'placeholder')) d.action = 'remove'; // owner 25 Nov: BC Air already has it, the WCT (S) copy goes
       if (payments.some((p) => p.doc === d.id)) d.holds.push('payment rows');
       if (receiptRefs.some((r) => r.doc === d.id || r.ref === d.name)) d.holds.push(`on receipt / credit note ${receiptRefs.filter((r) => r.doc === d.id || r.ref === d.name).map((r) => r.name).join(', ')}`);
       if (childDocs.some((x) => x.src === d.id)) d.holds.push(`documents made from it: ${childDocs.filter((x) => x.src === d.id).map((x) => `${x.type} ${x.name}`).join(', ')}`);
-      if (d.action === 'remove') {
+      if (d.cls === 'placeholder') {
         const heavy = ledgerHeavy(d);
         if (heavy.length && !DETACH) d.holds.push(`ledger is more than the placeholder: ${heavy.map((j) => j.why).join('; ')} (finance; --detach-ledger keeps these journals posted and removes the document)`);
       }
       if (d.action !== 'move') continue;
       const tw = twinOf.get(d.name) ?? [];
-      if (tw.length) d.holds.push(`BC Air already has ${tw.map((t) => `${t.name} ($${money(Number(t.total))})`).join(', ')} naming it (moving would bill the job twice)`);
-      if (wctOrderOf.has(d.id) && d.linkedQuoteOrg !== BC) d.holds.push(`on WCT (S) order ${wctOrderOf.get(d.id)!.map((o) => o.orderNumber).join(', ')} (its quotation ${d.linkedQuote ?? ''} is WCT (S)'s)`);
+      // A moved placeholder is never counted, so a BC Air twin is no double bill for it.
+      if (tw.length && d.cls !== 'placeholder') d.holds.push(`BC Air already has ${tw.map((t) => `${t.name} ($${money(Number(t.total))})`).join(', ')} naming it (moving would bill the job twice)`);
+      // A placeholder is never counted: off a WCT (S) order it simply moves (no BC Air order needed).
+      if (d.cls !== 'placeholder' && wctOrderOf.has(d.id) && d.linkedQuoteOrg !== BC) d.holds.push(`on WCT (S) order ${wctOrderOf.get(d.id)!.map((o) => o.orderNumber).join(', ')} (its quotation ${d.linkedQuote ?? ''} is WCT (S)'s)`);
       if (bcNameClash.has(d.name)) d.holds.push(`number ${d.name} already used in BC Air`);
       for (const j of journalsOf.get(d.id) ?? []) {
         if (bcJournalNos.has(j.journalNumber)) d.holds.push(`journal ${j.journalNumber} already in BC Air`);
@@ -343,6 +363,21 @@ type Inv = {
           d.holds.push(m.bank ? `journal ${j.journalNumber}: received into WCT (S) ${m.src.code} ${m.src.name} (needs --bank A|B|C)` : `journal ${j.journalNumber}: ${m.src.code} ${m.src.name} has no BC Air account (${m.why})`);
         }
       }
+    }
+
+    // Frozen (owner 25 Nov): the invoices of the earlier held list stay untouched; what these rules would do is listed.
+    const frozenWhy = new Map<string, string>();
+    if (FROZEN) for (const r of readCsv(FROZEN)) frozenWhy.set(String(r.name), String(r.held ?? ''));
+    for (const d of invs) {
+      if (!frozenWhy.has(d.name)) continue;
+      d.frozen = frozenWhy.get(d.name);
+      d.newAction = d.action === 'keep' ? 'keep' : /^would bill/.test(String(d.frozen)) ? `still held: ${d.frozen} (BC Air billed the job itself: a twin by job, not by number)` : d.holds.length ? `still held: ${d.holds.join('; ')}` : d.action === 'remove' ? (d.twins ? `delete the WCT (S) copy (BC Air twin ${d.twins})` : 'remove') : 'move to BC Air';
+      d.action = 'keep';
+      d.holds = [];
+    }
+    if (FROZEN) {
+      const missing = [...frozenWhy.keys()].filter((n) => !invs.some((d) => d.name === n));
+      if (missing.length) throw new Error(`frozen held list names invoices not found: ${missing.join(', ')}`);
     }
 
     // Customers for the moves.
@@ -405,7 +440,7 @@ type Inv = {
         if (os2.length > 1) { d.holds.push(`several BC Air orders for ${d.linkedQuote}`); continue; }
         target = os2[0] ?? null;
         // A $0 invoice never makes an order (it would read Part billed 0% against the whole quotation).
-        if (!target && Math.abs(d.gross) >= 0.005) {
+        if (!target && Math.abs(d.gross) >= 0.005 && d.cls !== 'placeholder') {
           const num = `ORD-${d.linkedQuote}`;
           if (bcOrders.some((o) => o.orderNumber === num) || newOrders.some((o) => o.orderNumber === num)) { d.holds.push(`order number ${num} already used in BC Air`); continue; }
           const qt = bq[0];
@@ -418,7 +453,7 @@ type Inv = {
         const p = planFor(target, BC, newOrders.includes(target));
         p.add.push(d);
         landing.set(d.id, target.orderNumber);
-      } else landing.set(d.id, bq.length ? `no order ($0 invoice: none made for ${d.linkedQuote})` : 'no order (no BC Air quotation)');
+      } else landing.set(d.id, bq.length ? `no order (${d.cls === 'placeholder' ? 'placeholder' : '$0 invoice'}: none made for ${d.linkedQuote})` : 'no order (no BC Air quotation)');
       for (const o of wctOrderOf.get(d.id) ?? []) planFor(o, WCT).drop.push(d);
     }
     for (const d of invs.filter((x) => x.action === 'remove' && !x.holds.length)) {
@@ -435,7 +470,7 @@ type Inv = {
         if (ld.imported?.linkSources) for (const id of dropIds) delete ld.imported.linkSources[id];
       }
       if (p.add.length) {
-        ld.invoice = [...(Array.isArray(ld.invoice) ? ld.invoice : []), ...p.add.map((d) => ({ id: d.id, name: d.name, total: d.gross, templateId: bcTpl }))];
+        ld.invoice = [...(Array.isArray(ld.invoice) ? ld.invoice : []), ...p.add.map((d) => ({ id: d.id, name: d.name, total: d.gross, templateId: bcTpl, ...(d.cls === 'placeholder' ? { placeholder: true } : {}) }))];
         if (ld.imported) ld.imported.linkSources = { ...(ld.imported.linkSources || {}), ...Object.fromEntries(p.add.map((d) => [d.id, 'moved-from-wct'])) };
       }
     }
@@ -457,7 +492,7 @@ type Inv = {
             if (removeIds.has(r.id)) return false;
             if (mv.has(r.id)) return org === BC; // a moved invoice reads as BC Air's
             return r.org === org;
-          });
+          }).map((r: any) => (after && mv.has(r.id) && byId.get(r.id)?.cls === 'placeholder' ? { ...r, config: { ...r.config, [NG_PLACEHOLDER_KEY]: { amount: byId.get(r.id)!.gross } } } : r));
         },
       },
     });
@@ -686,7 +721,16 @@ type Inv = {
     const usedMap = [...custMap.entries()].filter(([k]) => usedCust.has(k)).map(([, v]) => v);
     const usedCreate = custCreate.filter((t) => usedCust.has(t.wctId));
     say(`  customers: ${usedMap.filter((x) => x.how !== 'create').length} mapped (UEN ${usedMap.filter((x) => x.how === 'UEN').length}, exact name ${usedMap.filter((x) => x.how === 'exact name').length}), ${usedCreate.length} to create in BC Air${usedCreate.length ? ': ' + usedCreate.map((x) => `${x.code} ${x.name} (${x.codeNote})`).join('; ') : ''}`);
-    say(`KEEP in WCT (S): ${invs.filter((d) => d.action === 'keep').length} (linked, no "(NG)" mark)`);
+    const act = (a: string, k: NgClass, twin?: boolean) => invs.filter((d) => d.action === a && !d.holds.length && d.cls === k && (twin === undefined || !!d.twins === twin));
+    const n$ = (xs: Inv[]) => `${xs.length} (S$${money(sum(xs))})`;
+    say(`By action: MOVE placeholders ${n$(act('move', 'placeholder'))} (onto BC Air orders ${act('move', 'placeholder').filter((d) => /^ORD/.test(landing.get(d.id) ?? '')).length}, marked "placeholder, not counted") · MOVE real ${n$(act('move', 'real'))} · MOVE $0 ${n$(act('move', 'zero'))}`);
+    say(`           REMOVE twins (BC Air already has it): placeholders ${n$(act('remove', 'placeholder', true))}, real ${n$(act('remove', 'real', true))}, $0 ${n$(act('remove', 'zero', true))} · REMOVE $0 ${n$(act('remove', 'zero', false))} · REMOVE placeholders (no twin) ${n$(act('remove', 'placeholder', false))}`);
+    say(`KEEP in WCT (S): ${invs.filter((d) => d.action === 'keep' && !d.frozen).length} (linked, no "(NG)" mark)${FROZEN ? ` + ${invs.filter((d) => d.frozen).length} frozen (held list ${FROZEN})` : ''}`);
+    if (FROZEN) {
+      say('Frozen held list (untouched), with what these rules would do:');
+      for (const d of invs.filter((x) => x.frozen)) say(`  ${d.name} ${d.cls} S$${money(d.gross)} · was: ${d.frozen} · now: ${d.newAction}`);
+      writeCsv(path.join(CSV_DIR, 'frozen-held.csv'), ['name', 'date', 'customerName', 'subject', 'gross', 'owed', 'cls', 'frozen', 'newAction'], invs.filter((x) => x.frozen));
+    }
     const held = invs.filter((d) => d.action !== 'keep' && d.holds.length);
     say(`HELD (cannot be moved / removed as planned, nothing written): ${held.length}`);
     for (const d of held) say(`  ${d.name} ${d.cls} S$${money(d.gross)}: ${d.holds.join('; ')}`);
@@ -731,6 +775,24 @@ type Inv = {
     say(`BC Air orders touched: ${bcRows.length} (new ${bcRows.filter((r) => r.created).length}) · Billed S$${money(bcRows.reduce((t, r) => t + (r.billedBefore ?? 0), 0))} -> S$${money(bcRows.reduce((t, r) => t + (r.billedAfter ?? 0), 0))} · Left to bill S$${money(bcRows.reduce((t, r) => t + (r.leftBefore ?? 0), 0))} -> S$${money(bcRows.reduce((t, r) => t + (r.leftAfter ?? 0), 0))} · over-billed after: ${bcRows.filter((r) => r.leftAfter != null && r.leftAfter < -0.01).length} (before ${bcRows.filter((r) => r.leftBefore != null && r.leftBefore < -0.01).length}) · invoices held for over-billing ${overHeld}`);
     say(`WCT (S) orders touched: ${statusRows.filter((r) => r.org === 'WCT (S)').length} · status changes: ${Object.entries(statusMoves).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}`);
     say(`Orders that change Billed / Left to bill: ${statusRows.filter((r) => r.billedBefore !== r.billedAfter).length}`);
+    // Guards (owner 25 Nov): apply only when all hold.
+    const overBefore = bcRows.filter((r) => r.leftBefore != null && r.leftBefore < -0.01).length;
+    const overAfter = bcRows.filter((r) => r.leftAfter != null && r.leftAfter < -0.01).length;
+    const deltaOf = (org: string, code: string) => effect.get(`${org}|${code}`)?.delta ?? 0;
+    const changedInv = [...removing, ...moving];
+    const guards = [
+      [`BC Air over-billed orders not up (${overBefore} -> ${overAfter}, was 22)`, overAfter <= overBefore && overAfter <= 22],
+      [`WCT (S) balances from 1 Jan 2024 still = ABSS: bank 1-2101 ${money(deltaOf(WCT, '1-2101'))}, AR 1-3100 ${money(deltaOf(WCT, '1-3100'))} (within S$5)`, Math.abs(deltaOf(WCT, '1-2101')) <= 5 && Math.abs(deltaOf(WCT, '1-3100')) <= 5 && KEEP_ABSS],
+      [`No invoice without "(NG)" in the subject in the change list (${changedInv.filter((d) => d.cls === 'linked' || d.cls === 'none').length})`, changedInv.every((d) => ['placeholder', 'zero', 'real'].includes(d.cls))],
+      [`Placeholders moved ~3,031 (${act('move', 'placeholder').length})`, PLACEHOLDERS !== 'move' || Math.abs(act('move', 'placeholder').length - 3031) <= 15],
+      [`Real moved ~4 (${act('move', 'real').length})`, Math.abs(act('move', 'real').length - 4) <= 2],
+      [`$0 removed >= 156 (${act('remove', 'zero').length})`, ZERO !== 'remove' || act('remove', 'zero').length >= 156],
+      [`Twins removed (${removing.filter((d) => d.twins).length}: placeholders ${removing.filter((d) => d.twins && d.cls === 'placeholder').length}, $0 ${removing.filter((d) => d.twins && d.cls === 'zero').length}, real ${removing.filter((d) => d.twins && d.cls === 'real').length})`, !TWINS_DELETE || removing.some((d) => d.twins)],
+      ['Full id sweep clean', !strays.length],
+    ] as Array<[string, boolean]>;
+    say(`GUARDS: ${guards.every(([, ok]) => ok) ? 'ALL PASS' : 'FAIL'}`);
+    for (const [g, ok] of guards) say(`  ${ok ? 'PASS' : 'FAIL'} ${g}`);
+    if (APPLY && !guards.every(([, ok]) => ok)) throw new Error('Refusing: a guard failed (see GUARDS)');
 
     const sampleLine = (d: Inv) => `${d.name} ${d.date} ${d.customerName} S$${money(d.gross)} owed ${money(d.owed)} · journals ${(journalsOf.get(d.id) ?? []).map((j) => j.journalNumber).join(' ') || 'none'} · ${pillsOf.has(d.id) ? 'pill on ' + pillsOf.get(d.id)!.map((o) => o.orderNumber).join(' ') : wctOrderOf.has(d.id) ? 'on WCT (S) ' + wctOrderOf.get(d.id)!.map((o) => o.orderNumber).join(' ') : 'no order'}${d.action === 'move' ? ` -> ${landing.get(d.id) ?? 'held'}, customer ${custMap.get(d.config.customerId)?.code ?? '?'} ${custMap.get(d.config.customerId)?.name ?? ''} (${custMap.get(d.config.customerId)?.how ?? ''})` : ''}`;
     say('\nSamples, REMOVE (10):');
@@ -761,7 +823,30 @@ type Inv = {
     writeCsv(path.join(CSV_DIR, 'customers-to-create.csv'), ['code', 'name', 'codeNote', 'email', 'uen'], custCreate.filter((t) => moving.some((d) => d.config.customerId === t.wctId)));
 
     // ── 4. APPLY ──────────────────────────────────────────────────────────
+    // Backup of every row the APPLY writes (taken in the same snapshot, before the first write; --backup in a dry run).
+    const writeBackup = async (file: string) => {
+      const docIds = [...removing, ...moving].map((d) => d.id);
+      const jIds = [...voidJ, ...detachJ, ...moveJ.map((x) => x.j)].map((j) => j.id);
+      const backup = {
+        at: new Date().toISOString(),
+        note: 'Rows the "(NG)" APPLY changes, before it (WCT (S) + BC Air). Inserted rows (customers, orders, journals, Activity Log) are listed in the APPLY log.',
+        documents: docIds.length ? await q(`select * from "Document" where id = any($1::uuid[])`, [docIds]) : [],
+        embeddings: docIds.length ? await q(`select id, "organizationId", "documentId", "customerId" from "DocumentEmbedding" where "documentId" = any($1::uuid[])`, [docIds]) : [],
+        journals: jIds.length ? await q(`select * from "JournalEntry" where id = any($1)`, [jIds]) : [],
+        journalLines: jIds.length ? await q(`select * from "JournalEntryLine" where "journalEntryId" = any($1)`, [jIds]) : [],
+        payments: docIds.length ? await q(`select * from "Payment" where "documentId" = any($1::uuid[])`, [docIds]) : [],
+        orders: plans.length ? await q(`select * from "Order" where id = any($1::uuid[])`, [plans.filter((p) => !p.create).map((p) => p.order.id)]) : [],
+        customers: wctCustIds.length ? await q(`select * from "Customer" where id::text = any($1)`, [wctCustIds]) : [],
+        storedFiles: [...removing, ...moving].flatMap((d) => storedOf(d)),
+      };
+      fs.writeFileSync(file, JSON.stringify(backup));
+      return { file, documents: backup.documents.length, journals: backup.journals.length, lines: backup.journalLines.length, orders: backup.orders.length, customers: backup.customers.length };
+    };
     if (!APPLY) {
+      if (argv.includes('--backup')) {
+        const b = await writeBackup(path.join(OUT_DIR, `${STEM}.backup.json`));
+        say(`Backup (read only): ${b.file} · documents ${b.documents}, journals ${b.journals} (${b.lines} lines), orders ${b.orders}, customers ${b.customers}`);
+      }
       await c.query('ROLLBACK');
       say(`\nDry run: nothing written, nothing deleted. Report ${path.join(OUT_DIR, STEM + '.txt')}, CSVs ${CSV_DIR}`);
       fs.writeFileSync(path.join(OUT_DIR, STEM + '.txt'), L.join('\n') + '\n');
@@ -769,131 +854,198 @@ type Inv = {
       return;
     }
     if (strays.length) throw new Error('Refusing: other rows point at documents to be removed');
-    if (bankJ.length && !bankSide) throw new Error('Refusing: a moving journal was received into a WCT (S) bank; pass --bank A|B|C');
-    if ((bankSide === 'A' || bankSide === 'C' || bankSide === 'B') && bankJ.length && !(intercoWct && intercoBc && bcDebtors && wctDebtors)) throw new Error('Refusing: inter-company accounts missing');
+    if (bankJ.length && !bankSide) throw new Error('Refusing: a moving journal was received into a WCT (S) bank; pass --bank A|C');
+    if (bankJ.length && bankSide === 'B') throw new Error('Refusing: bank side B is not in the bulk apply (use A or C)');
+    if (bankJ.length && !(intercoWct && intercoBc && bcDebtors && wctDebtors)) throw new Error('Refusing: inter-company accounts missing');
+    await c.query('SET LOCAL statement_timeout = 0');
+    await c.query('SET LOCAL idle_in_transaction_session_timeout = 0');
     const now = new Date().toISOString();
-    const log: any = { at: now, script: SCRIPT, options: { ZERO, INCLUDE_LINKED, BANK, KEEP_ABSS, ONLY_BATCH }, removed: [], voided: [], moved: [], movedJournals: [], customers: [], orders: [], newOrders: [], journalsCreated: [], s3: [], actionLogs: [] };
-    const alog = async (org: string, action: string, resource: string, resourceId: string, note: string, extra: any = {}) => {
-      const id = randomUUID();
-      await c.query(
-        `insert into "ActionLog"(id, "actorType", "actorId", "actorName", "organizationId", channel, action, resource, "resourceId", details, status, "createdAt") values ($1,'SYSTEM',$2,'System creation',$3,'operator',$4,$5,$6,$7::jsonb,'SUCCESS',now())`,
-        [id, SCRIPT, org, action, resource, resourceId, JSON.stringify({ note, ...extra })],
-      );
-      log.actionLogs.push(id);
+    const bk = await writeBackup(path.join(OUT_DIR, `${STEM}.backup.json`));
+    say(`Backup before the first write: ${bk.file} · documents ${bk.documents}, journals ${bk.journals} (${bk.lines} lines), orders ${bk.orders}, customers ${bk.customers}`);
+    const log: any = { at: now, script: SCRIPT, backup: bk.file, options: { ZERO, PLACEHOLDERS, TWINS_DELETE, FROZEN, INCLUDE_LINKED, BANK, KEEP_ABSS, ONLY_BATCH }, removed: [], voided: [], detached: [], moved: [], movedJournals: [], customers: [], orders: [], newOrders: [], journalsCreated: [], s3: [], actionLogs: [] };
+    const logFile = path.join(OUT_DIR, `${STEM}.log.json`);
+    const alogs: any[] = [];
+    const alog = (org: string, action: string, resource: string, resourceId: string, note: string, extra: any = {}) => alogs.push({ id: randomUUID(), org, action, resource, resourceId, details: { note, ...extra } });
+    const expect = (what: string, got: number | null, want: number) => {
+      if (got !== want) throw new Error(`${what}: ${got} rows, expected ${want} (nothing committed)`);
     };
+    const t0 = Date.now();
+    const step = (s: string) => console.log(`  [${Math.round((Date.now() - t0) / 1000)}s] ${s}`);
+
     // Customers.
     for (const t of custCreate.filter((t) => moving.some((d) => d.config.customerId === t.wctId))) {
       await c.query(`insert into "Customer" (id, "customerCode", name, email, phone, address, "gstRegNo", uen, "externalRef", currency, "organizationId", "createdAt", "updatedAt") values ($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),now())`, [t.id, t.code, t.name, t.email, t.phone, t.address, t.gstRegNo, t.uen, t.externalRef, t.currency, BC]);
-      await alog(BC, 'CREATE', 'customer', t.id, `Customer ${t.code} ${t.name} created for invoices moved from WCT (S) ("(NG)" documents to BC Air)`);
+      alog(BC, 'CREATE', 'customer', t.id, `Customer ${t.code} ${t.name} created for invoices moved from WCT (S) ("(NG)" documents to BC Air)`);
       log.customers.push(t);
     }
-    // Removals: void journals, then delete the documents and what hangs off them.
+    step(`customers created ${log.customers.length}`);
+
+    // Removals: void the journals (the app's way, rows kept), detach the ones kept posted, then delete the documents.
+    const delIdsArr = removing.map((d) => d.id);
+    if (voidJ.length) expect('void journals', (await c.query(`update "JournalEntry" set status = 'VOID', "voidedAt" = now(), "voidedBy" = $2, "updatedAt" = now() where id = any($1) and status <> 'VOID'`, [voidJ.map((j) => j.id), SCRIPT])).rowCount, voidJ.length);
+    log.voided = voidJ.map((j) => ({ id: j.id, journalNumber: j.journalNumber, status: j.status }));
+    for (const d of removing) for (const j of (journalsOf.get(d.id) ?? []).filter((x) => detachIds.has(x.id))) {
+      await c.query(`update "JournalEntry" set "sourceDocumentId" = null, "updatedAt" = now() where id = $1 and "sourceDocumentId" = $2`, [j.id, d.id]);
+      log.detached.push({ id: j.id, journalNumber: j.journalNumber, sourceDocumentId: d.id });
+    }
+    if (delIdsArr.length) {
+      log.removed = (await q(`select * from "Document" where id = any($1::uuid[])`, [delIdsArr])).map((row: any) => ({ row, journals: (journalsOf.get(row.id) ?? []).map((j) => j.id), files: fileOf(byId.get(row.id)!), stored: storedOf(byId.get(row.id)!) }));
+      await c.query(`delete from "DocumentEmbedding" where "documentId" = any($1::uuid[])`, [delIdsArr]);
+      await c.query(`delete from "Notification" where "entityId" = any($1)`, [delIdsArr]);
+      await c.query(`delete from "DocumentShareLink" where "documentId"::text = any($1)`, [delIdsArr]).catch(() => undefined);
+      await c.query(`delete from "DocumentSignLink" where "documentId"::text = any($1)`, [delIdsArr]).catch(() => undefined);
+      const keys = removing.flatMap((d) => storedOf(d).map((x: any) => x.key));
+      if (keys.length) await c.query(`delete from "StoredFile" where key = any($1)`, [keys]);
+      expect('delete documents', (await c.query(`delete from "Document" where id = any($1::uuid[]) and "organizationId" = $2`, [delIdsArr, WCT])).rowCount, delIdsArr.length);
+    }
     for (const d of removing) {
       const js = (journalsOf.get(d.id) ?? []).filter((j) => !detachIds.has(j.id));
-      for (const j of (journalsOf.get(d.id) ?? []).filter((x) => detachIds.has(x.id))) {
-        await c.query(`update "JournalEntry" set "sourceDocumentId" = null, "updatedAt" = now() where id = $1 and "sourceDocumentId" = $2`, [j.id, d.id]);
-        log.detached = [...(log.detached || []), { id: j.id, journalNumber: j.journalNumber, sourceDocumentId: d.id }];
-      }
-      for (const j of js) {
-        await c.query(`update "JournalEntry" set status = 'VOID', "voidedAt" = now(), "voidedBy" = $2, "updatedAt" = now() where id = $1 and status <> 'VOID'`, [j.id, SCRIPT]);
-        log.voided.push({ id: j.id, journalNumber: j.journalNumber, status: j.status });
-      }
-      const full = (await q(`select * from "Document" where id = $1::uuid`, [d.id]))[0];
-      await c.query(`delete from "DocumentEmbedding" where "documentId" = $1::uuid`, [d.id]);
-      await c.query(`delete from "Notification" where "entityId" = $1`, [d.id]);
-      await c.query(`delete from "DocumentShareLink" where "documentId"::text = $1`, [d.id]).catch(() => undefined);
-      await c.query(`delete from "DocumentSignLink" where "documentId"::text = $1`, [d.id]).catch(() => undefined);
-      for (const s of storedOf(d)) await c.query(`delete from "StoredFile" where key = $1`, [s.key]);
-      const del = await c.query(`delete from "Document" where id = $1::uuid and "organizationId" = $2`, [d.id, WCT]);
-      if (del.rowCount !== 1) throw new Error(`delete ${d.name}: ${del.rowCount} rows`);
-      await alog(WCT, 'DELETE', 'document', d.id, `"(NG)" $1 placeholder invoice ${d.name} (S$${money(d.gross)}) removed; ${js.length} journal(s) voided (${js.map((j) => j.journalNumber).join(', ')}); owner + finance 25 Nov`, { voided: js.map((j) => j.journalNumber) });
-      log.removed.push({ row: full, journals: js.map((j) => j.id), files: fileOf(d), stored: storedOf(d) });
+      const why = d.twins ? `BC Air already has it (${d.twins}): the WCT (S) copy is removed` : d.cls === 'zero' ? '$0.00 "(NG)" invoice removed' : '"(NG)" $1 placeholder removed';
+      alog(WCT, 'DELETE', 'document', d.id, `Invoice ${d.name} (S$${money(d.gross)}): ${why}; ${js.length} journal(s) voided${js.length ? ' (' + js.map((j) => j.journalNumber).join(', ') + ')' : ''}; owner 25 Nov`, { voided: js.map((j) => j.journalNumber) });
     }
-    // Moves.
+    step(`removed ${delIdsArr.length} documents, voided ${voidJ.length} journals`);
+
+    // Moves: documents (one statement), embeddings, notifications, files.
     const bcOrg = orgOf.get(BC);
-    for (const d of moving) {
+    const fullMv = moving.length ? await q(`select id::text id, config, "documentTemplateId", "listCustomerId" from "Document" where id = any($1::uuid[])`, [moving.map((d) => d.id)]) : [];
+    const fullById = new Map(fullMv.map((r: any) => [r.id, r]));
+    const patches = moving.map((d) => {
       const m = custMap.get(d.config.customerId)!;
-      const full = (await q(`select config, "documentTemplateId", "listCustomerId" from "Document" where id = $1::uuid`, [d.id]))[0];
+      const full = fullById.get(d.id);
       const patch: any = {
         customerId: m.id,
         customerName: m.name,
         customerCode: m.code ?? '',
         company: { ...(full.config.company || {}), name: bcOrg.name, address: bcOrg.address ?? '', phoneNumber: bcOrg.phoneNumber ?? '' },
         gstRegNo: bcOrg.registrationNumber ?? '',
-        movedFrom: { organizationId: WCT, orgName: 'WCT (S)', number: d.name, wctCustomerId: d.config.customerId ?? null, wctTemplateId: d.templateId, at: now, by: 'script', reason: '"(NG)" documents to BC Air (owner + finance 25 Nov)' },
+        movedFrom: { organizationId: WCT, orgName: 'WCT (S)', number: d.name, wctCustomerId: d.config.customerId ?? null, wctTemplateId: d.templateId, at: now, by: 'script', reason: '"(NG)" documents to BC Air (owner 25 Nov)' },
+        ...(d.cls === 'placeholder' ? { [NG_PLACEHOLDER_KEY]: ngPlaceholderMarker({ amount: d.gross, fromOrgId: WCT, number: d.name, at: now }) } : {}),
       };
       if (full.config.customer && typeof full.config.customer === 'object') patch.customer = { ...full.config.customer, id: m.id, name: m.name, customerCode: m.code ?? full.config.customer.customerCode };
-      const up = await c.query(`update "Document" set "organizationId" = $2, "documentTemplateId" = $3, "listCustomerId" = $4, config = config || $5::jsonb, "updatedAt" = now() where id = $1::uuid and "organizationId" = $6`, [d.id, BC, bcTpl, m.id, JSON.stringify(patch), WCT]);
-      if (up.rowCount !== 1) throw new Error(`move ${d.name}: ${up.rowCount} rows`);
-      await c.query(`update "DocumentEmbedding" set "organizationId" = $2, "customerId" = $3 where "documentId" = $1::uuid`, [d.id, BC, m.id]);
-      await c.query(`update "Notification" set "organizationId" = $2 where "entityId" = $1`, [d.id, BC]).catch(() => undefined);
-      for (const s of storedOf(d)) await c.query(`update "StoredFile" set "organizationId" = $2 where key = $1`, [s.key, BC]);
-      const js = journalsOf.get(d.id) ?? [];
-      for (const j of js) {
-        const ls = linesOf.get(j.id) ?? [];
-        const bankLines = ls.filter((l) => mapOf(l.accountId).bank);
-        if (bankLines.length && bankSide === 'B') {
-          log.movedJournals.push({ id: j.id, kept: true });
-          continue; // the receipt stays in WCT (S); the transfer journals below carry it across
-        }
-        for (const l of ls) {
-          const mp = mapOf(l.accountId);
-          const to = mp.code ? bcByCode.get(mp.code) : intercoBc;
-          await c.query(`update "JournalEntryLine" set "accountId" = $2, "costCenterId" = null where id = $1`, [l.id, to.id]);
-        }
-        await c.query(`update "JournalEntry" set "organizationId" = $2, "updatedAt" = now() where id = $1 and "organizationId" = $3`, [j.id, BC, WCT]);
-        log.movedJournals.push({ id: j.id, journalNumber: j.journalNumber, lines: ls.map((l) => ({ id: l.id, accountId: l.accountId, costCenterId: l.costCenterId })) });
-      }
-      const note = `Moved from WCT (S): invoice ${d.name} (S$${money(d.gross)}, owed S$${money(d.owed)}) to BC Air${landing.get(d.id) ? ', ' + landing.get(d.id) : ''}; customer ${m.code ?? ''} ${m.name}; ${js.length} journal(s) moved; number kept`;
-      await alog(BC, 'MOVE', 'document', d.id, note, { from: WCT });
-      await alog(WCT, 'MOVE', 'document', d.id, `Moved to BC Air: invoice ${d.name} ("(NG)" documents to BC Air, owner + finance 25 Nov)`, { to: BC });
       log.moved.push({ id: d.id, name: d.name, before: full });
+      return { id: d.id, cust: m.id, patch };
+    });
+    for (const part of chunks(patches, 500)) {
+      expect(
+        'move documents',
+        (await c.query(
+          `update "Document" d set "organizationId" = $1, "documentTemplateId" = $2, "listCustomerId" = p.cust, config = d.config || p.patch, "updatedAt" = now()
+             from jsonb_to_recordset($3::jsonb) as p(id uuid, cust text, patch jsonb) where d.id = p.id and d."organizationId" = $4`,
+          [BC, bcTpl, JSON.stringify(part), WCT],
+        )).rowCount,
+        part.length,
+      );
+      await c.query(`update "DocumentEmbedding" e set "organizationId" = $1, "customerId" = p.cust from jsonb_to_recordset($2::jsonb) as p(id uuid, cust text) where e."documentId" = p.id`, [BC, JSON.stringify(part.map((x) => ({ id: x.id, cust: x.cust })))]);
     }
-    // Inter-company and rebalancing journals.
-    const jNo = async (org: string, base: string) => {
-      let n = base, i = 1;
-      while ((await q(`select 1 from "JournalEntry" where "organizationId" = $1 and "journalNumber" = $2`, [org, n])).length) n = `${base}-${++i}`;
-      return n;
-    };
-    const postJournal = async (org: string, number: string, date: string, type: string, reference: string | null, description: string, lines: Array<{ accountId: string; debit: number; credit: number }>) => {
+    if (moving.length) await c.query(`update "Notification" set "organizationId" = $2 where "entityId" = any($1)`, [moving.map((d) => d.id), BC]).catch(() => undefined);
+    for (const d of moving) for (const s0 of storedOf(d)) await c.query(`update "StoredFile" set "organizationId" = $2 where key = $1`, [s0.key, BC]);
+    for (const d of moving) {
+      const m = custMap.get(d.config.customerId)!;
+      const js = journalsOf.get(d.id) ?? [];
+      alog(BC, 'MOVE', 'document', d.id, `Moved from WCT (S): invoice ${d.name} (S$${money(d.gross)}, owed S$${money(d.owed)})${d.cls === 'placeholder' ? ' as a placeholder, not counted' : ''}${landing.get(d.id) ? ', ' + landing.get(d.id) : ''}; customer ${m.code ?? ''} ${m.name}; ${js.length} journal(s) moved; number kept`, { from: WCT });
+      alog(WCT, 'MOVE', 'document', d.id, `Moved to BC Air: invoice ${d.name} ("(NG)" documents to BC Air, owner 25 Nov)`, { to: BC });
+    }
+    step(`moved ${moving.length} documents`);
+
+    // Journals with them: lines re-pointed to BC Air's accounts (bank lines to the inter-company account), then the rows.
+    const mvJ = moveJ.map((x) => x.j);
+    if (mvJ.length) {
+      const before = await q(`select id, "journalEntryId", "accountId", "costCenterId" from "JournalEntryLine" where "journalEntryId" = any($1)`, [mvJ.map((j) => j.id)]);
+      const byJe = new Map<string, any[]>();
+      for (const l of before) byJe.set(l.journalEntryId, [...(byJe.get(l.journalEntryId) ?? []), l]);
+      log.movedJournals = mvJ.map((j) => ({ id: j.id, journalNumber: j.journalNumber, lines: (byJe.get(j.id) ?? []).map((l) => ({ id: l.id, accountId: l.accountId, costCenterId: l.costCenterId })) }));
+      const pairs = [...new Set(before.map((l: any) => l.accountId))].map((src) => {
+        const mp = mapOf(src);
+        const to = mp.code ? bcByCode.get(mp.code) : mp.bank ? intercoBc : null;
+        if (!to) throw new Error(`no BC Air account for ${mp.src.code}`);
+        return { src, to: to.id };
+      });
+      expect('re-point journal lines', (await c.query(`update "JournalEntryLine" l set "accountId" = m."to", "costCenterId" = null from jsonb_to_recordset($2::jsonb) as m(src text, "to" text) where l."journalEntryId" = any($1) and l."accountId" = m.src`, [mvJ.map((j) => j.id), JSON.stringify(pairs)])).rowCount, before.length);
+      for (const part of chunks(mvJ, 1000)) expect('move journals', (await c.query(`update "JournalEntry" set "organizationId" = $2, "updatedAt" = now() where id = any($1) and "organizationId" = $3`, [part.map((j) => j.id), BC, WCT])).rowCount, part.length);
+    }
+    step(`moved ${mvJ.length} journals`);
+
+    // Inter-company (bank side A / C) and ABSS-keep journals: one bulk insert.
+    const newJe: any[] = [];
+    const newLines: any[] = [];
+    const usedNos = new Set<string>();
+    const wanted = [...intercoJournals.map((ij) => `${ij.org}|${ij.number}`), ...rebalance.map((r) => `${r.org}|NG-ABSS-KEEP-${r.date}`)];
+    const existingNos = new Set((await q(`select "organizationId" || '|' || "journalNumber" k from "JournalEntry" where "organizationId" = any($1) and "journalNumber" like 'NG-%'`, [[WCT, BC]])).map((r: any) => r.k));
+    const addJe = (org: string, number: string, date: string, type: string, reference: string | null, description: string, lines: Array<{ accountId: string; debit: number; credit: number }>) => {
+      let n = number, i = 1;
+      while (existingNos.has(`${org}|${n}`) || usedNos.has(`${org}|${n}`)) n = `${number}-${++i}`;
+      usedNos.add(`${org}|${n}`);
+      const dr = R2(lines.reduce((t, l) => t + l.debit, 0));
+      if (Math.abs(dr - R2(lines.reduce((t, l) => t + l.credit, 0))) > 0.005) throw new Error(`unbalanced ${n}`);
       const id = randomUUID();
-      const tot = R2(lines.reduce((t, l) => t + l.debit, 0));
-      if (Math.abs(tot - R2(lines.reduce((t, l) => t + l.credit, 0))) > 0.005) throw new Error(`unbalanced ${number}`);
-      await c.query(`insert into "JournalEntry"(id, "organizationId", "journalNumber", "entryDate", type, status, reference, description, "totalDebit", "totalCredit", currency, "postedAt", "postedBy", "createdAt", "updatedAt", "createdBy") values ($1,$2,$3,$4::timestamp,$5,'POSTED',$6,$7,$8,$8,'SGD',now(),$9,now(),now(),$9)`, [id, org, await jNo(org, number), String(date).slice(0, 10) + 'T00:00:00.000Z', type, reference, description, tot, SCRIPT]);
-      let n = 1;
-      for (const l of lines) await c.query(`insert into "JournalEntryLine"(id, "journalEntryId", "accountId", "lineNumber", description, debit, credit) values ($1,$2,$3,$4,$5,$6,$7)`, [randomUUID(), id, l.accountId, n++, description, l.debit, l.credit]);
+      newJe.push({ id, org, number: n, date: `${String(date).slice(0, 10)}T00:00:00.000Z`, type, reference, description, total: dr });
+      lines.forEach((l, k) => newLines.push({ id: randomUUID(), je: id, accountId: l.accountId, n: k + 1, description, debit: R2(l.debit), credit: R2(l.credit) }));
       log.journalsCreated.push(id);
-      await alog(org, 'CREATE', 'journal', id, `${description} (${number})`);
+      alog(org, 'CREATE', 'journal', id, `${description} (${n})`);
     };
-    for (const ij of intercoJournals) await postJournal(ij.org, ij.number, ij.date, 'ADJUSTMENT', ij.ref, `Inter-company: ${ij.d.name} moved to BC Air, money banked by WCT (S) (bank side ${bankSide})`, ij.lines.map((l: any) => ({ accountId: l.account.id, debit: R2(l.debit), credit: R2(l.credit) })));
-    if (bankSide === 'A' || bankSide === 'C') {
-      // A / C: the moved receipt's bank line now sits on the inter-company account in BC Air (done in the line remap above).
-    }
-    for (const r of rebalance) await postJournal(r.org, `NG-ABSS-KEEP-${r.date}`, r.date, 'ADJUSTMENT', 'wct-ng-bcair', `Keeps ABSS balances after the "(NG)" move / removal (part dated on or before ${r.date})`, r.lines.map((l: any) => ({ accountId: (r.org === WCT ? wctByCode : bcByCode).get(l.code).id, debit: l.debit, credit: l.credit })));
-    // Orders.
+    void wanted;
+    for (const ij of intercoJournals) addJe(ij.org, ij.number, ij.date, 'ADJUSTMENT', ij.ref, `Inter-company: ${ij.d.name} moved to BC Air, money banked by WCT (S) (bank side ${bankSide})`, ij.lines.map((l: any) => ({ accountId: l.account.id, debit: R2(l.debit), credit: R2(l.credit) })));
+    for (const r of rebalance) addJe(r.org, `NG-ABSS-KEEP-${r.date}`, r.date, 'ADJUSTMENT', 'wct-ng-bcair', `Keeps ABSS balances after the "(NG)" move / removal (part dated on or before ${r.date})`, r.lines.map((l: any) => ({ accountId: (r.org === WCT ? wctByCode : bcByCode).get(l.code).id, debit: l.debit, credit: l.credit })));
+    for (const part of chunks(newJe, 1000))
+      await c.query(
+        `insert into "JournalEntry"(id, "organizationId", "journalNumber", "entryDate", type, status, reference, description, "totalDebit", "totalCredit", currency, "postedAt", "postedBy", "createdAt", "updatedAt", "createdBy")
+         select x.id, x.org, x.number, x.date::timestamp, x.type, 'POSTED', x.reference, x.description, x.total, x.total, 'SGD', now(), $2, now(), now(), $2 from jsonb_to_recordset($1::jsonb) as x(id text, org text, number text, date text, type text, reference text, description text, total float8)`,
+        [JSON.stringify(part), SCRIPT],
+      );
+    for (const part of chunks(newLines, 2000))
+      await c.query(
+        `insert into "JournalEntryLine"(id, "journalEntryId", "accountId", "lineNumber", description, debit, credit)
+         select x.id, x.je, x."accountId", x.n, x.description, x.debit, x.credit from jsonb_to_recordset($1::jsonb) as x(id text, je text, "accountId" text, n int, description text, debit float8, credit float8)`,
+        [JSON.stringify(part)],
+      );
+    step(`posted ${newJe.length} journals (${intercoJournals.length} inter-company, ${rebalance.length} ABSS keep)`);
+
+    // Orders: new ones, then every changed one in one statement per 500.
     for (const p of orderPlans.values()) {
-      if (p.create) {
-        if (!p.add.length) continue;
-        const created = p.order.date && /^\d{4}-\d{2}-\d{2}$/.test(p.order.date) ? `${p.order.date}T01:00:00.000Z` : now;
-        await c.query(`insert into "Order"(id, "orderNumber", "organizationId", "customerId", "sourceQuotationId", status, items, "linkedDocuments", notes, "createdAt", "updatedAt") values ($1::uuid,$2,$3,$4::uuid,$5::uuid,$6,'[]'::jsonb,$7::jsonb,$8,$9::timestamp,now())`, [p.order.id, p.order.orderNumber, BC, p.order.customerId, p.order.sourceQuotationId, statusRows.find((r) => r.orderId === p.order.id)?.statusAfter ?? 'INVOICED', JSON.stringify(p.ld), `Imported from the old ERP: quotation ${p.order.linkedDocuments.imported.quotationNo}`, created]);
-        await alog(BC, 'CREATE', 'order', p.order.id, `Order ${p.order.orderNumber} made for invoices moved from WCT (S): ${p.add.map((d) => d.name).join(', ')}`);
-        log.newOrders.push(p.order.id);
-        continue;
-      }
-      if (!p.add.length && !p.drop.length) continue;
-      const st = statusRows.find((r) => r.orderId === p.order.id)?.statusAfter ?? p.order.status;
-      await c.query(`update "Order" set "linkedDocuments" = $2::jsonb, status = $3, "invoiceDocumentId" = case when "invoiceDocumentId"::text = any($5) then null else "invoiceDocumentId" end, "updatedAt" = now() where id = $1::uuid and "organizationId" = $4`, [p.order.id, JSON.stringify(p.ld), st, p.org, p.drop.map((d) => d.id)]);
-      await alog(p.org, 'UPDATE', 'order', p.order.id, `${p.order.orderNumber}: ${p.add.length ? `invoices moved from WCT (S) added ${p.add.map((d) => d.name).join(', ')}; ` : ''}${p.drop.length ? `WCT (S) invoice links removed ${p.drop.map((d) => d.name).join(', ')}; ` : ''}status ${p.order.status} -> ${st}`);
-      log.orders.push({ id: p.order.id, org: p.org, linkedDocuments: p.order.linkedDocuments, status: p.order.status, invoiceDocumentId: p.order.invoiceDocumentId ?? null });
+      if (!p.create || !p.add.length) continue;
+      const created = p.order.date && /^\d{4}-\d{2}-\d{2}$/.test(p.order.date) ? `${p.order.date}T01:00:00.000Z` : now;
+      await c.query(`insert into "Order"(id, "orderNumber", "organizationId", "customerId", "sourceQuotationId", status, items, "linkedDocuments", notes, "createdAt", "updatedAt") values ($1::uuid,$2,$3,$4::uuid,$5::uuid,$6,'[]'::jsonb,$7::jsonb,$8,$9::timestamp,now())`, [p.order.id, p.order.orderNumber, BC, p.order.customerId, p.order.sourceQuotationId, statusRows.find((r) => r.orderId === p.order.id)?.statusAfter ?? 'INVOICED', JSON.stringify(p.ld), `Imported from the old ERP: quotation ${p.order.linkedDocuments.imported.quotationNo}`, created]);
+      alog(BC, 'CREATE', 'order', p.order.id, `Order ${p.order.orderNumber} made for invoices moved from WCT (S): ${p.add.map((d) => d.name).join(', ')}`);
+      log.newOrders.push(p.order.id);
     }
-    // Guards / checks before commit.
-    const live = await q(`select count(*)::int n from "JournalEntry" where "sourceDocumentId" = any($1) and status <> 'VOID'`, [delIds]);
-    if (live[0].n) throw new Error('live journal left on a removed document');
-    const logFile = path.join(OUT_DIR, `${STEM}.log.json`);
+    const ordUpd = [...orderPlans.values()].filter((p) => !p.create && (p.add.length || p.drop.length)).map((p) => {
+      const st = statusRows.find((r) => r.orderId === p.order.id)?.statusAfter ?? p.order.status;
+      log.orders.push({ id: p.order.id, org: p.org, linkedDocuments: p.order.linkedDocuments, status: p.order.status, invoiceDocumentId: p.order.invoiceDocumentId ?? null });
+      alog(p.org, 'UPDATE', 'order', p.order.id, `${p.order.orderNumber}: ${p.add.length ? `invoices moved from WCT (S) added ${p.add.map((d) => d.name + (d.cls === 'placeholder' ? ' (placeholder, not counted)' : '')).join(', ')}; ` : ''}${p.drop.length ? `WCT (S) invoice links removed ${p.drop.map((d) => d.name).join(', ')}; ` : ''}status ${p.order.status} -> ${st}`);
+      return { id: p.order.id, org: p.org, ld: p.ld, status: st, drops: p.drop.map((d) => d.id).join(',') };
+    });
+    for (const part of chunks(ordUpd, 500))
+      expect(
+        'update orders',
+        (await c.query(
+          `update "Order" o set "linkedDocuments" = p.ld, status = p.status, "updatedAt" = now(),
+             "invoiceDocumentId" = case when o."invoiceDocumentId"::text = any(string_to_array(p.drops, ',')) then null else o."invoiceDocumentId" end
+             from jsonb_to_recordset($1::jsonb) as p(id uuid, org text, ld jsonb, status text, drops text) where o.id = p.id and o."organizationId" = p.org`,
+          [JSON.stringify(part)],
+        )).rowCount,
+        part.length,
+      );
+    step(`orders: ${log.newOrders.length} new, ${ordUpd.length} updated`);
+
+    // Activity Log (one bulk insert per 2,000 rows).
+    for (const part of chunks(alogs, 2000))
+      await c.query(
+        `insert into "ActionLog"(id, "actorType", "actorId", "actorName", "organizationId", channel, action, resource, "resourceId", details, status, "createdAt")
+         select x.id, 'SYSTEM', $2, 'System creation', x.org, 'operator', x.action, x.resource, x."resourceId", x.details, 'SUCCESS', now() from jsonb_to_recordset($1::jsonb) as x(id text, org text, action text, resource text, "resourceId" text, details jsonb)`,
+        [JSON.stringify(part), SCRIPT],
+      );
+    log.actionLogs = alogs.map((a) => a.id);
+    step(`Activity Log rows ${alogs.length}`);
+
+    // Checks before commit.
+    if (delIdsArr.length) expect('live journals left on removed documents', Number((await q(`select count(*)::int n from "JournalEntry" where "sourceDocumentId" = any($1) and status <> 'VOID'`, [delIdsArr]))[0].n), 0);
+    const leftNg = Number((await q(`select count(*)::int n from "Document" where "organizationId" = $1 and upper(type::text) = any($2) and (coalesce(config->>'subject','') ilike '%(NG)%' or coalesce(config->'documentInfo'->>'subject','') ilike '%(NG)%')`, [WCT, INVOICE_TYPES]))[0].n);
+    const keepNg = invs.filter((d) => d.cls !== 'linked' && (d.action === 'keep' || d.holds.length)).length;
+    expect('"(NG)" invoices left in WCT (S) (held only)', leftNg, keepNg);
     fs.writeFileSync(logFile, JSON.stringify(log));
     await c.query('COMMIT');
     committed = true;
-    say(`\nAPPLIED: removed ${log.removed.length}, voided ${log.voided.length} journals, moved ${log.moved.length} invoices + ${log.movedJournals.length} journals, ${log.customers.length} customers, ${log.newOrders.length} new orders, ${log.orders.length} orders updated, ${log.journalsCreated.length} journals posted. Log ${logFile}`);
+    say(`\nAPPLIED: removed ${log.removed.length}, voided ${log.voided.length} journals, detached ${log.detached.length}, moved ${log.moved.length} invoices + ${log.movedJournals.length} journals, ${log.customers.length} customers, ${log.newOrders.length} new orders, ${log.orders.length} orders updated, ${log.journalsCreated.length} journals posted, ${log.actionLogs.length} Activity Log rows. "(NG)" left in WCT (S): ${leftNg} (held). Log ${logFile}`);
     // S3 after commit: copy each removed record's own file into the log folder, then delete it.
     const s3Dir = path.join(OUT_DIR, `${STEM}-s3`);
     for (const r of log.removed) {

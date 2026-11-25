@@ -53,9 +53,11 @@ export interface NgActionOpts {
   zero?: 'move' | 'remove';
   /** Also move the 'linked' ones (no "(NG)" mark, on a BC Air quotation). Default: keep in WCT (S). */
   includeLinked?: boolean;
+  /** $1 placeholders: remove (the first plan) or move to BC Air, marked and never counted (owner 25 Nov final). */
+  placeholders?: 'move' | 'remove';
 }
 export function ngActionOf(cls: NgClass, opts: NgActionOpts = {}): NgAction {
-  if (cls === 'placeholder') return 'remove';
+  if (cls === 'placeholder') return opts.placeholders === 'move' ? 'move' : 'remove';
   if (cls === 'zero') return opts.zero === 'remove' ? 'remove' : 'move';
   if (cls === 'real') return 'move';
   if (cls === 'linked') return opts.includeLinked ? 'move' : 'keep';
