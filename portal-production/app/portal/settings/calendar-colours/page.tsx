@@ -2,7 +2,6 @@
 
 // Org Settings > Calendar colours (WCT group, 2026-11-25, enableCalendarStyle; Org Settings edit only, the server
 // checks it). People: a colour per person on the jobs calendar's People list (fills their chips and their tick box).
-// PTW: a stripe colour per PTW status; the default keeps the applicant's colour (Settings > Job fields > PTW applicants).
 // The same editor opens from the jobs calendar's "Settings" button (_components/CalendarColoursEditor.tsx).
 // Every other org: the page says it is not available and the menu never links here.
 

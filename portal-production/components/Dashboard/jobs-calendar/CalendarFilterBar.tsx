@@ -1,7 +1,7 @@
 "use client";
 
-// Jobs calendar filter bar (round 36, WCT group, calendar style orgs): DO generated / not, PTW (needed / pending /
-// approved / rejected / not needed), PTW applicant, Company, then on the right the search box, "Export list" and
+// Jobs calendar filter bar (round 36, WCT group, calendar style orgs): DO generated / not, PTW (needed / required /
+// pending / approved / rejected / not needed), PTW applicant, Company, then on the right the search box, "Export list" and
 // "Settings" (Calendar colours, Org Settings edit only). Round 38: the Cancelled / Postponed / COD / Sticker chips are
 // gone (Export list keeps its own Include cancelled / on hold ticks). 2026-11-25: the Category filter is gone for now
 // and the search moved to the right end. Filters only narrow the jobs on screen (notes stay).
@@ -10,13 +10,14 @@ import React from "react";
 import { Box, Button, Checkbox, FormControl, InputLabel, ListItemText, MenuItem, OutlinedInput, Select, Stack } from "@mui/material";
 import IosShareIcon from "@mui/icons-material/IosShare";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
-import { NO_APPLICANT, NO_FILTERS, filterCount, type CalendarFilters, type PtwFilter } from "./calendarPanel";
+import { NO_APPLICANT, NO_FILTERS, PTW_ICON, filterCount, type CalendarFilters, type PtwFilter } from "./calendarPanel";
 
 const PTW_OPTIONS: Array<{ value: PtwFilter; label: string }> = [
   { value: "needed", label: "PTW needed" },
-  { value: "pending", label: "Pending ✋" },
-  { value: "approved", label: "Approved 👍" },
-  { value: "rejected", label: "Rejected 👎" },
+  { value: "required", label: `Required ${PTW_ICON.REQUIRED}` },
+  { value: "pending", label: `Pending ${PTW_ICON.SUBMITTED}` },
+  { value: "approved", label: `Approved ${PTW_ICON.APPROVED}` },
+  { value: "rejected", label: `Rejected ${PTW_ICON.REJECTED}` },
   { value: "none", label: "Not needed" },
 ];
 

@@ -52,7 +52,10 @@ export function isCompletedDo(d: { status?: string | null; config?: unknown }): 
 }
 
 export const ICON = {
-  ptwPending: '✋',
+  /** REQUIRED: a PTW is needed, not applied yet. */
+  ptwRequired: '✋',
+  /** SUBMITTED, shown as Pending (2026-11-26): applied, waiting for approval. */
+  ptwPending: '⏳',
   ptwApproved: '👍',
   ptwRejected: '👎',
   doDone: '✅',
@@ -65,6 +68,7 @@ export const ICON = {
 
 /** The legend: icons only, no people colours. */
 export const CALENDAR_STYLE_LEGEND: Array<{ icon: string; label: string }> = [
+  { icon: ICON.ptwRequired, label: 'PTW required' },
   { icon: ICON.ptwPending, label: 'PTW pending' },
   { icon: ICON.ptwApproved, label: 'PTW approved' },
   { icon: ICON.ptwRejected, label: 'PTW rejected' },
@@ -254,7 +258,9 @@ const ptwNeeded = (s: string | null | undefined) => !!s && s !== 'NOT_NEEDED';
 
 export function ptwIcon(status: string | null | undefined): { icon: string; label: string } | null {
   const s = String(status ?? '').toUpperCase();
-  if (s === 'REQUIRED' || s === 'SUBMITTED') return { icon: ICON.ptwPending, label: s === 'REQUIRED' ? 'PTW pending' : 'PTW applied' };
+  // 2026-11-26: Required ✋ and Pending (SUBMITTED, applied) ⏳ read apart.
+  if (s === 'REQUIRED') return { icon: ICON.ptwRequired, label: 'PTW required' };
+  if (s === 'SUBMITTED') return { icon: ICON.ptwPending, label: 'PTW pending' };
   if (s === 'APPROVED') return { icon: ICON.ptwApproved, label: 'PTW approved' };
   if (s === 'REJECTED') return { icon: ICON.ptwRejected, label: 'PTW rejected' };
   return null;

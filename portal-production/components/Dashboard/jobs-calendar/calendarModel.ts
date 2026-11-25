@@ -150,8 +150,7 @@ export interface CalendarPayload {
   /** Singapore public holidays in the range (2026-11-24, calendar style orgs; absent otherwise). */
   holidays?: import("@/helpers/publicHolidays").PublicHoliday[];
   /** Calendar style (enableCalendarStyle): present = styled chips and the icon legend. */
-  /** stripes (2026-11-25): the PTW stripe colours set per status in Org Settings > Calendar colours (absent when none). */
-  style?: { legend: Array<{ icon: string; label: string }>; stripes?: Array<{ label: string; colour: string }> };
+  style?: { legend: Array<{ icon: string; label: string }> };
   /** hideSiteClockJobs (WCT group): the server left SiteClock-created jobs out (absent otherwise). */
   siteclockJobsHidden?: boolean;
   /** calendarHqView (WCT group): sent by the server; the Salesperson filter it offered was removed 2026-11-19 (people list instead). */
@@ -359,7 +358,7 @@ export function titleWithoutNumbers(title: string): string {
  */
 const ICON_RANK: Array<(icon: string) => boolean> = [
   (i) => i === "❌" || i === "⭕",
-  (i) => i === "✋" || i === "👍" || i === "👎",
+  (i) => i === "✋" || i === "⏳" || i === "👍" || i === "👎",
   (i) => i.endsWith("✅"),
   (i) => i === "📌",
   (i) => i === "🟫",

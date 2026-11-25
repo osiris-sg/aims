@@ -27,11 +27,14 @@ test("every item of the day: all-day bars first, then timed by start time; dupli
   assert.deepEqual([out.allDay[1].bg, out.allDay[1].text], ["#fde2e4", "#7a1f2b"]);
 });
 
-test("timed rows: the dot is the salesperson colour, markers (⭕, PTW ✋ + applicant circle) come before the title", () => {
+test("timed rows: the dot is the salesperson colour, markers (⭕, PTW ✋ / ⏳ + applicant circle) come before the title", () => {
   const e = job({ postponed: true, ptwStatus: "REQUIRED", style: style({ fill: "#8e24aa", greyed: true, applicantIcon: "🔴" }) });
   const [r] = dayPopoverItems("2026-11-10", [seg(e)]).timed;
   assert.equal(r.dot, "#8e24aa");
   assert.equal(r.markers, "⭕ ✋ 🔴");
+  // 2026-11-26: Pending (SUBMITTED) shows ⏳ in the "+N more" day card too.
+  const [p] = dayPopoverItems("2026-11-10", [seg(job({ ptwStatus: "SUBMITTED", style: style({ applicantIcon: "🟢" }) }))]).timed;
+  assert.equal(p.markers, "⏳ 🟢");
   assert.equal(r.greyed, true);
   assert.equal(r.event.id, "aims:1");
   const cancelled = dayPopoverItems("2026-11-10", [seg(job({ cancelled: true, style: style({ greyed: true }) }))]).timed[0];

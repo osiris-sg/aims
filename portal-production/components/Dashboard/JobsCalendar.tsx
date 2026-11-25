@@ -571,7 +571,7 @@ export function JobsCalendarPanel({
       )}
       {styled && <ExportListDialog open={exportOpen} onClose={() => setExportOpen(false)} loadEvents={exportEvents} loadHeader={loadHeader} />}
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
-      {showPanel && <PeoplePanel rows={rows} legend={data?.style?.legend ?? []} stripes={data?.style?.stripes ?? []} onToggle={(id) => saveHidden(toggleRow(hidden, id))} onAll={() => saveHidden(selectAllRows())} onNone={() => saveHidden(selectNoRows(rows))} />}
+      {showPanel && <PeoplePanel rows={rows} legend={data?.style?.legend ?? []} onToggle={(id) => saveHidden(toggleRow(hidden, id))} onAll={() => saveHidden(selectAllRows())} onNone={() => saveHidden(selectNoRows(rows))} />}
       <Box sx={{ flex: 1, minWidth: 0, width: "100%", position: "relative" }}>
       {/* First load of a calendar style org: the calendar is laid out but hidden under the skeleton (it must mount to
           ask for its first range); it shows once the data is in. */}

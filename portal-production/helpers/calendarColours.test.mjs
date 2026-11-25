@@ -11,34 +11,29 @@ const page = {
     { id: "hh", name: "Nat HH", colour: "#039be5", auto: false },
     { id: "henry", name: "Henry Hoo", colour: "#f09300", auto: true },
   ],
-  ptw: [
-    { status: "REQUIRED", label: "Required", colour: null },
-    { status: "SUBMITTED", label: "Pending", colour: null },
-    { status: "APPROVED", label: "Approved", colour: "#0b8043" },
-    { status: "REJECTED", label: "Rejected", colour: null },
-  ],
+  // The server still sends the PTW rows (stored status colours are kept); the page ignores them (2026-11-26).
+  ptw: [{ status: "APPROVED", label: "Approved", colour: "#0b8043" }],
   applicants: [{ name: "Bala", colour: "#d50000" }],
   palettes: { people: ["#039be5", "#8e24aa"], ptw: ["#d50000", "#0b8043"] },
 };
-const loaded = () => ({ people: Object.fromEntries(page.people.map((p) => [p.id, pickOf(p)])), ptw: Object.fromEntries(page.ptw.map((r) => [r.status, r.colour])) });
+const loaded = () => ({ people: Object.fromEntries(page.people.map((p) => [p.id, pickOf(p)])) });
 
 test("nothing changed: no save", () => {
-  const { people, ptw } = loaded();
-  assert.equal(colourChanges(page, people, ptw), null);
+  const { people } = loaded();
+  assert.equal(colourChanges(page, people), null);
   // An automatic person loads as "Automatic" (null), not their automatic colour.
   assert.equal(people.henry, null);
   assert.equal(people.hh, "#039be5");
 });
 
-test("only what changed is sent: a person picked, a person back to automatic, statuses set and cleared", () => {
-  const { people, ptw } = loaded();
-  const body = colourChanges(page, { ...people, henry: "#8e24aa", hh: null }, { ...ptw, REQUIRED: "#f4511e", APPROVED: null });
+test("only what changed is sent: a person picked, a person back to automatic; never a PTW colour", () => {
+  const { people } = loaded();
+  const body = colourChanges(page, { ...people, henry: "#8e24aa", hh: null });
   assert.deepEqual(body, {
     people: [
       { id: "hh", colour: null },
       { id: "henry", colour: "#8e24aa" },
     ],
-    ptw: { REQUIRED: "#f4511e", APPROVED: null },
   });
 });
 
@@ -89,9 +84,14 @@ test("top bar and sidebar both use the WCT entries", () => {
   assert.match(side, /wctSettingsEntry\(s\.path, wctSettings\) \?\? settingLabel\(s\)/);
 });
 
-test("the calendar legend lists the PTW stripe colours sent by the server", () => {
+test("2026-11-26: no PTW stripe anywhere: no Stripe colour section on the page, no stripe rows in the legend", () => {
+  const editor = readFileSync(new URL("../app/portal/settings/calendar-colours/_components/CalendarColoursEditor.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(editor, /<TableCell>Stripe colour<\/TableCell>|<TableCell>PTW status<\/TableCell>|page\.ptw|setPtw|stripe[=?]/);
+  assert.match(editor, /<TableCell>Person<\/TableCell>/);
   const panel = readFileSync(new URL("../components/Dashboard/jobs-calendar/PeoplePanel.tsx", import.meta.url), "utf8");
-  assert.match(panel, /stripes\.map\(\(s\) =>/);
+  assert.doesNotMatch(panel, /stripes/);
+  assert.match(panel, /legend\.map\(\(l\) =>/);
   const cal = readFileSync(new URL("../components/Dashboard/JobsCalendar.tsx", import.meta.url), "utf8");
-  assert.match(cal, /stripes=\{data\?\.style\?\.stripes \?\? \[\]\}/);
+  assert.doesNotMatch(cal, /stripes/);
+  assert.match(cal, /legend=\{data\?\.style\?\.legend \?\? \[\]\}/);
 });

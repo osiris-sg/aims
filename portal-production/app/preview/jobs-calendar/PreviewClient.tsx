@@ -65,7 +65,7 @@ const st = (fill: string, bar: string | null, icons: Array<{ icon: string; label
   fill, text: "#ffffff", bar, icons, greyed: false, prefix: null, ...over,
 });
 const STYLE_EVENTS: CalendarEvent[] = [
-  aims("y1", "service", 41, "Domino's Pizza (Tampines)", 4, 10, 90, { orderNumber: "ORD202611-003", title: "ORD202611-003 · #41 Domino's Pizza (Tampines)", salesperson: { id: "u1", name: "Nat HH" }, ptwApplicant: { id: "b", name: "Bala" }, style: st("#039be5", "#d50000", [icon("✋", "PTW pending"), icon("✅", "DO generated")]) }),
+  aims("y1", "service", 41, "Domino's Pizza (Tampines)", 4, 10, 90, { orderNumber: "ORD202611-003", title: "ORD202611-003 · #41 Domino's Pizza (Tampines)", salesperson: { id: "u1", name: "Nat HH" }, ptwApplicant: { id: "b", name: "Bala" }, style: st("#039be5", "#d50000", [icon("✋", "PTW required"), icon("✅", "DO generated")]) }),
   aims("y2", "service", 42, "Yoshinoya (S)", 4, 14, 60, { salesperson: { id: "u2", name: "Amy Yap" }, ptwApplicant: { id: "j", name: "Joyna" }, cod: true, style: st("#8e24aa", "#f6bf26", [icon("👍", "PTW approved"), icon("2✅", "2 DOs generated"), icon("🟫", "COD")]) }),
   aims("y3", "delivery", 43, "Kulnari Adventure Golf", 5, 9, 60, { category: "Site visit", style: st("#b0bec5", null, [], { text: "#212121", prefix: "(SV)" }) }),
   aims("y4", "service", 44, "Jewel Changi", 5, 15, 60, { ptwApplicant: { id: "k", name: "Kherry" }, style: st("#e67c73", "#0b8043", [icon("👎", "PTW rejected")]) }),
@@ -74,27 +74,27 @@ const STYLE_EVENTS: CalendarEvent[] = [
   aims("y7", "service", 47, "BC Air: Paya Lebar", 10, 10, 60, { orgId: "c", orgName: "BC Air", foreign: true, category: "Collect cheque", style: st("#8e24aa", null, [], { prefix: "(CC)" }) }),
   aims("y8", "service", 48, "Sheng Siong (Bedok)", 19, 9, 120, { salesperson: { id: "u2", name: "Amy Yap" }, sticker: true, style: st("#8e24aa", null, [icon("📌", "Generate sticker")]) }),
   aims("y9", "delivery", 49, "Changi City Point", 19, 0, 0, { allDay: true, start: "2026-11-19", end: null, salesperson: { id: "u1", name: "Nat HH" }, style: st("#039be5", null, []) }),
-  aims("y10", "service", 50, "Woodlands Civic Centre", 20, 14, 60, { salesperson: { id: "u1", name: "Nat HH" }, ptwApplicant: { id: "b", name: "Bala" }, sticker: true, style: st("#039be5", "#d50000", [icon("✋", "PTW pending"), icon("📌", "Generate sticker")]) }),
+  aims("y10", "service", 50, "Woodlands Civic Centre", 20, 14, 60, { salesperson: { id: "u1", name: "Nat HH" }, ptwApplicant: { id: "b", name: "Bala" }, sticker: true, style: st("#039be5", "#d50000", [icon("✋", "PTW required"), icon("📌", "Generate sticker")]) }),
   // 2026-11-19: every salesperson tint with a PTW bar on the right; an applicant who is not on the PTW applicants list.
-  aims("y11", "service", 51, "Jewel Changi Airport", 12, 10, 90, { salesperson: { id: "u4", name: "Joyna" }, ptwApplicant: { id: "pta_joyna", name: "Joyna" }, style: st("#3f51b5", "#f6bf26", [icon("✋", "PTW pending")]) }),
+  aims("y11", "service", 51, "Jewel Changi Airport", 12, 10, 90, { salesperson: { id: "u4", name: "Joyna" }, ptwApplicant: { id: "pta_joyna", name: "Joyna" }, style: st("#3f51b5", "#f6bf26", [icon("⏳", "PTW pending")]) }),
   aims("y12", "service", 52, "Ion Orchard", 12, 14, 60, { salesperson: { id: "u3", name: "PC Tan" }, ptwApplicant: { id: "pta_bala", name: "Bala" }, style: st("#e67c73", "#d50000", [icon("👍", "PTW approved")]) }),
-  aims("y13", "service", 53, "Bugis Junction", 13, 9, 60, { ptwApplicant: { id: "user_richie", name: "Richie", inList: false }, style: st("#b0bec5", "#455a64", [icon("✋", "PTW pending")], { text: "#212121" }) }),
-  aims("y14", "delivery", 54, "Northpoint City", 13, 13, 60, { salesperson: { id: "u2", name: "Amy Yap" }, ptwApplicant: { id: "pta_kherry", name: "Kherry" }, style: st("#8e24aa", "#0b8043", [icon("✋", "PTW pending")]) }),
+  aims("y13", "service", 53, "Bugis Junction", 13, 9, 60, { ptwApplicant: { id: "user_richie", name: "Richie", inList: false }, style: st("#b0bec5", "#455a64", [icon("✋", "PTW required")], { text: "#212121" }) }),
+  aims("y14", "delivery", 54, "Northpoint City", 13, 13, 60, { salesperson: { id: "u2", name: "Amy Yap" }, ptwApplicant: { id: "pta_kherry", name: "Kherry" }, style: st("#8e24aa", "#0b8043", [icon("✋", "PTW required")]) }),
   // Add-on 4: a busy day (17 Nov, 9 jobs) for the Month rows: 6 rows, then "+3 more".
-  aims("b1", "service", 61, "Kopitiam Investment @ Jurong Point", 17, 8, 60, { salesperson: { id: "u1", name: "Nat HH" }, ptwApplicant: { id: "pta_bala", name: "Bala" }, style: st("#039be5", "#d50000", [icon("✋", "PTW pending")]) }),
+  aims("b1", "service", 61, "Kopitiam Investment @ Jurong Point", 17, 8, 60, { salesperson: { id: "u1", name: "Nat HH" }, ptwApplicant: { id: "pta_bala", name: "Bala" }, style: st("#039be5", "#d50000", [icon("✋", "PTW required")]) }),
   aims("b2", "service", 62, "Yoshinoya (S) Pte Ltd", 17, 9, 30, { salesperson: { id: "u2", name: "Amy Yap" }, style: st("#8e24aa", null, [icon("✅", "DO generated")]) }),
   aims("b3", "service", 63, "Domino's Pizza Singapore Pte Ltd (Kebun Baru Community Club)", 17, 9, 60, { salesperson: { id: "u3", name: "PC Tan" }, ptwApplicant: { id: "pta_joyna", name: "Joyna" }, style: st("#e67c73", "#f6bf26", [icon("👍", "PTW approved")]) }),
-  aims("b4", "delivery", 64, "Six1two Pte Ltd", 17, 10, 60, { salesperson: { id: "u4", name: "Joyna" }, ptwApplicant: { id: "pta_kherry", name: "Kherry" }, style: st("#3f51b5", "#0b8043", [icon("✋", "PTW pending"), icon("🟫", "COD")]) }),
+  aims("b4", "delivery", 64, "Six1two Pte Ltd", 17, 10, 60, { salesperson: { id: "u4", name: "Joyna" }, ptwApplicant: { id: "pta_kherry", name: "Kherry" }, style: st("#3f51b5", "#0b8043", [icon("✋", "PTW required"), icon("🟫", "COD")]) }),
   aims("b5", "service", 65, "Old Chang Kee @ Ng Teng Fong Hospital", 17, 11, 60, { salesperson: { id: "u1", name: "Nat HH" }, status: "cancelled", statusLabel: "Cancelled", cancelled: true, style: st("#039be5", null, [icon("❌", "Cancelled")], { greyed: true }) }),
   aims("b6", "service", 66, "Brinda's Pte Ltd", 17, 13, 30, { salesperson: { id: "u2", name: "Amy Yap" }, postponed: true, statusLabel: "Postponed", style: st("#8e24aa", "#d50000", [icon("⭕", "Postponed")], { greyed: true }) }),
   aims("b7", "service", 67, "Kiat Lay Coldroom Specialist", 17, 14, 60, { salesperson: { id: "u3", name: "PC Tan" }, style: st("#e67c73", null, [icon("📌", "Generate sticker")]) }),
-  aims("b8", "service", 68, "HongLi Eatery House", 17, 16, 60, { ptwApplicant: { id: "pta_bala", name: "Bala" }, style: st("#b0bec5", "#d50000", [icon("✋", "PTW pending")], { text: "#212121" }) }),
+  aims("b8", "service", 68, "HongLi Eatery House", 17, 16, 60, { ptwApplicant: { id: "pta_bala", name: "Bala" }, style: st("#b0bec5", "#d50000", [icon("✋", "PTW required")], { text: "#212121" }) }),
   aims("b9", "delivery", 69, "Iron Chef F&B @ FoodLoft", 17, 21, 30, { salesperson: { id: "u4", name: "Joyna" }, style: st("#3f51b5", null, []) }),
 ].map((e, i) => (e.foreign ? e : { ...e, createdBy: i % 3 === 0 ? { id: "u1", name: "Nat HH" } : i % 3 === 1 ? { id: "u2", name: "Amy Yap" } : null }))
   // Round 36: the fields the server now sends (customer, PTW status, DO count, applicant circle, team, subject, remarks).
   .map((e, i): CalendarEvent => {
     const icons = (e.style?.icons ?? []).map((x) => x.icon);
-    const ptwStatus = icons.includes("✋") ? "REQUIRED" : icons.includes("👍") ? "APPROVED" : icons.includes("👎") ? "REJECTED" : "NOT_NEEDED";
+    const ptwStatus = icons.includes("✋") ? "REQUIRED" : icons.includes("⏳") ? "SUBMITTED" : icons.includes("👍") ? "APPROVED" : icons.includes("👎") ? "REJECTED" : "NOT_NEEDED";
     const doCount = icons.includes("2✅") ? 2 : icons.includes("✅") ? 1 : 0;
     const applicantIcon = ptwStatus !== "NOT_NEEDED" && e.ptwApplicant && e.style?.bar ? colourCircle(e.style.bar) : null;
     return {
@@ -135,7 +135,7 @@ const STYLE_NOTES = [
   { ...NOTES[0], startDate: "2026-11-18", endDate: "2026-11-20", createdBy: { id: "j", name: "Joyna Chua" } },
   { ...NOTES[1], startDate: "2026-11-19", endDate: "2026-11-19", createdBy: null },
 ];
-const STYLE_LEGEND = [icon("✋", "PTW pending"), icon("👍", "PTW approved"), icon("👎", "PTW rejected"), icon("✅", "DO generated"), icon("❌", "Cancelled"), icon("⭕", "Postponed"), icon("📅", "Leave"), icon("🟫", "COD"), icon("📌", "Generate sticker")];
+const STYLE_LEGEND = [icon("✋", "PTW required"), icon("⏳", "PTW pending"), icon("👍", "PTW approved"), icon("👎", "PTW rejected"), icon("✅", "DO generated"), icon("❌", "Cancelled"), icon("⭕", "Postponed"), icon("📅", "Leave"), icon("🟫", "COD"), icon("📌", "Generate sticker")];
 
 export default function PreviewClient({ mode, view, cancelled, down, add = false, styled = false, hq = false, date = "2026-11-03" }: { date?: string; mode: "light" | "dark"; view: "dayGridMonth" | "timeGridWeek" | "timeGridDay" | "schedule"; cancelled: boolean; down: boolean; add?: boolean; styled?: boolean; hq?: boolean }) {
   const theme = useMemo(() => createTheme({ palette: { mode } }), [mode]);

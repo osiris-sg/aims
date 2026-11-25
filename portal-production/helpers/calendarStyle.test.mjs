@@ -47,8 +47,8 @@ test("chip: line 1 icons + prefixed title, line 2 the time range", () => {
   assert.equal(toCalendarInputs([e], false)[0].title, "(SV) #12 Acme");
 });
 
-test("each icon reaches the chip as sent: ✋ 👍 👎 ✅ ❌ ⭕ 🟫", () => {
-  for (const i of ["✋", "👍", "👎", "✅", "❌", "⭕", "🟫"]) assert.equal(chipIcons(ev({ style: style({ icons: [{ icon: i, label: i }] }) })), i);
+test("each icon reaches the chip as sent: ✋ ⏳ 👍 👎 ✅ ❌ ⭕ 🟫", () => {
+  for (const i of ["✋", "⏳", "👍", "👎", "✅", "❌", "⭕", "🟫"]) assert.equal(chipIcons(ev({ style: style({ icons: [{ icon: i, label: i }] }) })), i);
 });
 
 test("Leave notes lead with 📅 only when styled; other notes and unstyled calendars are unchanged", () => {

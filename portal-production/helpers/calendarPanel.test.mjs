@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   applyToggle, canEditOnCalendar, chipLines, chipTone, colourCircle, crossOrgOpen, DEFAULT_EXPORT_HEADER, exportDateLine, exportLine, exportText, exportTime,
-  filterCount, filterEvents, NO_APPLICANT, NO_FILTERS, panelDocsFallback, panelDocsFromOrder, parseFilters, ptwPillOf, rescheduleClashes, returnOrgAction,
+  filterCount, filterEvents, NO_APPLICANT, NO_FILTERS, panelDocsFallback, panelDocsFromOrder, parseFilters, ptwPillOf, ptwStatusIcon, PTW_PILLS, rescheduleClashes, returnOrgAction,
   returnOrgMarker, shortAddress, toggleRequest, tomorrowSgt, customerOf, hoverLines, scheduleLines, postponedLabel, assignedWorkers,
 } from "../components/Dashboard/jobs-calendar/calendarPanel.ts";
 import { readFileSync as readSrc } from "node:fs";
@@ -35,7 +35,10 @@ test("chip row 1: time, ✅ / 2✅, ❌, ⭕, 📌, 🟫, customer; row 2 only w
   // The applicant circle only shows with a PTW.
   assert.equal(chipLines(ev({ ptwStatus: "NOT_NEEDED", style: style({ applicantIcon: "🔴" }) })).row2, "");
   assert.equal(chipLines(ev({ ptwStatus: "REQUIRED", style: style({ applicantIcon: "🟡" }) })).row2, "✋ 🟡");
-  assert.equal(chipLines(ev({ ptwStatus: "SUBMITTED" })).row2, "✋");
+  // 2026-11-26: Pending (SUBMITTED, applied) has its own icon.
+  assert.equal(chipLines(ev({ ptwStatus: "SUBMITTED" })).row2, "⏳");
+  assert.equal(chipLines(ev({ ptwStatus: "SUBMITTED", style: style({ applicantIcon: "🟢" }) })).row2, "⏳ 🟢");
+  assert.deepEqual(["REQUIRED", "SUBMITTED", "APPROVED", "REJECTED", "NOT_NEEDED", null].map(ptwStatusIcon), ["✋", "⏳", "👍", "👎", "", ""]);
   assert.equal(chipLines(ev({ ptwStatus: "REJECTED" })).row2, "👎");
   // No customer: the chip label, else the title without numbers.
   assert.equal(chipLines(ev({ customer: null, chipLabel: "1 Raffles Pl" })).customer, "1 Raffles Pl");
@@ -60,9 +63,14 @@ test("applicant colour circles: Bala 🔴, Joyna amber 🟡 (and the old yellow)
 test("each toggle is one API call and the chip shows the change at once", () => {
   const e = ev({ ptwStatus: "NOT_NEEDED" });
   assert.deepEqual(toggleRequest(e, { kind: "ptw", status: "REQUIRED" }, "NOT_NEEDED"), { method: "PATCH", path: "/deliveries/1/ptw", body: { ptwStatus: "REQUIRED" } });
-  // Pending on an applied PTW changes nothing.
-  assert.equal(toggleRequest(e, { kind: "ptw", status: "REQUIRED" }, "SUBMITTED"), null);
-  assert.equal(ptwPillOf("SUBMITTED"), "REQUIRED");
+  // 2026-11-26: Pending (SUBMITTED) is its own pill; the pill already on changes nothing.
+  assert.equal(toggleRequest(e, { kind: "ptw", status: "SUBMITTED" }, "SUBMITTED"), null);
+  assert.deepEqual(toggleRequest(e, { kind: "ptw", status: "SUBMITTED" }, "REQUIRED"), { method: "PATCH", path: "/deliveries/1/ptw", body: { ptwStatus: "SUBMITTED" } });
+  assert.deepEqual(toggleRequest(e, { kind: "ptw", status: "REQUIRED" }, "SUBMITTED"), { method: "PATCH", path: "/deliveries/1/ptw", body: { ptwStatus: "REQUIRED" } });
+  assert.equal(ptwPillOf("SUBMITTED"), "SUBMITTED");
+  assert.deepEqual(PTW_PILLS.map((p) => p.label), ["Not needed", "Required ✋", "Pending ⏳", "Approved 👍", "Rejected 👎"]);
+  assert.equal(applyToggle(ev({ ptwStatus: "REQUIRED" }), { kind: "ptw", status: "SUBMITTED" }).ptwStatus, "SUBMITTED");
+  assert.equal(applyToggle(ev({ ptwStatus: "SUBMITTED" }), { kind: "ptw", status: "REQUIRED" }).ptwStatus, "REQUIRED");
   assert.deepEqual(toggleRequest(e, { kind: "sticker", on: true }), { method: "PATCH", path: "/deliveries/1/style", body: { sticker: true } });
   assert.deepEqual(toggleRequest(e, { kind: "cod", on: false }), { method: "PATCH", path: "/deliveries/1/style", body: { cod: false } });
   assert.deepEqual(toggleRequest(e, { kind: "category", category: "Site visit" }), { method: "PUT", path: "/deliveries/1/category", body: { category: "Site visit" } });
@@ -88,8 +96,8 @@ test("each toggle is one API call and the chip shows the change at once", () => 
   x = applyToggle(x, { kind: "category", category: "Collect cheque" });
   assert.equal(chipLines(x).row2, "");
   assert.equal(applyToggle(x, { kind: "team", team: "  " }).team, null);
-  // Pending keeps an applied PTW as applied.
-  assert.equal(applyToggle(ev({ ptwStatus: "SUBMITTED" }), { kind: "ptw", status: "REQUIRED" }).ptwStatus, "SUBMITTED");
+  // 2026-11-26: Required on an applied PTW moves it back to Required (Pending ⏳ is its own pill).
+  assert.equal(applyToggle(ev({ ptwStatus: "SUBMITTED" }), { kind: "ptw", status: "REQUIRED" }).ptwStatus, "REQUIRED");
 });
 
 test("cancel / undo read on the chip; another company's job is read only and opens in one click for members", () => {
@@ -168,26 +176,31 @@ test("filters: DO, PTW, applicant, cancelled, postponed, COD, sticker, category,
     ev({ id: "aims:2", ptwStatus: "REQUIRED", ptwApplicant: { id: "pta_joyna", name: "Joyna" }, cod: true, category: "Site visit", orgId: "wct" }),
     ev({ id: "aims:3", ptwStatus: "REJECTED", cancelled: true, sticker: true, category: "Meeting", orgId: "bcair", foreign: true }),
     ev({ id: "aims:4", postponed: true, category: "Delivery" }),
+    ev({ id: "aims:5", ptwStatus: "SUBMITTED", ptwApplicant: { id: "pta_joyna", name: "Joyna" }, category: "Delivery", orgId: "wct" }),
   ];
   const ids = (f) => filterEvents(list, { ...NO_FILTERS, ...f }, "wct").map((e) => e.id.slice(5)).join(",");
   assert.equal(filterEvents(list, NO_FILTERS), list);
   assert.equal(ids({ doState: "yes" }), "1");
-  assert.equal(ids({ doState: "no" }), "2,3,4");
-  assert.equal(ids({ ptw: ["needed"] }), "1,2,3");
-  assert.equal(ids({ ptw: ["pending"] }), "2");
+  assert.equal(ids({ doState: "no" }), "2,3,4,5");
+  assert.equal(ids({ ptw: ["needed"] }), "1,2,3,5");
+  // 2026-11-26: Required and Pending (applied) are separate choices.
+  assert.equal(ids({ ptw: ["required"] }), "2");
+  assert.equal(ids({ ptw: ["pending"] }), "5");
+  assert.equal(ids({ ptw: ["required", "pending"] }), "2,5");
   assert.equal(ids({ ptw: ["approved", "rejected"] }), "1,3");
   assert.equal(ids({ ptw: ["none"] }), "4");
-  assert.equal(ids({ applicants: ["pta_joyna"] }), "2");
+  assert.equal(ids({ applicants: ["pta_joyna"] }), "2,5");
   assert.equal(ids({ applicants: [NO_APPLICANT] }), "3,4");
   assert.equal(ids({ categories: ["site visit", "Meeting"] }), "2,3");
   assert.equal(ids({ companies: ["bcair"] }), "3");
   // The own company also covers items with no org tag (calendars without the group view).
-  assert.equal(ids({ companies: ["wct"] }), "1,2,4");
+  assert.equal(ids({ companies: ["wct"] }), "1,2,4,5");
   assert.equal(ids({ ptw: ["needed"], categories: ["Meeting"] }), "3");
   assert.equal(filterCount({ ...NO_FILTERS, doState: "yes", ptw: ["needed", "pending"] }), 3);
   assert.deepEqual(parseFilters("junk"), NO_FILTERS);
   // Round 38: the old Cancelled / Postponed / COD / Sticker filters are dropped, so a filter saved before never hides jobs.
   assert.deepEqual(parseFilters(JSON.stringify({ doState: "x", ptw: ["pending", "bad"], flags: ["cod", 3] })), { ...NO_FILTERS, ptw: ["pending"] });
+  assert.deepEqual(parseFilters(JSON.stringify({ ptw: ["required", "pending"] })).ptw, ["required", "pending"]);
   assert.equal(filterEvents(list, parseFilters(JSON.stringify({ flags: ["cancelled"] })), "wct"), list);
 });
 

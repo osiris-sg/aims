@@ -115,6 +115,7 @@ test("rows: no order / job numbers in the title fallback; at most 2 icons by pri
   assert.equal(chipTitle({ title: "#41 X", chipLabel: "Acme Pte Ltd" }), "Acme Pte Ltd");
   const i = (...xs) => xs.map((icon) => ({ icon, label: icon }));
   assert.equal(rowIcons(i("🟫", "📌", "2✅", "✋", "❌")), "❌ ✋");
+  assert.equal(rowIcons(i("🟫", "📌", "2✅", "⏳")), "⏳ 2✅");
   assert.equal(rowIcons(i("🟫", "📌", "2✅")), "2✅ 📌");
   assert.equal(rowIcons(i("🟫")), "🟫");
   assert.equal(rowIcons([]), "");

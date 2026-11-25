@@ -11,12 +11,17 @@ import { CALENDAR_TZ, compactTime, dayOfInstant, titleWithoutNumbers, type Calen
 /** "✅" for one completed DO, "2✅" for two. */
 export const doIcon = (n: number | null | undefined): string => (Number(n) > 1 ? `${n}✅` : Number(n) === 1 ? "✅" : "");
 
-/** The PTW status as an icon: ✋ pending (required or applied), 👍 approved, 👎 rejected; none when not needed. */
+/**
+ * The PTW status as an icon (mirror of the server's calendar-style.ts ICON): ✋ required, ⏳ pending (SUBMITTED, applied;
+ * its own icon since 2026-11-26), 👍 approved, 👎 rejected; none when not needed.
+ */
+export const PTW_ICON = { REQUIRED: "✋", SUBMITTED: "⏳", APPROVED: "👍", REJECTED: "👎" } as const;
 export function ptwStatusIcon(status: string | null | undefined): string {
   const s = String(status ?? "").toUpperCase();
-  if (s === "REQUIRED" || s === "SUBMITTED") return "✋";
-  if (s === "APPROVED") return "👍";
-  if (s === "REJECTED") return "👎";
+  if (s === "REQUIRED") return PTW_ICON.REQUIRED;
+  if (s === "SUBMITTED") return PTW_ICON.SUBMITTED;
+  if (s === "APPROVED") return PTW_ICON.APPROVED;
+  if (s === "REJECTED") return PTW_ICON.REJECTED;
   return "";
 }
 
@@ -166,13 +171,14 @@ export function colourCircle(hex: string | null | undefined): string {
 
 export const PTW_PILLS: ReadonlyArray<{ value: string; label: string }> = [
   { value: "NOT_NEEDED", label: "Not needed" },
-  { value: "REQUIRED", label: "Pending ✋" },
-  { value: "APPROVED", label: "Approved 👍" },
-  { value: "REJECTED", label: "Rejected 👎" },
+  { value: "REQUIRED", label: `Required ${PTW_ICON.REQUIRED}` },
+  { value: "SUBMITTED", label: `Pending ${PTW_ICON.SUBMITTED}` },
+  { value: "APPROVED", label: `Approved ${PTW_ICON.APPROVED}` },
+  { value: "REJECTED", label: `Rejected ${PTW_ICON.REJECTED}` },
 ];
 
-/** Which PTW pill is on: SUBMITTED (applied) reads as Pending. */
-export const ptwPillOf = (status: string): string => (status === "SUBMITTED" ? "REQUIRED" : status);
+/** Which PTW pill is on (2026-11-26: Pending is SUBMITTED's own pill, no longer folded into Required). */
+export const ptwPillOf = (status: string): string => status;
 
 export const CATEGORY_PREFIX: Record<string, string> = { "site visit": "(SV)", meeting: "(M)", "collect cheque": "(CC)" };
 export const categoryPrefix = (c: string | null | undefined): string | null => CATEGORY_PREFIX[String(c ?? "").trim().toLowerCase()] ?? null;
@@ -196,7 +202,7 @@ export function toggleRequest(e: Pick<CalendarEvent, "id">, t: PanelToggle, curr
   if (!id) return null;
   switch (t.kind) {
     case "ptw":
-      // Pending on a job already applied (SUBMITTED) changes nothing.
+      // The pill already on changes nothing.
       if (ptwPillOf(currentStatus) === t.status) return null;
       return { method: "PATCH", path: `/deliveries/${id}/ptw`, body: { ptwStatus: t.status } };
     case "applicant":
@@ -222,7 +228,7 @@ export function applyToggle(e: CalendarEvent, t: PanelToggle, defaultApplicant?:
   const style = e.style ? { ...e.style } : undefined;
   switch (t.kind) {
     case "ptw": {
-      const status = t.status === "REQUIRED" && ptwStatusOf(e) === "SUBMITTED" ? "SUBMITTED" : t.status;
+      const status = t.status;
       const needed = status !== "NOT_NEEDED";
       let applicant = needed ? e.ptwApplicant ?? null : null;
       if (needed && !applicant && defaultApplicant) applicant = { id: defaultApplicant.id, name: defaultApplicant.name };
@@ -476,7 +482,8 @@ export function slotHints(events: CalendarEvent[], pick: SlotPick): string[] {
 
 // ── Filter bar ──────────────────────────────────────────────────────────────────────────────────────────────────
 
-export type PtwFilter = "needed" | "pending" | "approved" | "rejected" | "none";
+/** 2026-11-26: "required" = REQUIRED, "pending" = SUBMITTED (applied); before, "pending" covered both. */
+export type PtwFilter = "needed" | "required" | "pending" | "approved" | "rejected" | "none";
 
 export interface CalendarFilters {
   /** "yes" = DO generated (a completed DO), "no" = none yet, "" = both. */
@@ -503,7 +510,7 @@ export function parseFilters(raw: string | null | undefined): CalendarFilters {
     const list = (x: unknown) => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
     return {
       doState: v.doState === "yes" || v.doState === "no" ? v.doState : "",
-      ptw: list(v.ptw).filter((s): s is PtwFilter => ["needed", "pending", "approved", "rejected", "none"].includes(s)),
+      ptw: list(v.ptw).filter((s): s is PtwFilter => ["needed", "required", "pending", "approved", "rejected", "none"].includes(s)),
       applicants: list(v.applicants),
       // 2026-11-25: the Category filter is gone for now (a stored choice is ignored, like the round 38 chips).
       categories: [],
@@ -517,7 +524,7 @@ export function parseFilters(raw: string | null | undefined): CalendarFilters {
 function ptwMatches(status: string, want: PtwFilter[]): boolean {
   const s = status.toUpperCase();
   return want.some((w) =>
-    w === "needed" ? s !== "NOT_NEEDED" : w === "pending" ? s === "REQUIRED" || s === "SUBMITTED" : w === "approved" ? s === "APPROVED" : w === "rejected" ? s === "REJECTED" : s === "NOT_NEEDED",
+    w === "needed" ? s !== "NOT_NEEDED" : w === "required" ? s === "REQUIRED" : w === "pending" ? s === "SUBMITTED" : w === "approved" ? s === "APPROVED" : w === "rejected" ? s === "REJECTED" : s === "NOT_NEEDED",
   );
 }
 

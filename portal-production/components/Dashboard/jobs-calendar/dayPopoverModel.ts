@@ -27,7 +27,7 @@ export interface DayPopoverItem {
   title: string;
   /** Timed items: "10pm". */
   time: string;
-  /** ✅ ❌ ⭕ 📌 🟫 and the PTW marks (✋ 👍 👎 + the applicant's circle), shown before the title so they never cut. */
+  /** ✅ ❌ ⭕ 📌 🟫 and the PTW marks (✋ ⏳ 👍 👎 + the applicant's circle), shown before the title so they never cut. */
   markers: string;
   /** All-day bar colours (the bar's own); timed: the dot. */
   bg: string;

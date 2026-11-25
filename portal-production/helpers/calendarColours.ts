@@ -9,17 +9,13 @@ export interface ColourPerson {
   /** true = automatic (nothing picked yet). */
   auto: boolean;
 }
-export interface PtwStatusRow {
-  status: "REQUIRED" | "SUBMITTED" | "APPROVED" | "REJECTED";
-  label: string;
-  /** null = the applicant's colour (the default). */
-  colour: string | null;
-}
+/**
+ * The page's data. 2026-11-26: the PTW "Stripe colour" section is gone; the server still sends `ptw`, `applicants`
+ * and `palettes.ptw` (and keeps any stored status colours), the page no longer reads or sends them.
+ */
 export interface ColoursPage {
   people: ColourPerson[];
-  ptw: PtwStatusRow[];
-  applicants: Array<{ name: string; colour: string }>;
-  palettes: { people: string[]; ptw: string[] };
+  palettes: { people: string[] };
 }
 
 /** What a person row holds in the editor: a picked colour, or null = automatic. */
@@ -27,19 +23,10 @@ export type PersonPick = string | null;
 
 export const pickOf = (p: ColourPerson): PersonPick => (p.auto ? null : p.colour.toLowerCase());
 
-/** The PUT body for what changed (people: picked colour or null = automatic; ptw: colour or null = applicant), or null. */
-export function colourChanges(
-  saved: ColoursPage,
-  people: Record<string, PersonPick>,
-  ptw: Record<string, string | null>,
-): { people?: Array<{ id: string; colour: string | null }>; ptw?: Record<string, string | null> } | null {
+/** The PUT body for what changed (people: picked colour or null = automatic), or null. Never sends `ptw`. */
+export function colourChanges(saved: ColoursPage, people: Record<string, PersonPick>): { people: Array<{ id: string; colour: string | null }> } | null {
   const ppl = saved.people.filter((p) => p.id in people && (people[p.id] ?? null) !== pickOf(p)).map((p) => ({ id: p.id, colour: people[p.id] ?? null }));
-  const st = saved.ptw.filter((r) => r.status in ptw && (ptw[r.status] ?? null) !== (r.colour ?? null));
-  if (!ppl.length && !st.length) return null;
-  return {
-    ...(ppl.length ? { people: ppl } : {}),
-    ...(st.length ? { ptw: Object.fromEntries(st.map((r) => [r.status, ptw[r.status] ?? null])) } : {}),
-  };
+  return ppl.length ? { people: ppl } : null;
 }
 
 /** The colour a person shows with: the pick; for "Automatic", their automatic colour when known (null = given on save). */

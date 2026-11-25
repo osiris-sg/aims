@@ -23,7 +23,7 @@ import { JobsCalendarService, orderDoRows } from './jobs-calendar.service';
 import { CalendarNotesService } from './calendar-notes.service';
 import { CalendarSeriesService } from './calendar-series.service';
 import { jobStyleOf, parseJobStylePatch, stampJobCreator, withStampedApplicant, EMPTY_JOB_STYLE } from '../deliveries/job-style';
-import { AUTO_PALETTE, colourCircle, panelPeople, withPanelFills } from './calendar-style';
+import { AUTO_PALETTE, colourCircle, panelPeople, ptwIcon, withPanelFills } from './calendar-style';
 import { DEFAULT_EXPORT_HEADER, cleanExportHeader, readExportHeader, writeExportHeader } from './calendar-export';
 import { parseRescheduleTarget, zonedInstant } from '../deliveries/calendar-panel';
 import { isCompletedDo, isLiveDo } from './calendar-style';
@@ -77,9 +77,11 @@ describe('calendar style: chips', () => {
     expect(styleOf(input({ ptwStatus: 'SUBMITTED', ptwApplicantId: 'nobody' }), { ...colours, defaultApplicant: null }).bar).toBe(NEUTRAL_BAR);
   });
 
-  it('icons: PTW ✋ pending / applied, 👍 approved, 👎 rejected', () => {
+  it('icons: PTW ✋ required, ⏳ pending (applied), 👍 approved, 👎 rejected', () => {
     expect(icons({ ptwStatus: 'REQUIRED' })).toEqual(['✋']);
-    expect(icons({ ptwStatus: 'SUBMITTED' })).toEqual(['✋']);
+    expect(icons({ ptwStatus: 'SUBMITTED' })).toEqual(['⏳']);
+    expect(ptwIcon('SUBMITTED')).toEqual({ icon: '⏳', label: 'PTW pending' });
+    expect(ptwIcon('REQUIRED')).toEqual({ icon: '✋', label: 'PTW required' });
     expect(icons({ ptwStatus: 'APPROVED' })).toEqual(['👍']);
     expect(icons({ ptwStatus: 'REJECTED' })).toEqual(['👎']);
     expect(icons({ ptwStatus: 'NOT_NEEDED' })).toEqual([]);
@@ -109,7 +111,7 @@ describe('calendar style: chips', () => {
   });
 
   it('the legend is icons only (no people)', () => {
-    expect(CALENDAR_STYLE_LEGEND.map((l) => l.icon)).toEqual(['✋', '👍', '👎', '✅', '❌', '⭕', '📅', '🟫', '📌']);
+    expect(CALENDAR_STYLE_LEGEND.map((l) => l.icon)).toEqual(['✋', '⏳', '👍', '👎', '✅', '❌', '⭕', '📅', '🟫', '📌']);
     expect(JSON.stringify(CALENDAR_STYLE_LEGEND)).not.toMatch(/#[0-9a-f]{6}/i);
   });
 
@@ -412,7 +414,7 @@ const byId = (events: any[], id: string) => events.find((e) => e.id === `aims:${
 describe('jobs calendar with the style on (WCT group)', () => {
   it('fill by salesperson (quotation code or own pick), bar by the stored PTW applicant, icons', async () => {
     const res = await svc(world()).get(P, '2026-11-16', '2026-11-22', { userId: HH });
-    expect(res.style?.legend.map((l) => l.icon)).toEqual(['✋', '👍', '👎', '✅', '❌', '⭕', '📅', '🟫', '📌']);
+    expect(res.style?.legend.map((l) => l.icon)).toEqual(['✋', '⏳', '👍', '👎', '✅', '❌', '⭕', '📅', '🟫', '📌']);
     const order = byId(res.events, 'r-order');
     expect(order.style).toMatchObject({ fill: '#039be5', bar: '#d50000', greyed: false });
     // One completed DO (the draft and the cancelled one don't count).
