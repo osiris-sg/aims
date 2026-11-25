@@ -413,6 +413,10 @@ interface CustomerCodeFieldProps {
   formData: any;
   setFormData: (data: any) => void;
   onOpenDialog?: (fieldName?: string) => void;
+  // Object mode: a typed code + Enter hands the matched customer to the editor's
+  // own handler (currency, rate, salesman, Bill To) instead of storing the bare
+  // customer object here.
+  onResolved?: (customer: any) => void;
   inputSx: any;
   fieldName?: string; // e.g., "customer" or "documentInfo.supplierCode" - defaults to "customer"
   storeMode?: 'object' | 'code'; // 'object' stores full customer object, 'code' stores just the code string
@@ -431,6 +435,7 @@ function CustomerCodeField({
   formData,
   setFormData,
   onOpenDialog,
+  onResolved,
   inputSx,
   fieldName = 'customer',
   storeMode = 'object',
@@ -461,8 +466,12 @@ function CustomerCodeField({
 
   // For object mode, find customer by ID; for code mode, find by code
   const currentValue = getNestedVal(formData, fieldName);
+  // Object mode: the stored customer itself is the fallback — a customer set
+  // by an extract (or any path that is not the picker) may not be in the
+  // preloaded list yet, and the code box used to sit blank beside its name
+  // until a reload (guru 2026-11-25).
   const selectedCustomer = storeMode === 'object'
-    ? customers.find((c: any) => c.id === currentValue?.id)
+    ? customers.find((c: any) => c.id === currentValue?.id) || (currentValue?.id && currentValue?.customerCode ? currentValue : undefined)
     : customers.find((c: any) => c.customerCode === currentValue);
 
   const [customerCodeInput, setCustomerCodeInput] = React.useState(
@@ -575,7 +584,13 @@ function CustomerCodeField({
         }
       }
       if (foundCustomer) {
-        if (storeMode === 'object') {
+        if (storeMode === 'object' && foundCustomer.id && foundCustomer.id === selectedCustomer?.id) {
+          // Enter passing THROUGH a code already on the document is not a
+          // pick: nothing is re-applied (guru 2026-11-25: a keyed Rate went
+          // back to the standing rate when Enter crossed the customer box).
+        } else if (storeMode === 'object' && onResolved) {
+          onResolved(foundCustomer);
+        } else if (storeMode === 'object') {
           setFormData({
             ...formData,
             customer: {
@@ -951,6 +966,8 @@ interface DynamicFormFieldsProps {
   siteOffices?: any[];
   salesmen?: Salesman[];
   onOpenCustomerDialog?: (fieldName?: string) => void;
+  // See CustomerCodeField.onResolved.
+  onCustomerResolved?: (customer: any) => void;
   onOpenSupplierDialog?: (fieldName?: string) => void;
   onOpenSalesmanDialog?: (fieldName?: string) => void;
 }
@@ -1108,6 +1125,7 @@ export default function DynamicFormFields({
   siteOffices = [],
   salesmen = [],
   onOpenCustomerDialog,
+  onCustomerResolved,
   onOpenSupplierDialog,
   onOpenSalesmanDialog,
 }: DynamicFormFieldsProps) {
@@ -1215,6 +1233,7 @@ export default function DynamicFormFields({
             formData={formData}
             setFormData={setFormData}
             onOpenDialog={onOpenCustomerDialog}
+            onResolved={onCustomerResolved}
             inputSx={inputSx}
             showAttentionFields={!pairContactTerms}
             hideContactControls={pairContactTerms}
@@ -1827,6 +1846,11 @@ export default function DynamicFormFields({
           box used to sit there (guru 2026-10-24). */}
       {(prependRightRow || rightFields.length > 0 || rightAppend) && (
       <Box
+        // data-enter-ignore: Enter walks the LEFT header fields and the items
+        // grid, never the Rate / Disc / Tax / GST / totals column (guru
+        // 2026-11-25: "Enter shouldn't go to the rate section"). Tab / click
+        // still reach these, every document type.
+        data-enter-ignore
         sx={{
           minWidth: { xs: 0, md: 300 },
           width: { xs: '100%', md: 'auto' },

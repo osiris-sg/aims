@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import RateInput from "@/components/RateInput";
 import DateInput from "@/components/DateInput";
+import { setOrgFx } from "@/helpers/orgFx";
 import {
   Box,
   Button,
@@ -125,6 +126,11 @@ export default function FinancialSettingsTab({
   const handleSave = async () => {
     setSaving(true);
     try {
+      const currencyRates = Object.fromEntries(
+        rates
+          .filter((r) => r.code.trim() && Number(r.rate) > 0)
+          .map((r) => [r.code.trim().toUpperCase(), Number(r.rate)]),
+      );
       await onSave({
         baseCurrency: form.baseCurrency,
         fiscalYearEndDay: Number(form.fiscalYearEndDay) || 31,
@@ -139,12 +145,10 @@ export default function FinancialSettingsTab({
         lockedThroughDate: form.lockedThroughDate || null,
         staffLockedThroughDate: form.staffLockedThroughDate || null,
         timeZone: form.timeZone,
-        currencyRates: Object.fromEntries(
-          rates
-            .filter((r) => r.code.trim() && Number(r.rate) > 0)
-            .map((r) => [r.code.trim().toUpperCase(), Number(r.rate)]),
-        ),
+        currencyRates,
       });
+      // Editors open in this session price at the rates just locked in.
+      setOrgFx({ baseCurrency: form.baseCurrency, currencyRates });
     } finally {
       setSaving(false);
     }

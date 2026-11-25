@@ -60,6 +60,7 @@ import DocumentRefLink from "@/components/DocumentRefLink";
 import { todayIso } from "@/helpers/orgToday";
 import EditorRail from "./EditorRail";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
+import { standingRateFor } from "@/helpers/orgFx";
 
 // ---------------------------------------------------------------------------
 // Field definitions — none of these names appear in HEADER_FIELD_ORDER (or the
@@ -232,7 +233,9 @@ export function receiptCustomerPatch(formData: any, c: any) {
       ...(formData.orData || {}),
       allocations: [],
       currency: cur,
-      rate: cur === "SGD" ? 1 : formData.orData?.rate || 1,
+      // The accountant's standing rate for the customer's currency (1 for the
+      // base); a currency with no rate locked in keeps whatever is keyed.
+      rate: standingRateFor(cur) ?? formData.orData?.rate ?? 1,
     },
   };
 }
