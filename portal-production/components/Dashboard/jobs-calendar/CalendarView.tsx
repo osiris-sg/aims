@@ -50,9 +50,11 @@ import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, CHIP_FONT_BASE, CHIP_TEXT, CHIP_TIME, GREYED_OPACITY, chipBorder, chipFill, chipFontOf, applicantLabel, badgeTitle, chipTimeRange, crewLine, crossOrgTarget, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
+import { CALENDAR_TZ, CHIP_FONT_BASE, CHIP_TEXT, CHIP_TIME, GREYED_OPACITY, chipBorder, chipFill, chipFontOf, applicantLabel, badgeTitle, chipTimeRange, crewLine, crossOrgTarget, dayOfInstant, kindLabel, orgLabel, panelColor, MORE_LINK_HANDLED, panelLinks, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
 import DoStatusTag from "@/components/DoStatusTag";
 import StyledJobPanel, { type CalendarActions } from "./StyledJobPanel";
+import DayPopover, { type DayPopoverState } from "./DayPopover";
+import { dayPopoverItems, dayPopoverPosition, dayPopoverWidth, type DayPopoverItem, type PopoverSegEvent } from "./dayPopoverModel";
 import { RETURN_ORG_KEY, chipLines, chipTone, customerOf, hoverLines, remarksLine, rescheduleClashes, returnOrgMarker, scheduleLines, type RescheduleTarget } from "./calendarPanel";
 
 interface Props {
@@ -358,20 +360,30 @@ export default function CalendarView({
     tryFocus();
   }, [tryFocus]);
 
-  const onClick = (arg: EventClickArg) => {
-    arg.jsEvent.preventDefault();
-    if (arg.event.extendedProps.holiday) return;
-    const note = arg.event.extendedProps.note as (CalendarNote & GroupTag) | undefined;
-    const pos = { left: arg.jsEvent.clientX, top: arg.jsEvent.clientY };
+  // A chip's click and a "+N more" card item's click open the same thing (job / note side panel).
+  const openItem = (props: Record<string, any>, pos: { left: number; top: number }) => {
+    if (props.holiday) return;
+    const note = props.note as (CalendarNote & GroupTag) | undefined;
     if (note) return openNote(note, pos);
-    const e = arg.event.extendedProps.event as CalendarEvent;
+    const e = props.event as CalendarEvent;
     if (e?.note) {
       const n = { ...e.note, ...(e.foreign ? { foreign: true as const, orgId: e.orgId, orgName: e.orgName } : {}) } as CalendarNote & GroupTag;
       return openNote(n, pos);
     }
     // WCT: the clicked job, in the panel (desktop and touch alike).
     if (openOnClick) return setPanel({ event: e, day: null });
-    setOpen({ pos: { left: arg.jsEvent.clientX, top: arg.jsEvent.clientY }, event: e });
+    setOpen({ pos, event: e });
+  };
+  const onClick = (arg: EventClickArg) => {
+    arg.jsEvent.preventDefault();
+    openItem(arg.event.extendedProps, { left: arg.jsEvent.clientX, top: arg.jsEvent.clientY });
+  };
+  // "+N more" (WCT, 2026-11-26): Google Calendar's day card over the cell, every item of the day.
+  const [dayPop, setDayPop] = useState<DayPopoverState | null>(null);
+  const onDayPopPick = (i: DayPopoverItem) => {
+    const pos = dayPop?.pos ?? { left: window.innerWidth / 2, top: 160 };
+    setDayPop(null);
+    openItem({ event: i.event, note: i.note, holiday: i.holiday }, pos);
   };
 
   // Only an all-day job is draggable (toCalendarInputs), and only onto another day.
@@ -398,13 +410,33 @@ export default function CalendarView({
     if (mini) return mini.onPick({ ...slotOf(arg.dateStr, arg.allDay), allDay: arg.allDay });
     if (canAdd) onDateClick(arg);
   };
-  const latest = useRef({ onClick, onDrop, onDatesSet, onAnyDateClick });
-  latest.current = { onClick, onDrop, onDatesSet, onAnyDateClick };
+  const onMoreLink = (arg: { date: Date; allSegs: Array<{ event: any }>; jsEvent?: UIEvent }) => {
+    const link = arg.jsEvent?.target instanceof Element ? arg.jsEvent.target : null;
+    const cell = (link?.closest(".fc-daygrid-day, .fc-timegrid-col") ?? link) as HTMLElement | null;
+    const r = cell?.getBoundingClientRect() ?? { left: window.innerWidth / 2 - 120, top: 160, width: 240 };
+    const width = dayPopoverWidth(r.width);
+    const date = dayOfInstant(arg.date);
+    const segs: PopoverSegEvent[] = arg.allSegs.map(({ event: ev }) => ({
+      id: ev.id || ev._instance?.instanceId,
+      title: ev.title,
+      allDay: ev.allDay,
+      start: ev.startStr,
+      end: ev.endStr || null,
+      backgroundColor: ev.backgroundColor,
+      textColor: ev.textColor,
+      display: ev.display,
+      extendedProps: ev.extendedProps,
+    }));
+    setDayPop({ date, width, pos: dayPopoverPosition(r, { width: window.innerWidth }, width), ...dayPopoverItems(date, segs) });
+    return MORE_LINK_HANDLED;
+  };
+  const latest = useRef({ onClick, onDrop, onDatesSet, onAnyDateClick, onMoreLink });
+  latest.current = { onClick, onDrop, onDatesSet, onAnyDateClick, onMoreLink };
   const stableClick = useCallback((arg: EventClickArg) => latest.current.onClick(arg), []);
   const stableDrop = useCallback((arg: EventDropArg) => latest.current.onDrop(arg), []);
   const stableDatesSet = useCallback((arg: DatesSetArg) => latest.current.onDatesSet(arg), []);
   const stableDateClick = useCallback((arg: DateClickArg) => latest.current.onAnyDateClick(arg), []);
-  const stableMoreLink = useMemo(() => panelMoreLink((day) => setPanel({ event: null, day })) as any, []);
+  const stableMoreLink = useCallback((arg: any) => latest.current.onMoreLink(arg), []);
 
   const border = theme.palette.divider;
   return (
@@ -484,7 +516,7 @@ export default function CalendarView({
         eventTimeFormat={EVENT_TIME_FORMAT}
         events={inputs}
         eventClick={mini ? undefined : stableClick}
-        // WCT: the day goes to the panel and FullCalendar opens no pop-over (see MORE_LINK_HANDLED).
+        // WCT: our own day card (DayPopover) and FullCalendar opens no pop-over of its own (see MORE_LINK_HANDLED).
         moreLinkClick={openOnClick && !mini ? stableMoreLink : undefined}
         // Job category (WCT group): the chip's tooltip names it (no tooltip for orgs without categories).
         eventDidMount={eventDidMount}
@@ -542,6 +574,9 @@ export default function CalendarView({
       >
         {open && <EventCard event={open.event} jobWords={jobWords} byPtw={openOnClick} onCrossOrg={onCrossOrg} />}
       </Popover>
+
+      {/* "+N more" (WCT): the day card over the cell. */}
+      <DayPopover state={dayPop} onClose={() => setDayPop(null)} onPick={onDayPopPick} />
 
       {/* Group calendar: a child org's note, read only. */}
       <Popover

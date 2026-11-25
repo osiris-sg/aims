@@ -65,7 +65,9 @@ test("calendar: WCT's legend says Job (not Job / return), popup kind Job; others
   // 2026-11-16 (later): a WCT click or tap opens the job in the side panel (no hover card); other orgs keep the pop-over.
   assert.match(view, /if \(openOnClick\) return setPanel\(\{ event: e, day: null \}\);/);
   assert.doesNotMatch(view, /eventMouseEnter|<Popper/);
-  assert.match(view, /setOpen\(\{ pos: \{ left: arg\.jsEvent\.clientX, top: arg\.jsEvent\.clientY \}, event: e \}\);/);
+  // 2026-11-26: a chip's click and a "+N more" card item open through openItem, at the click position.
+  assert.match(view, /setOpen\(\{ pos, event: e \}\);/);
+  assert.match(view, /openItem\(arg\.event\.extendedProps, \{ left: arg\.jsEvent\.clientX, top: arg\.jsEvent\.clientY \}\);/);
   assert.match(view, /jobWords \? "Open job" : "Open delivery"/);
 });
 
