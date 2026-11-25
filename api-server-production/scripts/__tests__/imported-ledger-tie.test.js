@@ -30,3 +30,13 @@ test('a document dated before the ledger opens is skipped (its sale is in the op
   assert.equal(beforeOpening('14/08/2023', '2024-01-01'), false); // not ISO: not skipped, checked
   assert.equal(beforeOpening(null, '2024-01-01'), false);
 });
+
+test('within S$1 ties (ABSS rounding: 0.11, 0.80, 1.00); over S$1 warns', () => {
+  for (const d of [0.11, 0.8, 1.0, -0.8]) assert.equal(importedLedgerTie({ side: 'AR', docGross: 100, controlNet: 100 + d }).ok, true);
+  assert.deepEqual(importedLedgerTie({ side: 'AR', docGross: 100, controlNet: 101.01 }), { ok: false, diff: 1.01 });
+  assert.equal(importedLedgerTie({ side: 'AP', docGross: 100, controlNet: -101.5 }).ok, false);
+});
+
+test('a $1 placeholder ABSS booked nothing for still warns (not rounding)', () => {
+  assert.deepEqual(importedLedgerTie({ side: 'AR', docGross: 1, controlNet: 0 }), { ok: false, diff: -1 });
+});

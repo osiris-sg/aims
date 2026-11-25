@@ -10,18 +10,23 @@
  */
 const IMPORTED_LEDGER_PREFIX = 'abss-gl:';
 
+/** Owner 2026-11-25: an ABSS-source document within S$1 of its entries ties (cents from ABSS rounding per line).
+ *  Not when ABSS booked nothing at all (a $1 placeholder, a reversed sale): that is a real difference, not rounding. */
+const IMPORTED_LEDGER_TOLERANCE = 1.0;
+
 const isImportedLedger = (createdBy) => typeof createdBy === 'string' && createdBy.startsWith(IMPORTED_LEDGER_PREFIX);
 
 /**
  * @param {{ side: 'AR'|'AP', docGross: number, controlNet: number }} f
  *   controlNet: Σ(debit − credit) on the control account over every live entry under the number.
- * @returns {{ ok: boolean, diff: number }} ok within 2 cents. AR: the net debit should equal the gross; AP: the net
+ * @returns {{ ok: boolean, diff: number }} ok within S$1 (IMPORTED_LEDGER_TOLERANCE). AR: the net debit should equal the gross; AP: the net
  *   credit should.
  */
 function importedLedgerTie({ side, docGross, controlNet }) {
   const booked = side === 'AP' ? -controlNet : controlNet;
   const diff = Math.round((booked - docGross) * 100) / 100;
-  return { ok: Math.abs(diff) <= 0.02, diff };
+  const rounding = Math.abs(booked) >= 0.005 && Math.abs(diff) <= IMPORTED_LEDGER_TOLERANCE + 1e-9;
+  return { ok: Math.abs(diff) <= 0.02 || rounding, diff };
 }
 
 /** A document dated before the ledger's opening day: its original sale is in the opening balance (only later
@@ -38,4 +43,4 @@ function perOrg(rows) {
   return [...m.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]))).map(([o, n]) => `${o} ${n}`).join(', ');
 }
 
-module.exports = { IMPORTED_LEDGER_PREFIX, isImportedLedger, importedLedgerTie, perOrg, beforeOpening };
+module.exports = { IMPORTED_LEDGER_PREFIX, IMPORTED_LEDGER_TOLERANCE, isImportedLedger, importedLedgerTie, perOrg, beforeOpening };
