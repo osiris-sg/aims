@@ -26,6 +26,9 @@ const NET = 50.0395;
 const OLD_CIF = 170690.23;
 const apply = process.argv.includes('--apply') && process.argv.includes('--confirm-prod');
 const htmlOut = process.argv.find((a) => a.startsWith('--html='))?.slice(7);
+/** --only=product,net,draft,cif — limit to these parts (Elroy 25 Nov: GO on product + net only; draft + CIF held). */
+const only = process.argv.find((a) => a.startsWith('--only='))?.slice(7).split(',');
+const part = (k: string) => !only || only.includes(k);
 
 (async () => {
   const p = new PrismaClient({ datasources: { db: { url: process.env.DBURL } } });
@@ -38,20 +41,20 @@ const htmlOut = process.argv.find((a) => a.startsWith('--html='))?.slice(7);
   const prof = profiles[SANKYO];
   const prod = (prof?.products ?? []).find((x: any) => x.id === PRODUCT);
   if (!prod) throw new Error('Sankyo 6063 product not found');
-  const doProduct = !prod.priceMode;
+  const doProduct = part('product') && !prod.priceMode;
   if (doProduct) plan.push(`Sankyo ${prod.grade} ${prod.form}: price basis — → Fixed unit price (all-in) ${PRICE.toFixed(2)} USD/MT`);
   else plan.push(`(unchanged) Sankyo product already priced: ${prod.priceMode} ${prod.fixedUnitPrice ?? ''}`);
 
   // 2. net weight at B/L precision
   const s: any = await p.shipment.findFirst({ where: { id: SHIPMENT, organizationId: ORG }, select: { netWeightMt: true, grossWeightMt: true, costs: true, seqNo: true, order: { select: { orderNo: true, year: true } } } });
   const net = s.netWeightMt === null ? null : Number(s.netWeightMt);
-  const doNet = net === 50.04;
+  const doNet = part('net') && net === 50.04;
   if (doNet) plan.push(`#24-1 net weight 50.04 → ${NET} MT (B/L 50,039.5 KGS)`);
   else plan.push(`(unchanged) #24-1 net weight ${net}`);
 
   // 3. new fixed-price draft
   const docs: any[] = await p.tradeGeneratedDoc.findMany({ where: { organizationId: ORG, shipmentId: SHIPMENT, docType: 'SGJP_IV_PL' }, select: { id: true, number: true, status: true, docRef: true, header: true, rows: true } });
-  const haveFixedDraft = docs.some((d) => d.status === 'DRAFT' && (d.rows ?? []).some((r: any) => r?.priceMode === 'FIXED_ALL_IN'));
+  const haveFixedDraft = !part('draft') || docs.some((d) => d.status === 'DRAFT' && (d.rows ?? []).some((r: any) => r?.priceMode === 'FIXED_ALL_IN'));
   const skt = docs.find((d) => d.id === SKT);
   if (!skt) throw new Error('ADH20261120-SKT not found');
   const header: SgjpHeaderV2 = { ...(skt.header as SgjpHeaderV2), invoiceNo: 'ADH20261125', invoiceDate: '2026-11-25' };
@@ -78,13 +81,13 @@ const htmlOut = process.argv.find((a) => a.startsWith('--html='))?.slice(7);
   while (refs.has(`26-24-1-SGJP-${n}`)) n++;
   const docRef = `26-24-1-SGJP-${n}`;
   if (!haveFixedDraft) plan.push(`NEW draft SG→JP ${header.invoiceNo} (${docRef}): ${NET} MT × ${PRICE.toFixed(2)} = US$${total.toFixed(2)} · POR/POL ${header.placeOfReceipt} / ${header.portOfLoading}`);
-  else plan.push('(unchanged) a fixed-price SG→JP draft already exists on #24-1');
+  else plan.push(part('draft') ? '(unchanged) a fixed-price SG→JP draft already exists on #24-1' : '(held) new SG→JP draft — not in --only');
   for (const d of docs) plan.push(`  kept: ${d.number ?? '(draft)'} ${d.status} ${d.docRef} total US$${sgjpTotals(d.rows ?? []).amount.toFixed(2)}`);
   if (htmlOut) fs.writeFileSync(htmlOut, renderSgjpV2Html(header, [item], { draft: true }));
 
   // 4. CIF
   const costs = (s.costs ?? {}) as Record<string, unknown>;
-  const doCif = Number(costs.cifUsd) === OLD_CIF;
+  const doCif = part('cif') && Number(costs.cifUsd) === OLD_CIF;
   if (doCif) plan.push(`#24-1 step 7 CIF ${OLD_CIF} (ADH20261120-SKT formula total) → ${total.toFixed(2)}`);
   else plan.push(`(unchanged) #24-1 CIF ${costs.cifUsd ?? '—'}`);
 
@@ -122,7 +125,7 @@ const htmlOut = process.argv.find((a) => a.startsWith('--html='))?.slice(7);
     log.cifUsd = { from: OLD_CIF, to: total };
   }
   await p.actionLog.create({
-    data: { actorType: 'SYSTEM', actorId: 'system:bz-24-sankyo', actorName: 'System creation', organizationId: ORG, channel: 'cron', action: 'UPDATE', resource: 'shipments', resourceId: SHIPMENT, details: { note: 'Round BZ: Sankyo fixed all-in price 3,750 USD/MT; #24-1 net 50.0395; new SG→JP draft ADH20261125 at the fixed price; CIF follows it', ...log, draftId } as any },
+    data: { actorType: 'SYSTEM', actorId: 'system:bz-24-sankyo', actorName: 'System creation', organizationId: ORG, channel: 'cron', action: 'UPDATE', resource: 'shipments', resourceId: SHIPMENT, details: { note: `Round BZ: ${Object.keys(log).filter((k) => k !== 'at').join(', ')} (Sankyo fixed all-in 3,750 USD/MT / #24-1 B/L net 50.0395)`, only: only ?? null, ...log, draftId } as any },
   });
   fs.writeFileSync('scripts/_bz-24-sankyo.log.json', JSON.stringify(log, null, 2));
   console.log(`APPLIED ${writes} write(s); log scripts/_bz-24-sankyo.log.json`);
