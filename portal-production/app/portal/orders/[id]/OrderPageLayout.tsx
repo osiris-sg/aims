@@ -112,7 +112,7 @@ function Card({ card, n, onClick, onUploadDo }: { card: OrderCard; n: number; on
                 data-tour="wct-order-card-upload-do"
                 sx={{ display: "block", p: 0, mt: 0.25, border: 0, background: "none", cursor: "pointer", color: "primary.main", font: "inherit", fontSize: "0.75rem", fontWeight: 600, textAlign: "left" }}
               >
-                Upload completed DO
+                Attach signed copy
               </Box>
             )}
           </Typography>
@@ -260,7 +260,7 @@ export default function OrderPageLayout({
   onRow: (row: OrderDocRow) => void;
   onRowMenu: (row: OrderDocRow, pos: Pos) => void;
   onFile: (row: OrderDocRow) => void;
-  /** The DO card's "Upload completed DO" under a pending DO (2026-11-23). */
+  /** The DO card's "Attach signed copy" under a pending DO (2026-11-23). */
   onUploadDo?: (doId: string) => void;
   busy?: Partial<Record<OrderAction["key"], boolean>>;
   alerts?: React.ReactNode;

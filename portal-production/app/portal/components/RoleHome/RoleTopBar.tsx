@@ -38,7 +38,9 @@ import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import CheckIcon from "@mui/icons-material/Check";
 import LogoutIcon from "@mui/icons-material/Logout";
 import ManageAccountsOutlinedIcon from "@mui/icons-material/ManageAccountsOutlined";
-import { useClerk, useUser } from "@clerk/nextjs";
+import { useAuth, useClerk, useUser } from "@clerk/nextjs";
+import { request } from "@/helpers/request";
+import { previewableRoles, readRolePreview, startRolePreview, stopRolePreview, type RolePreview } from "@/helpers/rolePreview";
 import { useThemeMode } from "@/contexts/ThemeModeContext";
 import NotificationBell from "@/components/NotificationBell";
 import { TopNavOrgSwitcher } from "@/components/TopNav/TopNavBar";
@@ -69,9 +71,31 @@ export default function RoleTopBar() {
   const { signOut, openUserProfile } = useClerk();
   const { navModules, settingsMenu, isMasterTier } = useNavModules();
   const { moduleName, subLabel, settingLabel } = useNavLabels();
-  const { isAimsChatEnabled, isAppSwitcherHidden } = useOrganizationFeatures();
+  const { isAimsChatEnabled, isAppSwitcherHidden, isWctDocNavEnabled } = useOrganizationFeatures();
   const { roleId, setRoleId, role } = useRoleView();
   const [menu, setMenu] = React.useState<{ code: string; anchor: HTMLElement } | null>(null);
+  // Role preview (2026-11-25): "Viewing as" also lists the org's roles (custom ones like Salesperson included); picking
+  // one shows the portal's menus as that role (helpers/rolePreview.ts). Only people who can read roles get the list.
+  const { getToken } = useAuth();
+  const [orgRoles, setOrgRoles] = React.useState<Array<{ id: string; name: string; organizationId?: string }> | null>(null);
+  const [preview, setPreview] = React.useState<RolePreview | null>(null);
+  React.useEffect(() => setPreview(readRolePreview()), []);
+  React.useEffect(() => {
+    if (menu?.code !== "ROLE" || orgRoles || !isWctDocNavEnabled) return;
+    void (async () => {
+      const token = await getToken().catch(() => null);
+      const r: any = token ? await request({ path: "/roles?limit=100", method: "GET", quiet: true }, {}, token).catch(() => null) : null;
+      const rows: any[] = r?.success ? r.data?.roles ?? [] : [];
+      setOrgRoles(rows.map((x) => ({ id: x.id, name: x.name, organizationId: x.organizationId })));
+    })();
+  }, [menu?.code, orgRoles, getToken, isWctDocNavEnabled]);
+  const pickPreview = (r: { id: string; name: string; organizationId?: string } | null) => {
+    setMenu(null);
+    if (r) startRolePreview({ orgId: r.organizationId ?? "", roleId: r.id, name: r.name });
+    else stopRolePreview();
+    // Every menu reads the roles once on load: start again on the home page.
+    window.location.assign("/portal");
+  };
 
   const tn = useTranslations("shell.nav");
   // A record opened from a list carries ?from=<list path>: the menu it came
@@ -352,6 +376,11 @@ export default function RoleTopBar() {
         <Stack direction="row" alignItems="center" gap={0.5} sx={{ flexShrink: 0 }}>
           {/* The same "search anything" field as the normal bar (guru 2026-11-13). */}
           <GlobalSearch light />
+          {preview && (
+            <Button size="small" variant="outlined" color="warning" onClick={() => pickPreview(null)} data-testid="role-preview-chip" sx={{ textTransform: "none", whiteSpace: "nowrap", borderRadius: 999 }}>
+              Menus as {preview.name} ✕
+            </Button>
+          )}
           <TopNavOrgSwitcher light />
           {!isAppSwitcherHidden && <AppSwitcher iconColor={dark ? "rgba(255,255,255,0.7)" : "#94A3B8"} />}
           <NotificationBell iconColor={dark ? "rgba(255,255,255,0.85)" : INK} />
@@ -402,6 +431,27 @@ export default function RoleTopBar() {
                 {id === roleId && <CheckIcon sx={{ fontSize: "1.1rem", color: TEAL }} />}
               </MenuItem>
             )),
+            ...(previewableRoles(orgRoles).length || preview
+              ? [
+                  <Divider key="roles-div" sx={{ my: 0.75 }} />,
+                  <Typography key="roles-lbl" sx={{ px: 2, py: 0.5, fontSize: "0.75rem", color: "text.secondary" }}>
+                    Menus as role
+                  </Typography>,
+                  ...previewableRoles(orgRoles).map((r) => (
+                    <MenuItem key={`rp-${r.id}`} onClick={() => pickPreview({ ...r, organizationId: orgRoles?.find((x) => x.id === r.id)?.organizationId })} data-testid={`role-preview-${r.id}`} sx={{ gap: 1.5, py: 0.75 }}>
+                      <Typography sx={{ flex: 1, fontSize: "0.875rem" }}>{r.name}</Typography>
+                      {preview?.roleId === r.id && <CheckIcon sx={{ fontSize: "1.1rem", color: TEAL }} />}
+                    </MenuItem>
+                  )),
+                  ...(preview
+                    ? [
+                        <MenuItem key="rp-stop" onClick={() => pickPreview(null)} data-testid="role-preview-stop" sx={{ py: 0.75, fontSize: "0.875rem", color: "primary.main" }}>
+                          Back to my own menus
+                        </MenuItem>,
+                      ]
+                    : []),
+                ]
+              : []),
             // The account half of the menu — what the normal bar's Clerk
             // avatar offers (this bar draws its own chip, so it has to).
             <Divider key="acct-div" sx={{ my: 0.75 }} />,

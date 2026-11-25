@@ -1,4 +1,4 @@
-// Order page "Upload completed DO" (23 Nov): the DO page's own Complete DO upload, from the DO card and the DO row menu.
+// Order page "Attach signed copy" (23 Nov): the DO page's own Complete DO upload, from the DO card and the DO row menu.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -6,7 +6,7 @@ import { withDoUploads } from "./orderPage.ts";
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
-test("only pending DOs get Upload completed DO on the DO card (not completed, not on a sign link, not ERP, manual flow only)", () => {
+test("only pending DOs get Attach signed copy on the DO card (not completed, not on a sign link, not ERP, manual flow only)", () => {
   const dos = [
     { id: "a", name: "DO202611030", completed: false },
     { id: "b", name: "DO202611031", completed: true },
@@ -32,7 +32,7 @@ test("same dialog as the DO page, opened on Upload signed DO; the file opens fro
   assert.match(page, /if \(r\.file\.fileKey\) return void window\.open\(publicFileUrl\(r\.file\.fileKey\)/);
   const menu = read("app/portal/orders/[id]/OrderDosSection.tsx");
   assert.match(menu, /d && !d\.completed && !cancelled && onUploadDo && \(/);
-  assert.match(menu, /Upload completed DO/);
+  assert.match(menu, /Attach signed copy/);
   assert.match(read("app/portal/orders/[id]/OrderPageLayout.tsx"), /d\.uploadDoId && onUploadDo &&/);
   assert.match(read("helpers/orderPage.ts"), /d\.completed && d\.stampedFileKey\s*\? \{ label: "File", path: "", fileKey: String\(d\.stampedFileKey\) \}/);
 });

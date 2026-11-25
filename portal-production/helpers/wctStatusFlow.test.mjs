@@ -55,3 +55,15 @@ test("list filter options follow the document type", () => {
   assert.equal(flowStatusOptions(["PURCHASE_ORDER"]), null);
   assert.equal(flowStatusOptions([]), null);
 });
+
+// 2026-11-25: the order page / hub DO word follows the DO list and editor rule (Draft = system-made, Pending = saved).
+import { flowDoRowWord } from "./wctStatusFlow.ts";
+test("DO row word: same rule as the DO list", () => {
+  assert.equal(flowDoRowWord({ status: "unconfirmed" }), "Draft");
+  assert.equal(flowDoRowWord({ status: "unconfirmed", saved: true }), "Pending");
+  assert.equal(flowDoRowWord({ status: "unconfirmed", awaitingSignature: true }), "Pending");
+  assert.equal(flowDoRowWord({ status: "confirmed" }), "Pending");
+  assert.equal(flowDoRowWord({ status: "delivered_installed", completed: true }), "Accepted");
+  assert.equal(flowDocStatus({ type: "DELIVERY_ORDER", status: "unconfirmed", config: {} }).label, flowDoRowWord({ status: "unconfirmed" }));
+  assert.equal(flowDocStatus({ type: "DELIVERY_ORDER", status: "unconfirmed", config: { savedAt: "x" } }).label, flowDoRowWord({ status: "unconfirmed", saved: true }));
+});

@@ -35,7 +35,7 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import CloseIcon from "@mui/icons-material/Close";
 import { request } from "@/helpers/request";
-import { fmtMoney, previewSplit, splitLeft, type SplitMode, type SplitPlan, type SplitRow } from "@/helpers/invoiceSplit";
+import { fmtMoney, previewSplit, splitBaseOf, splitLeft, type SplitMode, type SplitPlan, type SplitRow } from "@/helpers/invoiceSplit";
 
 const n = (v: string) => (v.trim() === "" ? NaN : Number(v));
 const money = (v: number) => v.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -76,6 +76,9 @@ export default function InvoiceSplitDialog({
   );
   const preview = useMemo(() => previewSplit(config, plan, baseNumber), [config, plan, baseNumber]);
   const left = useMemo(() => splitLeft(preview.contractValue, plan), [preview.contractValue, plan]);
+  // 2026-11-25: the contract value, $ amounts and what is left are before GST; said so when the invoice has GST.
+  const preGst = useMemo(() => (splitBaseOf(config).original.gstAmount ?? 0) > 0.004, [config]);
+  const beforeGst = preGst ? " before GST" : "";
 
   const rows = mode === "rate" ? rates : rest;
   const setRows = mode === "rate" ? setRates : setRest;
@@ -108,7 +111,7 @@ export default function InvoiceSplitDialog({
           </ToggleButtonGroup>
           <Box sx={{ flex: 1 }} />
           <Typography variant="body2" color="text.secondary">
-            Contract value {fmtMoney(preview.contractValue)}
+            Contract value{beforeGst} {fmtMoney(preview.contractValue)}
           </Typography>
         </Stack>
 
@@ -127,8 +130,12 @@ export default function InvoiceSplitDialog({
                 value={dep}
                 onChange={(e) => setDep(e.target.value.replace(/[^\d.]/g, ""))}
                 inputProps={{ inputMode: "decimal", "aria-label": "Deposit" }}
-                InputProps={depKind === "percent" ? { endAdornment: <InputAdornment position="end">%</InputAdornment> } : { startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                sx={{ width: 160 }}
+                InputProps={
+                  depKind === "percent"
+                    ? { endAdornment: <InputAdornment position="end">%</InputAdornment> }
+                    : { startAdornment: <InputAdornment position="start">$</InputAdornment>, ...(preGst ? { endAdornment: <InputAdornment position="end">before GST</InputAdornment> } : {}) }
+                }
+                sx={{ width: depKind === "amount" && preGst ? 230 : 160 }}
               />
             </Stack>
           )}
@@ -154,10 +161,10 @@ export default function InvoiceSplitDialog({
                 inputProps={{ inputMode: "decimal", "aria-label": `${r.kind === "amount" ? "Amount" : "Rate"} of ${baseNumber}-${partNo(i)}` }}
                 InputProps={
                   r.kind === "amount"
-                    ? { startAdornment: <InputAdornment position="start">$</InputAdornment> }
+                    ? { startAdornment: <InputAdornment position="start">$</InputAdornment>, ...(preGst ? { endAdornment: <InputAdornment position="end">before GST</InputAdornment> } : {}) }
                     : { endAdornment: <InputAdornment position="end">{mode === "deposit" ? "% of remainder" : "%"}</InputAdornment> }
                 }
-                sx={{ width: mode === "deposit" ? 230 : 160 }}
+                sx={{ width: mode === "deposit" || (r.kind === "amount" && preGst) ? 230 : 160 }}
               />
               {rows.length > 1 && (
                 <IconButton size="small" aria-label="Remove" onClick={() => setRows(rows.filter((_x, j) => j !== i))}>
@@ -172,7 +179,7 @@ export default function InvoiceSplitDialog({
             </Button>
             <Box sx={{ flex: 1 }} />
             <Typography variant="body2" data-testid="split-left" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, color: Math.abs(left) < 0.005 ? "success.main" : left < 0 ? "error.main" : "warning.main" }}>
-              {left < -0.004 ? `Over ${fmtMoney(-left)}` : `Left ${fmtMoney(Math.max(0, left))}`}
+              {left < -0.004 ? `Over ${fmtMoney(-left)}${beforeGst}` : `Left ${fmtMoney(Math.max(0, left))}${beforeGst}`}
             </Typography>
           </Stack>
         </Stack>

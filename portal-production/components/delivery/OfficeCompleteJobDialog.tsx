@@ -22,7 +22,7 @@ type Unit = { id: string; sku: string; serialNumber: string | null; assetId: str
  *   Send for signature  the quotation's sign link + public sign page, DO version (DoSignLinkDialog). Signing
  *                       completes the DO / job the same way the on-screen signature did.
  *   Confirm             completed now, without a signature (product lines: pick their units first).
- * Opened with initialMode "stamped_do" (the order page's "Upload completed DO", the DO's "Attach signed copy") it
+ * Opened with initialMode "stamped_do" (the order page's "Attach signed copy", the DO's "Attach signed copy") it
  * attaches the signed copy and completes the DO.
  * The on-screen "Customer signs here" is no longer offered in the office: the field apps keep their own sign-off.
  */
@@ -49,7 +49,7 @@ export default function OfficeCompleteJobDialog({
   onDone: (mode: Mode) => void;
   /** DO first (manual flow, 2026-11-13): complete this DO (deliveryId is unused then; the server uses its job if it has a scheduled one). */
   doId?: string;
-  /** "stamped_do": attach the signed copy (the order page's "Upload completed DO", the DO's "Attach signed copy"). */
+  /** "stamped_do": attach the signed copy (the order page's "Attach signed copy", the DO's "Attach signed copy"). */
   initialMode?: "stamped_do" | string;
   /** The DO a job's "Send for signature" signs (its job's DO). Defaults to doId. */
   signDocId?: string | null;

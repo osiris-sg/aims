@@ -6,6 +6,7 @@ import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { rolesAllowModule, rolesHavePermission } from "@/helpers/multiRole";
 import { effectiveTabAccess, type TabAccessMap } from "@/helpers/customAccess";
+import { readRolePreview } from "@/helpers/rolePreview";
 
 interface Permission {
   id: string;
@@ -46,15 +47,24 @@ export function useUserPermissions() {
           return;
         }
 
-        const response = await request(
-          {
-            path: `/users/me/roles`,
-            method: "GET",
-            quiet: true,
-          },
-          {},
-          token
-        );
+        // Role preview ("Viewing as" a role, 2026-11-25): that role's menus instead of the person's own. The server
+        // scopes the role to the current org; anywhere it doesn't apply, the person's own roles are used.
+        const preview = readRolePreview();
+        const previewed = preview
+          ? await request({ path: `/roles/${encodeURIComponent(preview.roleId)}/preview`, method: "GET", quiet: true }, {}, token).catch(() => null)
+          : null;
+        const response =
+          previewed?.success && Array.isArray(previewed.data) && previewed.data.length
+            ? previewed
+            : await request(
+                {
+                  path: `/users/me/roles`,
+                  method: "GET",
+                  quiet: true,
+                },
+                {},
+                token
+              );
 
         if (response.success) {
           setUserRoles(response.data || []);

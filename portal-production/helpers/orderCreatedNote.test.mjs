@@ -13,7 +13,7 @@ const memStore = () => {
 test("an order made by this confirm shows once", () => {
   const s = memStore();
   markQuotationConfirmed(s, "q1", new Date("2026-11-23T06:00:00.000Z"));
-  assert.equal(takeOrderCreated(s, "q1", { createdAt: "2026-11-23T06:00:01.000Z" }), true);
+  assert.equal(takeOrderCreated(s, "q1", { createdAt: "2026-11-23T06:00:01.000Z" }, new Date("2026-11-23T06:00:05.000Z")), true);
   assert.equal(s.m.has(confirmKey("q1")), false);
   assert.equal(takeOrderCreated(s, "q1", { createdAt: "2026-11-23T06:00:01.000Z" }), false);
 });
@@ -30,7 +30,15 @@ test("a slightly fast browser clock still shows it; another quotation's stamp do
   const s = memStore();
   markQuotationConfirmed(s, "q1", new Date("2026-11-23T06:01:30.000Z"));
   assert.equal(takeOrderCreated(s, "q2", { createdAt: "2026-11-23T06:00:00.000Z" }), false);
-  assert.equal(takeOrderCreated(s, "q1", { createdAt: "2026-11-23T06:00:00.000Z" }), true);
+  assert.equal(takeOrderCreated(s, "q1", { createdAt: "2026-11-23T06:00:00.000Z" }, new Date("2026-11-23T06:01:40.000Z")), true);
+});
+
+test("a stamp from earlier in the tab (e.g. before a GST switch there and back) shows nothing", () => {
+  const s = memStore();
+  markQuotationConfirmed(s, "q1", new Date("2026-11-25T04:15:30.000Z"));
+  // The switch back re-made the order 14 minutes later: no "Order … created".
+  assert.equal(takeOrderCreated(s, "q1", { createdAt: "2026-11-25T04:29:00.000Z" }, new Date("2026-11-25T04:29:05.000Z")), false);
+  assert.equal(s.m.size, 0);
 });
 
 test("no storage or no order: nothing shows, nothing throws", () => {

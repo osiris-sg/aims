@@ -18,7 +18,12 @@ export function markQuotationConfirmed(store: Store | null | undefined, quotatio
 }
 
 /** True once when this tab's confirm made the quotation's order; the stamp is removed either way. */
-export function takeOrderCreated(store: Store | null | undefined, quotationId: string, order: { createdAt?: string | null } | null | undefined): boolean {
+export function takeOrderCreated(
+  store: Store | null | undefined,
+  quotationId: string,
+  order: { createdAt?: string | null } | null | undefined,
+  now: Date = new Date(),
+): boolean {
   if (!store || !quotationId) return false;
   let stamp: string | null = null;
   try {
@@ -31,5 +36,8 @@ export function takeOrderCreated(store: Store | null | undefined, quotationId: s
   const confirmedAt = Date.parse(stamp);
   const createdAt = Date.parse(order.createdAt);
   if (!Number.isFinite(confirmedAt) || !Number.isFinite(createdAt)) return false;
+  // Only right after the confirm (2026-11-25): a stamp left over from earlier in the tab must not announce an order
+  // that a later GST switch (there and back) re-made in this company.
+  if (now.getTime() - confirmedAt > LEEWAY_MS) return false;
   return createdAt >= confirmedAt - LEEWAY_MS;
 }

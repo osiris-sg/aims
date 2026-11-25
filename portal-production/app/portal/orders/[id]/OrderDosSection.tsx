@@ -109,7 +109,7 @@ export function OrderDoMenu({
       )}
       {d && !d.completed && !cancelled && onUploadDo && (
         <MenuItem onClick={() => { onClose(); onUploadDo(d); }} data-tour="wct-order-upload-do">
-          Upload completed DO
+          Attach signed copy
         </MenuItem>
       )}
       {d && !d.completed && !cancelled && <MenuItem onClick={() => void addJob(d)}>Add job</MenuItem>}

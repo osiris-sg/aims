@@ -33,7 +33,7 @@ export interface OrderCardDoc {
   href?: string | null;
   /** Another company's $1-or-less "(NG)" invoice: greyed, "placeholder, not counted" on hover (2026-11-23). */
   placeholder?: boolean;
-  /** A pending DO on the DO card (manual order flow, 2026-11-23): "Upload completed DO" under it opens Complete DO's upload. */
+  /** A pending DO on the DO card (manual order flow, 2026-11-23): "Attach signed copy" under it opens Complete DO's upload. */
   uploadDoId?: string;
 }
 /** A card's click: its first document, else its add action (nothing for a card with neither). */
@@ -446,7 +446,7 @@ export function nativeInvoiceAsk(o: any): string {
 }
 
 /**
- * The DO card's pending DOs (manual order flow, 2026-11-23): "Upload completed DO" under each one not yet completed,
+ * The DO card's pending DOs (manual order flow, 2026-11-23): "Attach signed copy" under each one not yet completed,
  * not waiting for a sign link and not an ERP DO (the DO page's own upload; marks the docs in place and returns them).
  */
 export function withDoUploads(docs: OrderCardDoc[], dos: any[], enabled: boolean): OrderCardDoc[] {

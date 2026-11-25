@@ -107,7 +107,7 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
   const [srMenu, setSrMenu] = useState<{ pos: Pos; doId: string | null } | null>(null);
   // DO first (manual flow, 2026-11-13): complete a DO with no job; its sign link; a DO row's menu.
   const [completeDo, setCompleteDo] = useState<OrderDo | null>(null);
-  // "Upload completed DO" (2026-11-23): the same Complete DO dialog, opened on Upload signed DO.
+  // "Attach signed copy" (2026-11-23): the same Complete DO dialog, opened on Upload signed DO.
   const [completeMode, setCompleteMode] = useState<"stamped_do" | undefined>(undefined);
   const uploadDo = (d: OrderDo) => {
     setCompleteMode("stamped_do");

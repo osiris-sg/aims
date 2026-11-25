@@ -26,6 +26,18 @@ export class RolesController {
     return this.rolesService.findAll(query, userOrganization.id);
   }
 
+  /**
+   * Role preview (2026-11-25, "Viewing as" on the profile menu): one role of the caller's org shaped like
+   * GET /users/me/roles, so an admin can see that role's menus in the portal. Read only: it changes nobody's access,
+   * and the server keeps checking the caller's own roles on every request.
+   */
+  @Get(':id/preview')
+  @UseGuards(ClerkAuthGuard)
+  @Permissions('roles:read')
+  preview(@Param('id') id: string, @UserOrganization() userOrganization: any) {
+    return this.rolesService.previewRoles(id, userOrganization.id);
+  }
+
   @Get(':id')
   @UseGuards(ClerkAuthGuard)
   @Permissions('roles:read')

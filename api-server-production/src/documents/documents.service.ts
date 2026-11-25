@@ -75,6 +75,9 @@ import { insertWithLockedNumber } from '../document-numbering/locked-number';
 import { signBucketUrlsInHtml } from '../common/storage-sign';
 import { GST_MOVE_KEYS, withoutGstMove } from '../common/gst-move-keys';
 
+/** WCT group: invoices and DOs made from another document take their own type's terms (createBasicDocument). */
+const OWN_TERMS_TYPES = new Set(['INVOICE', 'DELIVERY_ORDER']);
+
 /** Create invoice's lines as the office confirmed them in the dialog (round 19 imported, round 36 AIMS orders). */
 // discount / discountType (2026-11-25): the quotation line's discount carried onto the invoice line (% or $ for the line).
 type EditedInvoiceLine = { description: string; quantity: number; unitPrice: number; discount?: number; discountType?: 'percent' | 'amount' };
@@ -3885,7 +3888,8 @@ export class DocumentsService {
     // Round 36 (WCT group order invoices, createOrderInvoice): the number is claimed INSIDE the transaction that
     // writes the row (document-numbering/locked-number.ts), retried on a clash. Absent = unchanged for every caller.
     // keepGstMove: only the GST switch's own credit note keeps its gstMove link (gst-switch.service.ts).
-    opts: { lockedNumber?: boolean; keepGstMove?: boolean } = {},
+    // keepTerms: a duplicate keeps the terms it copied (WCT own-type terms rule below).
+    opts: { lockedNumber?: boolean; keepGstMove?: boolean; keepTerms?: boolean } = {},
   ) {
     // A new document never inherits a GST move ("Previously <no.>", move history, credit / re-issue links) from the
     // document it was made from: a DO or invoice made from a moved quotation is new (WCT group, 2026-11-25).
@@ -4086,6 +4090,18 @@ export class DocumentsService {
       // overrides still win — these only fill empty fields.
       const docTypeDefaults: any = (organization as any)?.docTypeDefaults || {};
       const typeDefaults = (docTypeDefaults && typeof docTypeDefaults === 'object' && docTypeDefaults[type]) || null;
+      // WCT group (enableWctDocNav, 2026-11-25): an invoice or DO made from another document (quotation, DO, order)
+      // prints its OWN type's terms, never the source's. The source's terms are dropped here and the type's default
+      // fills in below; a type with no default terms has no terms block. A duplicate keeps what it copied.
+      if (
+        !opts.keepTerms &&
+        OWN_TERMS_TYPES.has(String(type).toUpperCase()) &&
+        (initialConfig.sourceDocumentId || initialConfig.orderId || initialConfig.sourceDocumentType) &&
+        (await isOrgFeatureEnabled(this.prisma as any, organizationId, LINE_DISCOUNT_FLAG).catch(() => false))
+      ) {
+        delete initialConfig.termsAndConditions;
+        delete di.termsAndConditions;
+      }
       if (typeDefaults) {
         if (!di.termsAndConditions && typeof typeDefaults.tnc === 'string' && typeDefaults.tnc.trim()) {
           di.termsAndConditions = typeDefaults.tnc;
@@ -4813,6 +4829,8 @@ export class DocumentsService {
         duplicatedConfig,
         undefined,
         actor,
+        undefined,
+        { keepTerms: true },
       );
     } catch (error) {
       if (error instanceof HttpException) throw error;

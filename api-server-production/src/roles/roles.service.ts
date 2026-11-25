@@ -5,6 +5,10 @@ import { PrismaService } from 'src/common/prisma.service';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
 
+import { withCustomAccess } from '../access/custom-access';
+/** A user id no one has: the role preview reads no personal Custom access. */
+const PREVIEW_NO_USER = '00000000-0000-0000-0000-000000000000';
+
 @Injectable()
 export class RolesService {
   constructor(private prisma: PrismaService) {}
@@ -74,6 +78,14 @@ export class RolesService {
     } catch (error) {
       throw new BadRequestException('Failed to create role');
     }
+  }
+
+  /** The role as the portal reads the caller's own roles (users.service getUserRoles), for the role preview. */
+  async previewRoles(id: string, organizationId: string) {
+    const role = await this.prisma.role.findFirst({ where: { id, organizationId }, include: { permissions: true } });
+    if (!role) throw new NotFoundException('Role not found');
+    // Nobody's own Custom access applies to a preview: only the role (and its custom tab map, if it has one).
+    return withCustomAccess(this.prisma, organizationId, PREVIEW_NO_USER, [{ ...role, isPrimary: true }]);
   }
 
   async findAll(query: any, organizationId: string) {
