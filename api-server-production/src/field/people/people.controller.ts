@@ -5,6 +5,7 @@ import { Field, FieldAreaGuard, FieldRoute } from '../common/field-area.guard';
 import { fieldAudit } from '../common/field-audit';
 import { FieldCtx } from '../common/field-context.service';
 import { FieldPeopleService } from './people.service';
+import { FieldAppAccessService } from '../app/app-access.service';
 
 /**
  * Field > Workers, Teams, Sites, Trades, Invites, Photos, Linked orgs (FIELD_PLAN.md phase 1).
@@ -16,7 +17,7 @@ import { FieldPeopleService } from './people.service';
 @Controller('field/people')
 @UseGuards(ClerkAuthGuard, FieldAreaGuard)
 export class FieldPeopleController {
-  constructor(private readonly svc: FieldPeopleService) {}
+  constructor(private readonly svc: FieldPeopleService, private readonly appAccess: FieldAppAccessService) {}
 
   // Workers
   @Get('workers')
@@ -54,6 +55,15 @@ export class FieldPeopleController {
     const out = await this.svc.changePhone(ctx, id, body);
     fieldAudit(req, 'WORKER_PHONE_CHANGE', { entity: 'Worker', entityId: id, before: out.before, after: out.after });
     return { worker: out.worker };
+  }
+
+  /** Give app access: the worker can sign in to the AIMS phone app with their phone number (app-access.service.ts). */
+  @Post('workers/:id/app-access')
+  @FieldRoute('people', 'edit')
+  async giveAppAccess(@Field() ctx: FieldCtx, @Param('id') id: string, @Req() req: any) {
+    const { before, after, ...out } = await this.appAccess.give(ctx, id);
+    fieldAudit(req, 'APP_ACCESS_GIVE', { entity: 'Worker', entityId: id, before, after: { ...after, madeLogin: out.madeLogin, addedMember: out.addedMember } });
+    return out;
   }
 
   @Post('workers/:id/reset-device')

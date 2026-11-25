@@ -80,6 +80,8 @@ const FIELD_VERB_ACTIONS: Record<string, string> = {
   restore: 'RESTORE', record: 'CREATE', notify: 'SEND', 'copy-day': 'DUPLICATE', 'copy-week': 'DUPLICATE', 'approve-bulk': 'APPROVE', qr: 'UPDATE',
   // The phone app (/field/app): terms accepted, a missed day asked for.
   accept: 'CONFIRM', 'missed-request': 'SUBMIT',
+  // HR > Workers > Give app access (the worker's phone login is linked).
+  'app-access': 'ASSIGN',
 };
 
 const VERB_ACTIONS: Record<string, string> = {

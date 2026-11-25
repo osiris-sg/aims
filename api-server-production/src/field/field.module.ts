@@ -24,6 +24,7 @@ import { S3Service } from '../common/services/s3.service';
 import { FieldAppGuard } from './app/app-context';
 import { FieldAppController, FieldAppVersionController } from './app/app.controller';
 import { FieldAppService } from './app/app.service';
+import { FieldAppAccessService } from './app/app-access.service';
 
 /**
  * Field module (FIELD_PLAN.md): SiteClock's office side, native in AIMS. Every route is behind
@@ -34,7 +35,7 @@ import { FieldAppService } from './app/app.service';
   // DeliveriesModule: copy day / week creates calendar quick jobs through the calendar's own path.
   imports: [forwardRef(() => DeliveriesModule)],
   controllers: [FieldAppVersionController, FieldAppController, FieldMeController, FieldPeopleController, FieldJobsController, FieldPunchesController, FieldTimesheetsController, FieldLeaveController, FieldPayrollController, FieldReportsController],
-  providers: [PrismaService, S3Service, FieldContextService, FieldAreaGuard, FieldAppGuard, FieldAppService, FieldPeopleService, FieldJobsService, FieldSchedulesService, FieldPunchesService, FieldAutoCloseCron, FieldTimesheetsService, FieldLeaveService, FieldPayrollService, FieldReportsService],
+  providers: [PrismaService, S3Service, FieldContextService, FieldAreaGuard, FieldAppGuard, FieldAppService, FieldAppAccessService, FieldPeopleService, FieldJobsService, FieldSchedulesService, FieldPunchesService, FieldAutoCloseCron, FieldTimesheetsService, FieldLeaveService, FieldPayrollService, FieldReportsService],
   exports: [FieldContextService, FieldPeopleService],
 })
 export class FieldModule {}

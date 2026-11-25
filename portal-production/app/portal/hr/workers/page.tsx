@@ -199,6 +199,9 @@ function Workers({ me }: { me: FieldMe }) {
           <MenuItem key="phone" onClick={() => { setPhoneFor({ row: menu.row, phone: menu.row.phone ?? "", resetDevice: false }); setMenu(null); }}>
             <ListItemText>Change phone</ListItemText>
           </MenuItem>,
+          <MenuItem key="app" disabled={!menu.row.phone || menu.row.active === false} onClick={() => action(`/field/people/workers/${menu.row.id}/app-access`, {}, `${menu.row.name} can now sign in to the AIMS app with their phone number.`)}>
+            <ListItemText>Give app access</ListItemText>
+          </MenuItem>,
           <MenuItem key="device" disabled={!menu.row.device.bound} onClick={() => action(`/field/people/workers/${menu.row.id}/reset-device`, {}, `${menu.row.name} can bind a new phone at the next login.`)}>
             <ListItemText>Reset phone binding</ListItemText>
           </MenuItem>,
