@@ -124,6 +124,23 @@ export const DOC_REMARKS_FLAG = 'enableDocRemarks';
 export const QUOTATION_CATEGORY_FLAG = 'enableQuotationCategory';
 export const SALES_REPORT_FLAG = 'enableSalesReport';
 
+// STOCK CONFIRM GUARD (2026-11-25; Chong Aik only). A Delivery Order or Invoice
+// cannot be CONFIRMED while any stock line is short — the office must not
+// promise goods the warehouse doesn't have. Only lines that resolve to a
+// tracked Inventory row or an Asset with a known on-hand quantity are checked
+// (free-text lines, services, and items with no tracked quantity are skipped,
+// so it never blocks on data it can't verify). Default OFF.
+export const STOCK_CONFIRM_GUARD_FLAG = 'enableStockConfirmGuard';
+
+// AVERAGE COST FROM PO (2026-11-25; Chong Aik parity). When a Purchase Order is
+// confirmed (goods received), each received item's Asset.costPrice is updated to
+// the moving WEIGHTED AVERAGE of what has been paid for it: newCost =
+// (onHandQty * oldCost + receivedQty * poUnitPrice) / (onHandQty + receivedQty).
+// With no stock on hand (qty 0) or no prior cost, the cost simply becomes the
+// latest PO's unit price. This is the item's unit cost shown on the Stock Card.
+// Default OFF (other orgs keep their manually-set cost price).
+export const AVG_COST_FROM_PO_FLAG = 'enableAvgCostFromPo';
+
 // WCT RACKING LAYOUT (2026-11-18; WCT Racking only). On the WCT page layout:
 // no GST Reg No in the letterhead (Racking is not GST registered); on the
 // quotation, section titles take no S/No, a UOM column after Qty, totals read

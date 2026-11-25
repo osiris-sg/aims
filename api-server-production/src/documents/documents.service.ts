@@ -59,7 +59,7 @@ import { deliveryDocLockReason } from './delivery-doc-lock';
 import { isFieldTechOnly } from '../common/admin-role';
 import { ActionLogService } from '../action-log/action-log.service';
 import { QUOTATION_REVISION_FLAG, nextRevision } from './quotation-revision';
-import { SOFT_DELETE_DRAFTS_FLAG, SOFT_DELETED_TYPE, WCT_STATUSES_FLAG, isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, LINE_GL_ACCOUNTS_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
+import { SOFT_DELETE_DRAFTS_FLAG, SOFT_DELETED_TYPE, WCT_STATUSES_FLAG, isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, LINE_GL_ACCOUNTS_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, STOCK_CONFIRM_GUARD_FLAG, AVG_COST_FROM_PO_FLAG, invoicePostingHeld } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { linkedDocIdsForNumber, wantsLinkedSearch } from '../orders/linked-number-search';
 import { SUBJECT_LIST_FLAG, listSubjectOf, pageSubjectsQuery, poNumberSearchQuery, poSearchOn, subjectListOn, subjectSearchQuery, subjectSortQuery } from './list-subject';
@@ -433,6 +433,151 @@ export class DocumentsService {
         ? `Pick "${typed}" from the customer list before confirming this ${what} — a typed name alone leaves it off the customer's Statement of Account.`
         : `Select a customer before confirming this ${what}.`,
     );
+  }
+
+  /** Types whose confirm promises physical stock to leave the warehouse. */
+  private static readonly STOCK_GUARD_TYPES = new Set(['INVOICE', 'TI', 'TI2', 'DO', 'DELIVERY_ORDER']);
+
+  /**
+   * Stock-confirm guard (Chong Aik only, flag enableStockConfirmGuard, guru
+   * 2026-11-25: "when i confirm DO or invoice if any items no stock show cannot
+   * confirm and show the items with no stock").
+   *
+   * A Delivery Order or Invoice cannot be confirmed while any stock line is
+   * short of on-hand. On-hand is read the SAME way the confirm deducts it — the
+   * line's inventoryItemId / assetId resolved to an Inventory row's quantity,
+   * else an Asset's quantity. Lines that don't resolve to a tracked quantity
+   * (free-text, services, assets with a null quantity) are skipped, so the
+   * guard never blocks on a figure it can't verify. Quantities for the same
+   * stock id across lines are summed before the check.
+   */
+  private async assertStockAvailable(config: any, organizationId: string, type: any, what = 'document'): Promise<void> {
+    if (!DocumentsService.STOCK_GUARD_TYPES.has(String(type || '').toUpperCase())) return;
+    if (!(await isOrgFeatureEnabled(this.prisma as any, organizationId, STOCK_CONFIRM_GUARD_FLAG))) return;
+
+    const items: any[] = Array.isArray(config?.items) ? config.items : [];
+    const wanted = new Map<string, number>();
+    const lineForId = new Map<string, any>();
+    for (const it of items) {
+      if (!it || it.isGroupHeader || it.isTagGroup) continue;
+      const id: string | undefined = it.inventoryItemId || it.assetId;
+      if (!id) continue;
+      const qty = parseFloat(it.quantity) || 0;
+      if (qty <= 0) continue;
+      wanted.set(id, (wanted.get(id) || 0) + qty);
+      if (!lineForId.has(id)) lineForId.set(id, it);
+    }
+    if (wanted.size === 0) return;
+
+    const ids = [...wanted.keys()];
+    const [inventories, assets] = await Promise.all([
+      this.prisma.inventory.findMany({ where: { id: { in: ids }, organizationId }, select: { id: true, sku: true, quantity: true } }),
+      this.prisma.asset.findMany({ where: { id: { in: ids }, organizationId }, select: { id: true, name: true, skuKey: true, quantity: true } }),
+    ]);
+    // On-hand: Inventory row wins (that is what the deduction decrements first),
+    // else the Asset's simple quantity. null quantity = untracked → not checked.
+    const onHand = new Map<string, number>();
+    const label = new Map<string, string>();
+    for (const a of assets) {
+      if (a.quantity != null) onHand.set(a.id, a.quantity);
+      label.set(a.id, a.skuKey || a.name || a.id);
+    }
+    for (const inv of inventories) {
+      if (inv.quantity != null) onHand.set(inv.id, inv.quantity);
+      if (!label.has(inv.id)) label.set(inv.id, inv.sku || inv.id);
+    }
+
+    const short: string[] = [];
+    for (const [id, need] of wanted) {
+      if (!onHand.has(id)) continue; // no tracked on-hand figure — can't verify, don't block
+      const have = onHand.get(id)!;
+      if (have < need) {
+        const line = lineForId.get(id);
+        const name = label.get(id) || line?.itemCode || line?.sku || String(line?.description || '').replace(/<[^>]*>/g, '').trim() || 'item';
+        short.push(`${name} (need ${need}, in stock ${have})`);
+      }
+    }
+    if (short.length) {
+      throw new BadRequestException(
+        `Cannot confirm this ${what} - not enough stock: ${short.join('; ')}.`,
+      );
+    }
+  }
+
+  /**
+   * Moving weighted-average cost (enableAvgCostFromPo, Chong Aik; guru
+   * 2026-11-25). When PO goods are received, the item's Asset.costPrice — the
+   * unit cost shown on the Stock Card — is re-blended:
+   *   newCost = (onHandQty * oldCost + receivedQty * poUnitPrice) / (onHandQty + receivedQty)
+   * With no stock on hand (qty 0) or no prior cost, the cost simply becomes the
+   * latest PO's unit price. onHandQtyBefore is the quantity held BEFORE this
+   * receipt. Best-effort: a failure never fails the PO confirmation.
+   */
+  private async applyMovingAvgCost(assetId: string, onHandQtyBefore: number, receivedQty: number, poUnitCost: number): Promise<void> {
+    if (!assetId || !(receivedQty > 0) || !(poUnitCost > 0)) return;
+    try {
+      const asset = await this.prisma.asset.findUnique({ where: { id: assetId }, select: { id: true, costPrice: true } });
+      if (!asset) return;
+      const curQty = Number(onHandQtyBefore) || 0;
+      const curCost = Number(asset.costPrice) || 0;
+      const newCost = curQty <= 0 || curCost <= 0
+        ? poUnitCost
+        : (curQty * curCost + receivedQty * poUnitCost) / (curQty + receivedQty);
+      const rounded = Math.round(newCost * 10000) / 10000;
+      await this.prisma.asset.update({ where: { id: assetId }, data: { costPrice: rounded } });
+      console.log(`\u2696\ufe0f AVG COST: asset ${assetId} ${curCost} -> ${rounded} (on-hand ${curQty} @ ${curCost} + recv ${receivedQty} @ ${poUnitCost})`);
+    } catch (e) {
+      console.error('AVG COST update failed (non-fatal):', (e as Error).message);
+    }
+  }
+
+  /** The per-unit cost a PO line paid. The net line amount / quantity is used
+   *  first so a line discount is reflected (a $100 line of 10 at 10% off is
+   *  $9/unit, not $10); it falls back to the unit price, then the line cost. */
+  private static poUnitCostOf(item: any): number {
+    const amt = Number(item?.amount);
+    const q = Number(item?.quantity) || 0;
+    if (amt > 0 && q > 0) return amt / q;
+    const up = Number(item?.unitPrice);
+    if (up > 0) return up;
+    const cp = Number(item?.costPrice);
+    return cp > 0 ? cp : 0;
+  }
+
+  /**
+   * Last purchase price of an item (guru 2026-11-25: "when I select the item
+   * for PO ... supposed to take last purchase price"). Returns the Unit Price
+   * from the most recent CONFIRMED Purchase Order that carried this item, so a
+   * new PO line prefills with what was last paid instead of the stored cost.
+   * null when the item has never been on a confirmed PO. Scans the 10 newest
+   * matching POs and takes the first that still holds a priced line for it.
+   */
+  async getLastPurchasePrice(assetId: string, organizationId: string): Promise<number | null> {
+    if (!assetId) return null;
+    const docs = await this.prisma.document.findMany({
+      where: {
+        organizationId,
+        type: { in: ['PO', 'PURCHASE_ORDER'] },
+        status: 'confirmed',
+        OR: [
+          { config: { path: ['items'], array_contains: [{ inventoryItemId: assetId }] } },
+          { config: { path: ['items'], array_contains: [{ assetId }] } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: { config: true },
+    });
+    for (const d of docs) {
+      const items: any[] = Array.isArray((d.config as any)?.items) ? (d.config as any).items : [];
+      const line = items.find((it) => it && (it.inventoryItemId === assetId || it.assetId === assetId));
+      if (!line) continue;
+      const up = Number(line.unitPrice);
+      if (up > 0) return Math.round(up * 10000) / 10000;
+      const amt = Number(line.amount), q = Number(line.quantity) || 0;
+      if (amt > 0 && q > 0) return Math.round((amt / q) * 10000) / 10000;
+    }
+    return null;
   }
 
   // Fast list path (WCT only, 2026-11-05): an org with the useDocumentListKeys setting ON whose
@@ -1918,6 +2063,7 @@ export class DocumentsService {
       // Confirming an EMPTY document is refused here as well as in the editor.
       if (doConfirmingNow) this.assertHasLineItems(dto.config ?? existingDocument.config, String(existingDocument.type || 'document').toLowerCase().replace(/_/g, ' '));
       if (doConfirmingNow) this.assertHasCustomer(dto.config ?? existingDocument.config, existingDocument.type, String(existingDocument.type || 'document').toLowerCase().replace(/_/g, ' '));
+      if (doConfirmingNow) await this.assertStockAvailable(dto.config ?? existingDocument.config, organizationId, existingDocument.type, String(existingDocument.type || 'document').toLowerCase().replace(/_/g, ' '));
       let confirmedDoName: string | undefined;
       if (
         doConfirmingNow &&
@@ -2161,6 +2307,7 @@ export class DocumentsService {
           (dto.type === 'PO' || dto.type === 'PURCHASE_ORDER')) {
         try {
           const items = configAsPlainObject?.items || [];
+          const avgCostOn = await isOrgFeatureEnabled(this.prisma as any, organizationId, AVG_COST_FROM_PO_FLAG);
           console.log('📦 PO RECEIVE: Processing Purchase Order confirmation with items:', items.length);
           console.log('📦 PO RECEIVE: Items with receivedQty:', items.map((i: any) => ({ id: i.inventoryItemId, qty: i.quantity, receivedQty: i.receivedQty })));
 
@@ -2194,6 +2341,13 @@ export class DocumentsService {
 
                 console.log(`✅ PO RECEIVE: Updated inventory ${item.inventoryItemId}: ${currentQty} + ${receivedQty} = ${newQty}`);
 
+                if (avgCostOn && inventory.assetId) {
+                  // On-hand across all this asset's inventory rows BEFORE this receipt.
+                  const agg = await this.prisma.inventory.aggregate({ where: { assetId: inventory.assetId }, _sum: { quantity: true } });
+                  const onHandBefore = (agg._sum.quantity || 0) - receivedQty;
+                  await this.applyMovingAvgCost(inventory.assetId, onHandBefore, receivedQty, DocumentsService.poUnitCostOf(item));
+                }
+
                 // Create timeline entry for the inventory update
                 await this.prisma.timelineItem.create({
                   data: {
@@ -2220,6 +2374,8 @@ export class DocumentsService {
                   });
 
                   console.log(`✅ PO RECEIVE: Updated asset ${item.inventoryItemId}: ${currentQty} + ${receivedQty} = ${newQty}`);
+
+                  if (avgCostOn) await this.applyMovingAvgCost(asset.id, currentQty, receivedQty, DocumentsService.poUnitCostOf(item));
                 } else {
                   console.warn('⚠️ PO RECEIVE: Neither inventory nor asset found:', item.inventoryItemId);
                 }
@@ -3705,6 +3861,11 @@ export class DocumentsService {
 
       return deleted;
     } catch (error) {
+      // A refusal (posted to the ledger, payments recorded, locked period, record
+      // lock, not found) is the user's answer — pass it through with its own
+      // status instead of wrapping it as a 500 (2026-11-25: the editor showed
+      // nothing and the invoice just stayed).
+      if (error instanceof HttpException) throw error;
       throw new HttpException(`Delete failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
@@ -8910,6 +9071,7 @@ export class DocumentsService {
       }
       assertNotErpImportedDo(document);
       this.assertHasLineItems((document as any).config, 'delivery order');
+      await this.assertStockAvailable((document as any).config, organizationId, (document as any).type, 'delivery order');
 
       // Validate it's a Delivery Order
       if (document.type !== 'DO' && document.type !== 'DELIVERY_ORDER') {
@@ -9014,6 +9176,7 @@ export class DocumentsService {
       await assertPeriodOpen(this.prisma, { organizationId, date: documentDay(document.config, document.createdAt), actorId: actor?.id, what: document.name || 'This invoice', verb: 'confirmed' });
       this.assertHasLineItems((document as any).config, 'invoice');
       this.assertHasCustomer((document as any).config, (document as any).type, 'invoice');
+      await this.assertStockAvailable((document as any).config, organizationId, (document as any).type, 'invoice');
 
       // Validate it's an Invoice
       const invoiceTypes = ['INVOICE', 'TI', 'TI2'];

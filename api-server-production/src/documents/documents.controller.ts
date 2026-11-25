@@ -176,6 +176,17 @@ export class DocumentsController {
     return await this.documentsService.getDeliveryOrdersByCustomer(customerId, organizationId);
   }
 
+  @Get('last-purchase-price/:assetId')
+  @Permissions('documents:read')
+  async getLastPurchasePrice(@Param('assetId') assetId: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    const price = await this.documentsService.getLastPurchasePrice(assetId, organizationId);
+    return { price };
+  }
+
   @Get('inventory/:inventoryId')
   @Permissions('documents:read-by-inventory')
   async getByInventory(@Param('inventoryId') inventoryId: string, @Req() req: RequestWithOrganization) {

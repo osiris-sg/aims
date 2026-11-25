@@ -91,6 +91,7 @@ interface OrganizationFeatures {
   enableSalesReport?: boolean;
   /** Sales → Reports directory (legacy Sales Report menu); 2026-11-25. */
   enableSalesReports?: boolean;
+  enableAvgCostFromPo?: boolean;
   /** WCT Racking quotation look (2026-11-18; WCT Racking only): UOM column, Goodwill Discount, Racking sign-off, no GST Reg No. */
   enableRackingLayout?: boolean;
   enableJobFields?: boolean;
@@ -405,6 +406,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableQuotationCategory: false,
   enableSalesReport: false,
   enableSalesReports: false,
+  enableAvgCostFromPo: false,
   enableRackingLayout: false,
   enableWctMyJobs: false,
   // WCT finish modes (2026-11-01): stamped-DO photo / paper finish, verified by
@@ -526,6 +528,7 @@ export function useOrganizationFeatures() {
     isQuotationCategoryEnabled: features.enableQuotationCategory ?? false,
     isSalesReportEnabled: features.enableSalesReport ?? false,
     isSalesReportsEnabled: features.enableSalesReports ?? false,
+    isAvgCostFromPoEnabled: features.enableAvgCostFromPo ?? false,
     isRackingLayoutEnabled: features.enableRackingLayout ?? false,
     isJobFieldsEnabled: features.enableJobFields ?? false,
     isOfficeDoSignEnabled: features.enableOfficeDoSign ?? false,
