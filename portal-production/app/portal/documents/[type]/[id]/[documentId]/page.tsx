@@ -168,6 +168,17 @@ export default function page() {
       currentSeries === null
         ? allDocuments
         : allDocuments.filter((doc: any) => seriesKeyOf(doc.name ?? doc.documentNumber) === currentSeries);
+    // A document ALONE in its number series has nowhere to walk by running
+    // number — Chong Aik's first AIMS-numbered invoice INV202611-0005 sits
+    // among 484 migrated "INV 1633xxx" invoices, whose space makes them a
+    // different series (guru 2026-11-25: "how come I can't Previous and Next
+    // for this document?"). Then walk every document of the type by creation
+    // date instead, newest first, so the arrows always lead somewhere.
+    if (inSeries.length < 2 && allDocuments.length > 1) {
+      return [...allDocuments].sort(
+        (a: any, b: any) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime(),
+      );
+    }
     return inSeries.sort((a: any, b: any) =>
       compareRunningNumber(b.name ?? b.documentNumber, a.name ?? a.documentNumber),
     );

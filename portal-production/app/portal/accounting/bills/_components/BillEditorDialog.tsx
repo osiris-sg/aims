@@ -1516,26 +1516,33 @@ export default function BillEditorDialog({
                   {amountsAre !== "NO_TAX" && (
                     <TableCell>
                       {/* Blank = follow the header code, which is what every
-                          line does until someone changes one. The amount under
+                          line does until someone changes one. The figure beside
                           it is this line's own share of the GST, so a zero-rated
-                          line reads 0.00 and the header total visibly drops. */}
-                      <TextField
-                        select
-                        size="small"
-                        value={taxOptions.some((t) => t.code === (l.taxCode || taxCode)) ? (l.taxCode || taxCode) : ""}
-                        onChange={(e) => setLine(l.uid, { taxCode: e.target.value })}
-                        disabled={isReadOnly}
-                        SelectProps={{ displayEmpty: true }}
-                        sx={{ width: 120 }}
-                        helperText={`${taxOfLine(l).toFixed(2)}`}
-                        FormHelperTextProps={{ sx: { textAlign: "right", mr: 0, mt: 0.25 } }}
-                      >
-                        {taxOptions.map((t) => (
-                          <MenuItem key={t.code} value={t.code}>
-                            {t.name ?? t.code} ({t.rate}%)
-                          </MenuItem>
-                        ))}
-                      </TextField>
+                          line reads 0.00 and the header total visibly drops.
+                          Same look as the J/V and the document header's tax box
+                          (guru 2026-11-25: "don't show the name, just the number,
+                          like how we do it" — and the amount sits BESIDE the box,
+                          not under it, so the box stays level with the row). */}
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        <TextField
+                          select
+                          size="small"
+                          value={taxOptions.some((t) => t.code === (l.taxCode || taxCode)) ? (l.taxCode || taxCode) : ""}
+                          onChange={(e) => setLine(l.uid, { taxCode: e.target.value })}
+                          disabled={isReadOnly}
+                          SelectProps={{ displayEmpty: true, renderValue: (v) => (v ? String(v) : "—") }}
+                          sx={{ width: 68, flexShrink: 0 }}
+                        >
+                          {taxOptions.map((t) => (
+                            <MenuItem key={t.code} value={t.code} sx={{ fontSize: "13px" }}>
+                              {t.code} - {t.name ?? t.code}{Number(t.rate) > 0 ? `  ${Number(t.rate).toFixed(2)} %` : ""}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+                        <Typography variant="caption" sx={{ flex: 1, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "text.secondary" }}>
+                          {taxOfLine(l).toFixed(2)}
+                        </Typography>
+                      </Box>
                     </TableCell>
                   )}
                   {!isReadOnly && (
