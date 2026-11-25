@@ -64,7 +64,7 @@ const KEEP_ABSS = !argv.includes('--no-keep-abss-balances');
 // held by default; --detach-ledger keeps those journals posted (detached from the document) and removes the document.
 const DETACH = argv.includes('--detach-ledger');
 const ONLY_BATCH = one('--batch');
-const DAY = '2026-11-25';
+const DAY = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10); // Singapore date (file names)
 const OUT_DIR = one('--out', path.join(os.homedir(), 'Desktop/aims-agents/logs/wct'))!;
 const STEM = `wct-ng-bcair-${APPLY ? 'APPLY' : 'DRYRUN'}-${DAY}${ONLY_BATCH ? '-' + ONLY_BATCH : ''}${ZERO === 'remove' ? '-zero-remove' : ''}${one('--tag') ? '-' + one('--tag') : ''}`;
 const CSV_DIR = path.join(OUT_DIR, STEM);
