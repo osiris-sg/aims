@@ -980,6 +980,12 @@ export class JournalService {
       // Applied in the query, BEFORE the 500-journal cap — a client-side
       // filter would lose the manual ones, which sort after the cap.
       source?: 'manual' | 'auto';
+      // Audit Trail "Document prefix" (guru 2026-11-26: Biofuel's trail was empty for OR): applied in the
+      // query, BEFORE the cap — Biofuel posts tens of thousands of journals a year, so the first 500 by
+      // number held no receipt and a client-side filter showed nothing. A reference matches when its
+      // leading letters start OR end with the prefix: OR finds UOBOR2610-004 / SCBOR2610-042 (bank code
+      // first) and ORX-0001 alike; INV finds INV202611-0004; J/V (or JV) = manual journals (no reference).
+      prefix?: string;
     },
   ) {
     const MAX_JOURNALS = 500;
@@ -992,12 +998,14 @@ export class JournalService {
           ? [{ postedAt: 'asc' as const }]
           : [{ journalNumber: 'asc' as const }];
 
+    const prefixWhere = journalPrefixWhere(opts.prefix);
     const entries = await this.prisma.journalEntry.findMany({
       where: {
         organizationId,
         status: opts.includeUnposted ? { in: ['POSTED', 'DRAFT'] } : 'POSTED',
         entryDate: { ...(opts.startDate ? { gte: opts.startDate } : {}), lte: eod },
         ...(opts.source === 'manual' ? { type: 'MANUAL' } : opts.source === 'auto' ? { type: { not: 'MANUAL' } } : {}),
+        ...prefixWhere,
       },
       include: {
         lines: { include: { account: { select: { code: true, name: true } } }, orderBy: { lineNumber: 'asc' } },
@@ -1007,6 +1015,11 @@ export class JournalService {
     });
     const truncated = entries.length > MAX_JOURNALS;
     if (truncated) entries.pop();
+    if (opts.prefix) {
+      const keep = entries.filter((e) => journalReferenceHasPrefix(e.reference, opts.prefix!));
+      entries.length = 0;
+      entries.push(...keep);
+    }
 
     // The document each journal was posted from, so a report row can open it (Audit Trail,
     // J/V Listing — guru 2026-11-25: every row that names a document opens it), the same
@@ -1899,4 +1912,27 @@ export class JournalService {
       grandTotal: ROUND(rows.reduce((s, r) => s + r.balance, 0)),
     };
   }
+}
+
+/**
+ * The Prisma where for a document prefix on the journal report. Prisma has no regex, so the cheap DB-side
+ * narrowing is "reference contains the prefix" and the exact rule (the reference's leading letters start or
+ * end with the prefix) is `journalReferenceHasPrefix`; the report applies both. J/V or JV = manual journals,
+ * which carry no reference.
+ */
+export function journalPrefixWhere(prefix?: string): Record<string, any> {
+  const p = String(prefix ?? '').trim();
+  if (!p) return {};
+  if (/^j\/?v$/i.test(p)) return { OR: [{ reference: null }, { reference: '' }] };
+  return { reference: { contains: p, mode: 'insensitive' } };
+}
+
+/** Does a journal reference carry the document prefix? Leading letters start or end with it, case-insensitive. */
+export function journalReferenceHasPrefix(reference: string | null | undefined, prefix: string): boolean {
+  const p = String(prefix ?? '').trim().toLowerCase();
+  if (!p) return true;
+  const ref = String(reference ?? '');
+  if (/^j\/?v$/i.test(p)) return ref === '';
+  const letters = (ref.match(/^[A-Za-z]+/)?.[0] ?? '').toLowerCase();
+  return letters.startsWith(p) || letters.endsWith(p) || ref.toLowerCase().startsWith(p);
 }

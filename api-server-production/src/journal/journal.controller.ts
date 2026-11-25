@@ -159,6 +159,7 @@ export class JournalController {
   @ApiQuery({ name: 'endDate', required: false })
   @ApiQuery({ name: 'orderBy', required: false, description: 'journalNumber | entryDate | postedAt' })
   @ApiQuery({ name: 'source', required: false, description: 'manual (hand-keyed J/Vs only) | auto (document-posted only); default all' })
+  @ApiQuery({ name: 'prefix', required: false, description: 'document prefix (OR, INV, PV, J/V…): only journals whose reference carries it, applied before the 500-journal cap' })
   journalReport(@Req() req: RequestWithOrganization, @Query() q: any) {
     return this.service.journalReport(requireOrgId(req), {
       startDate: q.startDate ? startOfDay(q.startDate) : undefined,
@@ -166,6 +167,7 @@ export class JournalController {
       orderBy: q.orderBy,
       includeUnposted: q.includeUnposted === 'true' || q.includeUnposted === '1',
       source: q.source === 'manual' || q.source === 'auto' ? q.source : undefined,
+      prefix: typeof q.prefix === 'string' && q.prefix.trim() ? q.prefix.trim() : undefined,
     });
   }
 

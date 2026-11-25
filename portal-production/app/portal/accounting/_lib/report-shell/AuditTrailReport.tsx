@@ -57,10 +57,13 @@ export default function AuditTrailReport() {
   const [truncated, setTruncated] = useState(false);
 
   const load = useCallback(
-    async (f = from, t = to) => {
+    async (f = from, t = to, pf = prefix) => {
       setLoading(true);
       try {
-        const res = await request<any>(`/journal/reports/journal?startDate=${f}&endDate=${t}&orderBy=journalNumber`);
+        // The prefix goes to the server (applied before its 500-journal cap): Biofuel posts tens of
+        // thousands of journals a year, so filtering the first 500 here showed an empty trail for OR.
+        const pq = pf.trim() ? `&prefix=${encodeURIComponent(pf.trim())}` : "";
+        const res = await request<any>(`/journal/reports/journal?startDate=${f}&endDate=${t}&orderBy=journalNumber${pq}`);
         const data = (res as any)?.data ?? res;
         const out: TrailRow[] = [];
         for (const j of data?.journals || []) {
@@ -90,8 +93,17 @@ export default function AuditTrailReport() {
         setLoading(false);
       }
     },
-    [request, from, to],
+    [request, from, to, prefix],
   );
+
+  // A changed prefix reloads (debounced), since the server does the narrowing.
+  const firstPrefix = useRef(true);
+  useEffect(() => {
+    if (firstPrefix.current) { firstPrefix.current = false; return; }
+    const h = setTimeout(() => { void load(from, to, prefix); }, 400);
+    return () => clearTimeout(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefix]);
 
   // Deep-link (?prefix&from&to) — e.g. the receipt rail lands here with OR.
   const deepLinked = useRef(false);
@@ -104,14 +116,21 @@ export default function AuditTrailReport() {
     if (pf) setPrefix(pf);
     if (searchParams?.get("from")) setFrom(f);
     if (searchParams?.get("to")) setTo(t);
-    void load(f, t);
+    void load(f, t, pf || "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = useMemo(() => {
     if (!lines) return null;
     const pf = prefix.trim().toLowerCase();
-    const rows = pf ? lines.filter((l) => l.docRef.toLowerCase().startsWith(pf)) : [...lines];
+    // Same rule as the server: the reference's leading letters start or end with the prefix, so OR
+    // finds UOBOR2610-004 (bank code first) and ORX-0001 alike; J/V finds the manual journals.
+    const hasPrefix = (ref: string) => {
+      if (/^j\/?v$/.test(pf)) return ref.startsWith("J/V ");
+      const letters = (ref.match(/^[A-Za-z]+/)?.[0] ?? "").toLowerCase();
+      return letters.startsWith(pf) || letters.endsWith(pf) || ref.toLowerCase().startsWith(pf);
+    };
+    const rows = pf ? lines.filter((l) => hasPrefix(l.docRef)) : [...lines];
     rows.sort((a, b) =>
       order === "document"
         ? a.docRef.localeCompare(b.docRef) || String(a.date).localeCompare(String(b.date))
