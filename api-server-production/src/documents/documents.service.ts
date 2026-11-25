@@ -48,7 +48,7 @@ import { outstandingOf, grossStampOf, grossOf, amountPaidOf, computeDocumentTota
 import { splitInvoice as splitInvoiceOp, undoInvoiceSplit as undoInvoiceSplitOp } from './invoice-split-ops';
 import { keepSplitPartTotals, splitGlRevenueLines, type SplitPlan } from './invoice-split';
 import { sgToday, wctFamilyOf, wctFamilyOfTypes, isWctStatusValue, wctStatusMatches, wctStatusOf } from '../common/wct-statuses';
-import { ERP_QUOTE_CANCELLED_STATUSES, assertNotErpImportedDo, confirmPostsToGl, erpDraftState, erpPaidAtImport, erpQuotationDate, erpQuotationDisplayStatus, erpQuotationTag, erpStoredTotalsOf, isErpImported, isErpImportedDo, isQuotationDocType, moneySignature } from '../common/erp-import';
+import { ERP_QUOTE_CANCELLED_STATUSES, assertNotErpImportedDo, confirmPostsToGl, erpDraftState, erpPaidAtImport, erpQuotationDate, erpQuotationDisplayStatus, erpQuotationTag, erpStoredTotalsOf, holdsXeroTotals, isErpImported, isErpImportedDo, isQuotationDocType, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
 import { fillEmptyOrderCustomer, invoiceRowsWithSplitParts, isWctOrdersEnabled, linkedDoEntriesOf, liveInvoiceIds, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isManualOrderFlow, manualAutoDraftsOff } from '../orders/manual-order-flow';
@@ -1925,9 +1925,11 @@ export class DocumentsService {
         // Split payment part: its stored subtotal / GST / total (the last part carries the
         // original's leftover cents) stand while its line's money is unchanged (invoice-split.ts).
         keepSplitPartTotals(existingConfig, configAsPlainObject);
-        if (isErpImported(existingConfig)) {
+        // Also a document whose GST Xero worked out (holdsXeroTotals): its stored totals stand while the lines' money
+        // is unchanged, so the editor's once-on-the-subtotal GST never overwrites Xero's per-line figure.
+        if (isErpImported(existingConfig) || holdsXeroTotals(existingConfig)) {
           const next: any = configAsPlainObject;
-          next.erpImport = existingConfig.erpImport;
+          if (existingConfig.erpImport) next.erpImport = existingConfig.erpImport;
           const stored = erpStoredTotalsOf(existingConfig);
           const linesSame = !Array.isArray(next.items) || !stored || moneySignature(next.items) === stored.sig;
           const MONEY = ['outstandingBalance', 'xeroBalance', 'paidToDate', 'xeroAmountPaid', 'totalWithTax', 'xeroGross'];
@@ -1942,7 +1944,7 @@ export class DocumentsService {
             if (Number.isFinite(newGross)) {
               const paid = Number(amountPaidOf(existingConfig) ?? 0) || 0;
               const erpPaid = erpPaidAtImport(existingConfig, oldGross);
-              next.erpImport = { ...existingConfig.erpImport, balanceAtImport: Math.max(0, Math.round((newGross - erpPaid) * 100) / 100) };
+              if (existingConfig.erpImport) next.erpImport = { ...existingConfig.erpImport, balanceAtImport: Math.max(0, Math.round((newGross - erpPaid) * 100) / 100) };
               Object.assign(next, stampDocumentMoney({}, { gross: newGross, paid, outstanding: Math.max(0, Math.round((newGross - paid) * 100) / 100) }));
             }
           }

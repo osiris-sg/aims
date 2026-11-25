@@ -13,6 +13,7 @@ import { useBaseTheme } from "@/themes/BaseTheme";
 import { BIOFUEL_SIGNATURE_DATA_URI, BIOFUEL_STAMP_DATA_URI, BIOFUEL_LOGO_DATA_URI } from "../../DocumentsTemplateView/biofuelAssets";
 import DeliveryRouteDialog from "@/components/DeliveryRouteDialog";
 import { resolveRateMerges } from "./quotationItemGroups";
+import { storedTotalsFor } from "@/helpers/erpImport";
 
 // Legacy voucher papers spell the total out: "S'PORE DOLLAR THREE HUNDRED
 // TWELVE ONLY." / "S'PORE DOLLAR ZERO AND CENTS TWO ONLY." (guru's samples).
@@ -2209,10 +2210,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           const grossTotal = subtotal;
           const discountAmount = data.documentInfo?.discountAmount != null ? Number(data.documentInfo.discountAmount) : grossTotal * (discountPercent / 100);
           const subtotalAfterDiscount = grossTotal - discountAmount;
-          const gstAmount = isAbsorbTax && gstPercent > 0
+          // Stored totals (helpers/erpImport.ts: ERP import, split part, GST worked out by Xero) stand while the lines' money is unchanged.
+          const held = storedTotalsFor(data?.erpStoredTotals, data?.items);
+          const gstAmount = held
+            ? held.gstAmount
+            : isAbsorbTax && gstPercent > 0
             ? subtotalAfterDiscount * gstPercent / (100 + gstPercent)
             : subtotalAfterDiscount * (gstPercent / 100);
-          const finalTotal = isAbsorbTax ? money2(subtotalAfterDiscount) : money2(money2(subtotalAfterDiscount) + money2(gstAmount));
+          const finalTotal = held ? money2(held.nettTotal) : isAbsorbTax ? money2(subtotalAfterDiscount) : money2(money2(subtotalAfterDiscount) + money2(gstAmount));
           // Tax-inclusive: line amounts are gross, so the printed Sub-Total is net of GST.
           const displayGross = isAbsorbTax ? grossTotal - gstAmount : grossTotal;
           const displayNet = isAbsorbTax ? subtotalAfterDiscount - gstAmount : subtotalAfterDiscount;
@@ -2291,10 +2296,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           const grossTotal = subtotal;
           const discountAmount = data.documentInfo?.discountAmount != null ? Number(data.documentInfo.discountAmount) : grossTotal * (discountPercent / 100);
           const subtotalAfterDiscount = grossTotal - discountAmount;
-          const gstAmount = isAbsorbTax && gstPercent > 0
+          // Stored totals (helpers/erpImport.ts: ERP import, split part, GST worked out by Xero) stand while the lines' money is unchanged.
+          const held = storedTotalsFor(data?.erpStoredTotals, data?.items);
+          const gstAmount = held
+            ? held.gstAmount
+            : isAbsorbTax && gstPercent > 0
             ? subtotalAfterDiscount * gstPercent / (100 + gstPercent)
             : subtotalAfterDiscount * (gstPercent / 100);
-          const finalTotal = isAbsorbTax ? money2(subtotalAfterDiscount) : money2(money2(subtotalAfterDiscount) + money2(gstAmount));
+          const finalTotal = held ? money2(held.nettTotal) : isAbsorbTax ? money2(subtotalAfterDiscount) : money2(money2(subtotalAfterDiscount) + money2(gstAmount));
 
           // Convert number to words
           const numberToWords = (num: number): string => {
@@ -3844,10 +3853,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             const grossTotal = subtotal;
             const discountAmount = data.documentInfo?.discountAmount != null ? Number(data.documentInfo.discountAmount) : grossTotal * (discountPercent / 100);
             const subtotalAfterDiscount = grossTotal - discountAmount;
-            const gstAmount = isAbsorbTax && gstPercent > 0
+            // Stored totals (helpers/erpImport.ts: ERP import, split part, GST worked out by Xero) stand while the lines' money is unchanged.
+            const held = storedTotalsFor(data?.erpStoredTotals, data?.items);
+            const gstAmount = held
+              ? held.gstAmount
+              : isAbsorbTax && gstPercent > 0
               ? subtotalAfterDiscount * gstPercent / (100 + gstPercent)
               : subtotalAfterDiscount * (gstPercent / 100);
-            const finalTotal = isAbsorbTax ? money2(subtotalAfterDiscount) : money2(money2(subtotalAfterDiscount) + money2(gstAmount));
+            const finalTotal = held ? money2(held.nettTotal) : isAbsorbTax ? money2(subtotalAfterDiscount) : money2(money2(subtotalAfterDiscount) + money2(gstAmount));
             // Tax-inclusive: line amounts are gross, so the printed Sub-Total is net of GST.
             const displayGross = isAbsorbTax ? grossTotal - gstAmount : grossTotal;
             const displayNet = isAbsorbTax ? subtotalAfterDiscount - gstAmount : subtotalAfterDiscount;
@@ -3925,10 +3938,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             const grossTotal = subtotal;
             const discountAmount = data.documentInfo?.discountAmount != null ? Number(data.documentInfo.discountAmount) : grossTotal * (discountPercent / 100);
             const subtotalAfterDiscount = grossTotal - discountAmount;
-            const gstAmount = isAbsorbTax && gstPercent > 0
+            // Stored totals (helpers/erpImport.ts: ERP import, split part, GST worked out by Xero) stand while the lines' money is unchanged.
+            const held = storedTotalsFor(data?.erpStoredTotals, data?.items);
+            const gstAmount = held
+              ? held.gstAmount
+              : isAbsorbTax && gstPercent > 0
               ? subtotalAfterDiscount * gstPercent / (100 + gstPercent)
               : subtotalAfterDiscount * (gstPercent / 100);
-            const finalTotal = isAbsorbTax ? money2(subtotalAfterDiscount) : money2(money2(subtotalAfterDiscount) + money2(gstAmount));
+            const finalTotal = held ? money2(held.nettTotal) : isAbsorbTax ? money2(subtotalAfterDiscount) : money2(money2(subtotalAfterDiscount) + money2(gstAmount));
 
             const numberToWords = (num: number): string => {
               const ones = ['', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE',

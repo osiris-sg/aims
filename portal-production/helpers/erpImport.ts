@@ -1,4 +1,5 @@
-// ERP-imported documents (WCT 2026-11): they show and print the ERP's own subtotal / GST / total
+// ERP-imported documents (WCT 2026-11), split payment parts and documents whose GST Xero worked out
+// (holdsXeroTotals): they show and print their stored subtotal / GST / total
 // (some carry a GST that is not rate × subtotal). The editor recalculates only when the lines'
 // money changes. Mirrors api-server-production/src/common/erp-import.ts; tested by
 // helpers/erpImport.test.mjs.
@@ -26,11 +27,17 @@ export interface ErpStoredTotals {
   sig: string;
 }
 
+// A document whose GST Xero worked out: a Xero-origin import, or an AIMS invoice confirmed from Xero (xero-sync.service
+// writes Xero's subTotal / gstAmount / nettTotal). Xero rounds GST per line, AIMS once on the subtotal, so the stored
+// totals stand like an ERP import's (BIPL-JPSG-20260928-0007, 2026-11-26: Xero 592.71 / 7,178.31, the editor's formula
+// 592.70 / 7,178.30, and a receipt was keyed at the editor's figure leaving 0.01 owed).
+export const holdsXeroTotals = (config: any): boolean => typeof config?.xeroInvoiceId === "string" && config.xeroInvoiceId.length > 0;
+
 /** An imported document's stored totals from its saved config (null for any other document). */
 export function erpStoredTotalsOf(config: any): ErpStoredTotals | null {
   // Also a Split payment part (config.invoiceSplit): the last part keeps the original's leftover GST cent.
   const splitPart = !!config?.invoiceSplit && typeof config.invoiceSplit === "object" && typeof config.invoiceSplit.groupId === "string";
-  if (!config?.erpImport?.source && !splitPart) return null;
+  if (!config?.erpImport?.source && !splitPart && !holdsXeroTotals(config)) return null;
   const pick = (k: string) => {
     const v = config?.[k] ?? config?.documentInfo?.[k];
     const x = Number(v);

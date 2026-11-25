@@ -20,6 +20,7 @@ import {
 } from './shared';
 import { DEFAULT_DESIGN, DocumentDesign, fillerRowPx } from './design';
 import { BIOFUEL_LOGO_DATA_URI } from './biofuel-assets';
+import { heldTotalsOf } from '../../erp-import';
 
 // Biofuel invoices carry their own letterhead (logo top-left + fixed company
 // block top-right) and an Attention/Mobile/Email block under Bill To — same
@@ -53,10 +54,14 @@ export function renderInvoiceBody(data: any, organization: any, design: Document
     ? Number(di('discountAmount')) || 0
     : grossTotal * (discountPercent / 100);
   const subtotalAfterDiscount = grossTotal - discountAmount;
-  const gstAmount = isAbsorbTax && gstPercent > 0
+  // Stored totals (common/erp-import.ts: ERP import, split part, GST worked out by Xero) stand while the lines' money is unchanged.
+  const held = heldTotalsOf(data, items);
+  const gstAmount = held
+    ? held.gstAmount
+    : isAbsorbTax && gstPercent > 0
     ? (subtotalAfterDiscount * gstPercent) / (100 + gstPercent)
     : subtotalAfterDiscount * (gstPercent / 100);
-  const finalTotal = isAbsorbTax ? money2(subtotalAfterDiscount) : money2(money2(subtotalAfterDiscount) + money2(gstAmount));
+  const finalTotal = held ? money2(held.nettTotal) : isAbsorbTax ? money2(subtotalAfterDiscount) : money2(money2(subtotalAfterDiscount) + money2(gstAmount));
   const displayGross = isAbsorbTax ? grossTotal - gstAmount : grossTotal;
   const displayNet = isAbsorbTax ? subtotalAfterDiscount - gstAmount : subtotalAfterDiscount;
 

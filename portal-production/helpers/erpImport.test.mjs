@@ -25,3 +25,16 @@ test("wired: document pages pass the stored totals, the editor uses them", () =>
   }
   assert.match(read("containers/DocumentTemplates/components/TabbedDocumentCreator.tsx"), /storedTotalsFor\(existingData\?\.erpStoredTotals, items\)/);
 });
+
+test("BIPL-JPSG-20260928-0007: Xero's per-line GST (592.71 / 7,178.31) stands, not the editor's 592.70 / 7,178.30", () => {
+  const xero = {
+    xeroInvoiceId: "b2f8ae74", items: [{ quantity: 13.83, unitPrice: 30, amount: 414.9 }],
+    subTotal: 6585.6, gstAmount: 592.71, nettTotal: 7178.31, gstPercent: 9, documentInfo: { gstAmount: 592.7 },
+  };
+  const s = erpStoredTotalsOf(xero);
+  assert.deepEqual(storedTotalsFor(s, xero.items), { grossTotal: 6585.6, discountAmount: 0, subTotal: 6585.6, gstAmount: 592.71, nettTotal: 7178.31 });
+  assert.equal(storedTotalsFor(s, [{ quantity: 2, unitPrice: 30, amount: 60 }]), null);
+  assert.equal(erpStoredTotalsOf({ ...xero, xeroInvoiceId: undefined }), null);
+  assert.match(read("containers/DocumentTemplates/components/CleanDocumentPreview.tsx"), /storedTotalsFor\(data\?\.erpStoredTotals, data\?\.items\)/);
+  assert.match(read("containers/DocumentTemplates/components/TabbedDocumentCreator.tsx"), /erpStoredTotals: \(existingData as any\)\?\.erpStoredTotals/);
+});

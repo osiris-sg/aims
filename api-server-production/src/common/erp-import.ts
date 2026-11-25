@@ -26,6 +26,14 @@ export function erpImportOf(config: any): ErpImportMeta | null {
 
 export const isErpImported = (config: any): boolean => erpImportOf(config) !== null;
 
+/**
+ * A document whose GST Xero worked out: a Xero-origin import, or an AIMS invoice confirmed from Xero (xero-sync.service
+ * writes Xero's subTotal / gstAmount / nettTotal). Xero rounds GST per line, AIMS once on the subtotal, so the stored
+ * totals stand like an ERP import's (BIPL-JPSG-20260928-0007, 2026-11-26: Xero 592.71 / 7,178.31, the editor's formula
+ * 592.70 / 7,178.30, and a receipt was keyed at the editor's figure leaving 0.01 owed).
+ */
+export const holdsXeroTotals = (config: any): boolean => typeof config?.xeroInvoiceId === 'string' && config.xeroInvoiceId.length > 0;
+
 // ── Imported delivery orders (WCT 2026-11-19, scripts/wct-erp-dos.js) ──────
 // The old ERP's DOs are imported as history: DELIVERY_ORDER rows with config.erpImport and no
 // DocumentItem rows (so no stock can move). They are READ-ONLY: no save, confirm, complete, sign
@@ -107,7 +115,7 @@ export interface ErpStoredTotals {
  */
 export function erpStoredTotalsOf(config: any): ErpStoredTotals | null {
   const splitPart = !!config?.invoiceSplit && typeof config.invoiceSplit === 'object' && typeof config.invoiceSplit.groupId === 'string';
-  if (!isErpImported(config) && !splitPart) return null;
+  if (!isErpImported(config) && !splitPart && !holdsXeroTotals(config)) return null;
   const pick = (k: string) => {
     const v = config?.[k] ?? config?.documentInfo?.[k];
     const x = Number(v);
@@ -128,6 +136,12 @@ export function erpStoredTotalsOf(config: any): ErpStoredTotals | null {
     paid: amountPaidOf(config) ?? null,
     outstanding: outstandingOf(config) ?? null,
   };
+}
+
+/** The stored totals to show and print when the lines' money still matches them; null = recalculate. */
+export function heldTotalsOf(data: any, items: any): ErpStoredTotals | null {
+  const s: ErpStoredTotals | null = data?.erpStoredTotals ?? erpStoredTotalsOf(data);
+  return s && s.sig === moneySignature(items) ? s : null;
 }
 
 /**

@@ -10,6 +10,7 @@
  */
 import { billToText, descriptionText, designFooter, escapeHtml, formatDate, infoRow, logoBlock, makeDi, numberToWords, richContent, money2, printableSalesman } from './shared';
 import { DEFAULT_DESIGN, DocumentDesign, fillerRowPx } from './design';
+import { heldTotalsOf } from '../../erp-import';
 
 export type NoteKind = 'credit' | 'debit';
 
@@ -37,9 +38,12 @@ export function renderNoteBody(data: any, organization: any, kind: NoteKind, des
   const discountAmount =
     di('discountAmount') != null && di('discountAmount') !== '' ? Number(di('discountAmount')) || 0 : grossTotal * (discountPercent / 100);
   const subtotalAfterDiscount = grossTotal - discountAmount;
-  const gstAmount =
-    isAbsorbTax && gstPercent > 0 ? (subtotalAfterDiscount * gstPercent) / (100 + gstPercent) : subtotalAfterDiscount * (gstPercent / 100);
-  const finalTotal = isAbsorbTax ? money2(subtotalAfterDiscount) : money2(money2(subtotalAfterDiscount) + money2(gstAmount));
+  // Stored totals (common/erp-import.ts: ERP import, split part, GST worked out by Xero) stand while the lines' money is unchanged.
+  const held = heldTotalsOf(data, items);
+  const gstAmount = held
+    ? held.gstAmount
+    : isAbsorbTax && gstPercent > 0 ? (subtotalAfterDiscount * gstPercent) / (100 + gstPercent) : subtotalAfterDiscount * (gstPercent / 100);
+  const finalTotal = held ? money2(held.nettTotal) : isAbsorbTax ? money2(subtotalAfterDiscount) : money2(money2(subtotalAfterDiscount) + money2(gstAmount));
   const displayGross = isAbsorbTax ? grossTotal - gstAmount : grossTotal;
   const displayNet = isAbsorbTax ? subtotalAfterDiscount - gstAmount : subtotalAfterDiscount;
 

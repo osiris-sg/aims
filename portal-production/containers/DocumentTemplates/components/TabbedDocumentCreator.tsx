@@ -6113,6 +6113,8 @@ export default function TabbedDocumentCreator({
                 data={{
                   ...formData,
                   items: items,
+                  // Stored totals (ERP import, split part, GST worked out by Xero) print as stored while the lines are unchanged.
+                  erpStoredTotals: (existingData as any)?.erpStoredTotals,
                   // Remarks print on the stock invoice / DO sheet (enableDocRemarks orgs only).
                   ...(showDocRemarks ? { docRemarks: true } : {}),
                   // Forward the resolved order Type so the PO/PR preview can

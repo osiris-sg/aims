@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { erpImportOf, erpPaidAtImport, erpStoredTotalsOf, isErpImported, moneySignature } from './erp-import';
+import { erpImportOf, erpPaidAtImport, erpStoredTotalsOf, heldTotalsOf, isErpImported, moneySignature } from './erp-import';
 import { JournalService } from '../journal/journal.service';
 import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 import { PaymentsService } from '../payments/payments.service';
@@ -128,6 +128,13 @@ describe('stored totals of imported documents', () => {
   it('reads the ERP totals as stored (no recalculation)', () => {
     expect(erpStoredTotalsOf(cfg)).toMatchObject({ subTotal: 850, gstAmount: 198, nettTotal: 1048, gstPercent: 9, sig: '1.00x850.00=850.00' });
     expect(erpStoredTotalsOf({ ...cfg, erpImport: undefined })).toBeNull();
+  });
+  it("a Xero-worked invoice keeps Xero's per-line GST (592.71 on 6,585.60), not the once-on-the-subtotal 592.70", () => {
+    const xero = { xeroInvoiceId: 'b2f8ae74', items: [{ quantity: 13.83, unitPrice: 30, amount: 414.9 }], subTotal: 6585.6, gstAmount: 592.71, nettTotal: 7178.31, gstPercent: 9, documentInfo: { gstAmount: 592.7 } };
+    expect(erpStoredTotalsOf(xero)).toMatchObject({ subTotal: 6585.6, gstAmount: 592.71, nettTotal: 7178.31 });
+    expect(heldTotalsOf(xero, xero.items)?.nettTotal).toBe(7178.31);
+    expect(heldTotalsOf(xero, [{ quantity: 2, unitPrice: 30, amount: 60 }])).toBeNull();
+    expect(erpStoredTotalsOf({ ...xero, xeroInvoiceId: undefined })).toBeNull();
   });
   it('the signature ignores descriptions and number formatting, not money', () => {
     expect(moneySignature([{ description: '<p>a</p>', quantity: '1', unitPrice: '850.00', amount: '850' }])).toBe(moneySignature(cfg.items));
