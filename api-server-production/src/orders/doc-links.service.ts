@@ -3,7 +3,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../common/prisma.service';
 import { grossOf } from '../common/document-money';
 import { docCustomerIdOf, holderRefusal, linkEntryOf, madeOnOrder, orderHoldersOf } from './imported-order-links';
-import { crossOrgInvoiceRefsOf, importedMarkerOf, isCrossPlaceholder } from './imported-orders';
+import { crossOrgInvoiceRefsOf, importedMarkerOf, isCrossPlaceholder, isNgPlaceholderMarked } from './imported-orders';
 import { groupOrgIds, memberOrgIds } from '../organizations/org-group';
 import { isWctOrdersEnabled, MARKED_COMPLETE, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
 import { MANUAL_ORDER_STATUS_LABEL, ManualOrderStatus } from './manual-order-flow';
@@ -407,7 +407,8 @@ export class DocLinksService {
     const dos = ofKind('DELIVERY_ORDER');
     const known = new Set(dos.map((d) => d.name));
     const erpOnly = erpDoNames.filter((n) => !known.has(n)).map((n) => ({ id: `erp:${n}`, name: n, type: 'DELIVERY_ORDER', href: null }));
-    const invoices = ofKind('INVOICE');
+    // A moved "(NG)" placeholder (config.ngPlaceholder, 2026-11-25) is greyed like a cross-company placeholder.
+    const invoices = live.filter((d) => pageKindOf(d.type) === 'INVOICE').map((d) => ({ ...view(d), ...(isNgPlaceholderMarked(d) ? { placeholder: true } : {}) }));
     // Cross-company invoices (WCT group, 2026-11-23): another group company's invoices billed against this order's
     // quotation, "I-012345 · WCT (S)", read only; a link that switches company only for a viewer who belongs there.
     const cross = crossOrgInvoiceRefsOf(o);
@@ -433,7 +434,7 @@ export class DocLinksService {
       invoices: [...invoices, ...crossOut],
       reports: await this.chainReports(organizationId, o),
       canCreateDo: open && dos.length + erpOnly.length === 0,
-      canCreateInvoice: open && invoices.length + crossOut.filter((x) => !x.placeholder).length === 0,
+      canCreateInvoice: open && [...invoices, ...crossOut].filter((x: any) => !x.placeholder).length === 0,
       direct,
     };
   }
