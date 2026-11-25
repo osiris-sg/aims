@@ -1,0 +1,25 @@
+{
+  "note": "Google Calendar -> AIMS import (scripts/wct-gcal-import.ts). One row per Google calendar of service@wct.com.sg. file = ICS under exportDir. from = first date imported (null = everything in the file). include false = left out (reason in why).",
+  "exportDir": "~/Downloads/gcal-export",
+  "organizationId": "5c700000-0000-4000-8000-5c7000000001",
+  "from": "2026-10-01",
+  "recurUntil": "2029-05-19",
+  "calendars": [
+    { "name": "Jessy WCT", "file": "main-export/Jessy WCT_service@wct.com.sg.ics", "include": true, "from": null, "why": "the service account's own calendar (Settings > Export); older events included (owner: if they come cheaply)" },
+    { "name": "Birthdays", "file": "main-export/Birthdays_service@wct.com.sg.ics", "include": true },
+    { "name": "📅ALL TYPE OF LEAVES", "file": "ui-ics/ALL TYPE OF LEAVES.ics", "include": true },
+    { "name": "Amy", "file": "ui-ics/Amy.ics", "include": true },
+    { "name": "Henry", "file": "ui-ics/Henry.ics", "include": true },
+    { "name": "Isadora", "file": "ui-ics/Isadora.ics", "include": true },
+    { "name": "Isadora's Personal Reminder", "file": "ui-ics/Isadora's Personal Reminder.ics", "include": true },
+    { "name": "Joanne", "file": "ui-ics/Joanne.ics", "include": true },
+    { "name": "Joyna", "file": "ui-ics/Joyna.ics", "include": true },
+    { "name": "Kherry", "file": "ui-ics/Kherry.ics", "include": true },
+    { "name": "Nathan", "file": "ui-ics/Nathan.ics", "include": true },
+    { "name": "Nee Meng", "file": "ui-ics/Nee Meng.ics", "include": true },
+    { "name": "Rave", "file": "ui-ics/Rave.ics", "include": true },
+    { "name": "Thillai", "file": "ui-ics/Thillai.ics", "include": true },
+    { "name": "Yonny", "file": "ui-ics/Yonny.ics", "include": true },
+    { "name": "Holidays in Singapore", "file": "ui-ics/Holidays in Singapore.ics", "include": false, "why": "Google's public holiday calendar: AIMS keeps its own public holidays (FieldPublicHoliday), importing would show each holiday twice" }
+  ]
+}
