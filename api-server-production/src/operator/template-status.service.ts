@@ -29,6 +29,7 @@ export const NOTIFY_UTILITY_TEMPLATE = 'aims_notify_utility';
 const CACHE_MS = 6 * 3600_000;
 const MODULE_CACHE_MS = 60_000;
 
+export const INVOICE_TEMPLATE = 'aims_invoice';
 export const isApproved = (rows: TemplateRow[], name: string, lang: string) => rows.some((t) => t.name === name && t.status === 'APPROVED' && (t.language === lang || t.language.startsWith(`${lang}_`)));
 
 /** Pure: the shipments template for a kind + language from the WABA's rows (env override first). */
@@ -115,6 +116,16 @@ export class TemplateStatusService {
   /** Round AE: the "needs your answer" template of this kind + language on the sending line ('' = not approved yet). */
   async answerTemplate(kind: AnswerTemplateKind, lang: 'en' | 'ja', phoneNumberId: string): Promise<string> {
     return pickAnswerTemplate(await this.templatesForLine(phoneNumberId), kind, lang);
+  }
+
+  /**
+   * The invoice template (guru 2026-11-26): "aims_invoice" on the Osiris WABA — a DOCUMENT header (the invoice PDF)
+   * and a one-parameter body — so an invoice still goes out WITH its PDF once the customer's 24-hour window is
+   * closed. WHATSAPP_INVOICE_TEMPLATE overrides the name. Approval is not checked here: a send with an unapproved
+   * name fails at Meta and the caller falls back to the notify template exactly as before.
+   */
+  invoiceTemplate(): string {
+    return process.env.WHATSAPP_INVOICE_TEMPLATE || INVOICE_TEMPLATE;
   }
 
   /** The closed-window notify template for an org (its own line's WABA). Non-SHIPMENTS orgs: unchanged behaviour. */

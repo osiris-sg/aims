@@ -247,9 +247,12 @@ export class PublicSignService {
     const greeting = contactName || customerName ? `Hi ${contactName || customerName}, ` : 'Hi, ';
     const docLabel = isDo ? 'delivery order' : isInvoice ? 'invoice' : isVo ? 'variation order' : 'quotation';
     const message = String(body?.message || '').trim() || (isInvoice
-      ? `${greeting}here is your invoice ${doc.name || ''}${amount}: ${link.url}. Thank you, ${org?.name || 'AIMS'}.`
+      // Invoice goes out as the PDF attachment with a short caption — no link.
+      ? `${greeting}here is your invoice ${doc.name || ''}${amount}. Thank you, ${org?.name || 'AIMS'}.`
       : `${greeting}please review and sign ${docLabel} ${doc.name || ''}${amount} here: ${link.url}.${until} Thank you, ${org?.name || 'AIMS'}.`);
-    const text = message.includes(link.url) ? message : `${message}\n${link.url}`;
+    const text = isInvoice ? message : (message.includes(link.url) ? message : `${message}\n${link.url}`);
+    // The invoice PDF to attach (generated / cached in S3); null → fall back to text.
+    const invoicePdfUrl = isInvoice ? await this.documents.getOrGeneratePdfUrl(documentId, organizationId).catch(() => null) : null;
     const base = { via, to, url: link.url, expiresAt: link.expiresAt ?? null, message: text } as const;
     // Document history row ("History & notes" in the editor), same table the
     // editor's SENT rows use. Never breaks the send.
@@ -279,7 +282,11 @@ export class PublicSignService {
       return res.success ? { sent: true, ...base } : { sent: false, ...base, reason: res.error || 'email failed' };
     }
 
-    const waHref = `https://wa.me/${to}?text=${encodeURIComponent(text)}`;
+    // Hand-off to the user's own WhatsApp (wa.me): a link can carry text only, never a file,
+    // so an invoice handed over this way names its view/pay link (guru 2026-11-25: "it
+    // didnt attach the pdf"). The PDF-with-caption message stays for the business line.
+    const handText = isInvoice ? `${greeting}here is your invoice ${doc.name || ''}${amount}: ${link.url}. Thank you, ${org?.name || 'AIMS'}.` : text;
+    const waHref = `https://wa.me/${to}?text=${encodeURIComponent(handText)}`;
     // The org's own line, else the shared AIMS line the sender already texts
     // (a client org does not have to connect a number of its own), else the
     // platform line. Nothing at all → the caller hands over a wa.me link.
@@ -287,18 +294,26 @@ export class PublicSignService {
     const primed = await this.whatsapp.primeForOrgOrShared(to, organizationId, staffNumbers).catch(() => false);
     if (!primed) {
       await record('whatsapp', false, 'no WhatsApp line available');
-      return { sent: false, ...base, reason: 'no-line', waHref };
+      return { sent: false, ...base, message: handText, reason: 'no-line', waHref };
     }
-    let res = await this.whatsapp.sendTextResult(to, text).catch((e: any) => ({ ok: false, code: null as number | null, message: String(e?.message ?? e) }));
+    let res = (isInvoice && invoicePdfUrl)
+      ? await this.whatsapp.sendDocumentResult(to, { link: invoicePdfUrl, filename: `Invoice ${doc.name || ''}.pdf`.trim(), caption: text }).catch((e: any) => ({ ok: false, code: null as number | null, message: String(e?.message ?? e) }))
+      : await this.whatsapp.sendTextResult(to, text).catch((e: any) => ({ ok: false, code: null as number | null, message: String(e?.message ?? e) }));
     if (!res.ok && (res.code === 131047 || /re-?engagement/i.test(res.message ?? ''))) {
       // The customer has not written to the line in 24 hours: the approved
       // one-parameter notify template carries the same text.
-      const tpl = await this.templates.notifyTemplate(organizationId).catch(() => 'aims_notify');
-      const ok = tpl ? await this.whatsapp.sendTemplate(to, tpl, text, 'en').catch(() => false) : false;
+      // An invoice with its PDF (2026-11-26): the "aims_invoice" template carries the same PDF in its
+      // document header; only when Meta refuses it (not approved yet) does the text-only notify template go.
+      const invoiceTpl = this.templates.invoiceTemplate();
+      const viaInvoiceTpl = isInvoice && invoicePdfUrl
+        ? await this.whatsapp.sendTemplateDocumentResult(to, invoiceTpl, { link: invoicePdfUrl, filename: `Invoice ${doc.name || ''}.pdf`.trim() }, text, 'en').catch(() => ({ ok: false }))
+        : { ok: false };
+      const tpl = viaInvoiceTpl.ok ? invoiceTpl : await this.templates.notifyTemplate(organizationId).catch(() => 'aims_notify');
+      const ok = viaInvoiceTpl.ok ? true : tpl ? await this.whatsapp.sendTemplate(to, tpl, text, 'en').catch(() => false) : false;
       res = ok ? { ok: true, code: null, message: null } : { ok: false, code: res.code, message: `${res.message ?? 'window closed'}; template ${tpl || 'aims_notify'} failed too` };
     }
     await record('whatsapp', res.ok, res.message ?? undefined);
-    return res.ok ? { sent: true, ...base } : { sent: false, ...base, reason: res.message || 'send failed', waHref };
+    return res.ok ? { sent: true, ...base } : { sent: false, ...base, message: handText, reason: res.message || 'send failed', waHref };
   }
 
   /** The WhatsApp numbers a staff member is known by (linked identity + member profile). */

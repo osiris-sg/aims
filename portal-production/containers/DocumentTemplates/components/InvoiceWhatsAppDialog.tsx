@@ -104,7 +104,7 @@ export default function InvoiceWhatsAppDialog({ open, documentId, documentNumber
             fullWidth
             autoFocus
             InputProps={{ startAdornment: <InputAdornment position="start">+65</InputAdornment> }}
-            helperText="Local numbers are sent as +65. The customer gets a link to view the invoice."
+            helperText="Local numbers are sent as +65. The customer gets the invoice PDF with a short message."
           />
           {sentTo && (
             <Box sx={{ color: "success.main", display: "flex", alignItems: "center", gap: 0.5 }}>

@@ -426,6 +426,39 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     const text = (failed.body || '').replace(/\s+/g, ' ').trim();
     if (!text) return;
 
+    // AN INVOICE PDF (guru 2026-11-26): the dead message was a document (the invoice PDF with its caption).
+    // The bridge and aims_notify carry text only, so the customer would never get the invoice. Send the
+    // approved "aims_invoice" template instead: its DOCUMENT header is the same PDF link, its body the same
+    // caption. Not approved yet / not on this WABA → Meta refuses and the text paths below run as before.
+    const docLink = failed.payload?.type === 'document' ? String(failed.payload?.document?.link || '') : '';
+    if (docLink) {
+      const invoiceTpl = this.templateStatus?.invoiceTemplate() || 'aims_invoice';
+      try {
+        await this.dispatch(
+          organizationId,
+          {
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: failed.counterparty,
+            type: 'template',
+            template: {
+              name: invoiceTpl,
+              language: { code: 'en' },
+              components: [
+                { type: 'header', parameters: [{ type: 'document', document: { link: docLink, ...(failed.payload?.document?.filename ? { filename: failed.payload.document.filename } : {}) } }] },
+                { type: 'body', parameters: [{ type: 'text', text: text.slice(0, 900) }] },
+              ],
+            },
+          },
+          { templateName: invoiceTpl, body: `[re-engagement] ${text}`.slice(0, 1000) },
+        );
+        this.logger.log(`Re-sent the invoice PDF as ${invoiceTpl} to ${failed.counterparty} after a closed window`);
+        return;
+      } catch (e: any) {
+        this.logger.warn(`${invoiceTpl} to ${failed.counterparty} failed (${e?.message ?? e}) — falling back to text`);
+      }
+    }
+
     // PREFER THE BRIDGE (guru 2026-10-22: "if its past the 24h just use the
     // bridge"). It is a linked device on the user's own phone, so it has no
     // 24h window, needs no template, and nothing has to be approved by Meta.

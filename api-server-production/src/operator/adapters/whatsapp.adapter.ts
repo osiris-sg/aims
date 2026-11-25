@@ -168,6 +168,14 @@ export class WhatsAppAdapter implements ChannelAdapter {
     }
     return last;
   }
+  /** Send a document (PDF) by public link, with a caption. The 24-hour window
+   *  rule is the same as a text message. */
+  async sendDocumentResult(chatId: string, args: { link: string; filename?: string; caption?: string }): Promise<{ ok: boolean; code: number | null; message: string | null }> {
+    return this.sendMessageResult(chatId, {
+      type: 'document',
+      document: { link: args.link, ...(args.filename ? { filename: args.filename } : {}), ...(args.caption ? { caption: cleanText(args.caption).slice(0, 1000) } : {}) },
+    });
+  }
   private async sendMessageResult(chatId: string, payload: Record<string, any>): Promise<{ ok: boolean; code: number | null; message: string | null }> {
     const body = { messaging_product: 'whatsapp', recipient_type: 'individual', to: chatId, ...payload };
     const { ok, json, organizationId } = await this.post(chatId, body);
@@ -216,6 +224,21 @@ export class WhatsAppAdapter implements ChannelAdapter {
     return this.sendMessage(chatId, {
       type: 'template',
       template: { name: templateName, language: { code: language }, components: [{ type: 'body', parameters: [{ type: 'text', text: cleanText(text).replace(/\s+/g, ' ').trim().slice(0, 1000) }] }] },
+    });
+  }
+
+  /** A template with a DOCUMENT header (the invoice PDF) and a one-parameter body — aims_invoice (2026-11-26). */
+  async sendTemplateDocumentResult(chatId: string, templateName: string, doc: { link: string; filename?: string }, text: string, language = 'en'): Promise<{ ok: boolean; code: number | null; message: string | null }> {
+    return this.sendMessageResult(chatId, {
+      type: 'template',
+      template: {
+        name: templateName,
+        language: { code: language },
+        components: [
+          { type: 'header', parameters: [{ type: 'document', document: { link: doc.link, ...(doc.filename ? { filename: doc.filename } : {}) } }] },
+          { type: 'body', parameters: [{ type: 'text', text: cleanText(text).replace(/\s+/g, ' ').trim().slice(0, 900) || '-' }] },
+        ],
+      },
     });
   }
 
