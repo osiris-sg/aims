@@ -1,16 +1,16 @@
 /**
- * ABSS history import: pure planning steps (no I/O), shared by scripts/wct-abss-history-ymm.ts and its tests.
+ * ABSS history import: the pure planning rules (no I/O) of scripts/wct-abss-history.ts, kept apart so node --test
+ * covers them (scripts/__tests__/abss-history-plan.test.js). Entries / lines are the shapes of lib/abss-reports.js.
  *
- * Conventions reverse-engineered from the WCT (S) ABSS ledger on prod (batch abss-gl:wct-abss-2026-11-23):
- *   journalNumber  ABSS-<SRC>-<ABSS ID#>, the 2nd / 3rd entry under the same ID gets -2 / -3 (date order, then report order)
- *   reference      the ABSS ID#;  description "ABSS <SRC> <ID#> · <memo>";  line description = the memo (PJ: line memo)
+ * Conventions (read back from the WCT (S) ABSS ledger on prod, batch abss-gl:wct-abss-2026-11-23):
+ *   journalNumber  ABSS-<SRC>-<ABSS ID#>; the 2nd / 3rd entry under the same ID gets -2 / -3 (date order, then report order)
  *   type           SJ: INVOICE (AR up) / CREDIT_NOTE (AR down) / ADJUSTMENT (AR net 0: credit applications)
- *                  PJ: BILL;  CR / CD: PAYMENT;  GJ: MANUAL
+ *                  PJ: BILL (a supplier credit stays BILL, negative);  CR / CD: PAYMENT;  GJ: MANUAL
  */
 'use strict';
-const { entryTotals, netOn, R } = require('./abss-report-parse');
+const { entryTotals, netOn, R2: R, nameKey: cardKey } = require('./abss-reports');
 
-/** Number every entry of one report. Returns [{ entry, id, n, journalNumber, mixedIds }]. */
+/** Number every entry of one report. Returns [{ entry, id, n, journalNumber, mixedIds }] in report order. */
 function numberEntries(src, entries) {
   const byId = new Map();
   for (const e of entries) {
@@ -34,22 +34,19 @@ function journalType(src, entry, ctl) {
     const ar = netOn(entry, ctl.ar);
     return ar > 0.004 ? 'INVOICE' : ar < -0.004 ? 'CREDIT_NOTE' : 'ADJUSTMENT';
   }
-  // a supplier credit (AP down) stays BILL, as in WCT (S) (17 such ABSS-PJ journals there); the document says it is a credit
   if (src === 'PJ') return 'BILL';
   if (src === 'CR' || src === 'CD') return 'PAYMENT';
-  if (src === 'GJ') return 'MANUAL';
   return 'MANUAL';
 }
 
 /**
- * Allocate receipt lines (and credits) to open sale items, oldest-first by rule. ABSS's Cash Receipts export carries
- * the amount applied per invoice but NOT the invoice number, so the pairing is inferred:
+ * Allocate receipt amounts (and credits) to open sale items by AMOUNT MATCHING (used when ABSS's Invoice
+ * Transactions export is not in hand: the Cash Receipts export carries the amount but not the invoice number):
  *   1 exact     an open item with exactly that open amount, dated on or before the receipt (earliest first)
  *   2 partial   the earliest open item dated on or before the receipt whose open amount covers it
  *   3 spread    across the earliest open items dated on or before the receipt (FIFO)
  *   4 unplaced  nothing open on or before the date: kept as an unallocated receipt amount (flag)
- * items: [{ key, date, gross }] (mutated: open, paid[]);  payments: [{ ref, date, amount, channel }] in date order.
- * Returns { allocations: [{ ref, key, amount, rule }], unplaced: [{ ref, amount }] , rules: {exact,partial,spread} }.
+ * items: [{ key, date, gross, order? }] (mutated: open, paid[]);  payments: [{ ref, date, amount, channel }] in date order.
  */
 function allocate(items, payments) {
   for (const it of items) {
@@ -75,17 +72,9 @@ function allocate(items, payments) {
     let left = R(p.amount);
     if (left <= 0) continue;
     const exact = (byAmt.get(left.toFixed(2)) || []).find((it) => it.open === left && it.date <= p.date);
-    if (exact) {
-      take(exact, left, p, 'exact');
-      rules.exact++;
-      continue;
-    }
+    if (exact) { take(exact, left, p, 'exact'); rules.exact++; continue; }
     const cover = sorted.find((it) => it.open >= left - 1e-9 && it.open > 0 && it.date <= p.date);
-    if (cover) {
-      take(cover, left, p, 'partial');
-      rules.partial++;
-      continue;
-    }
+    if (cover) { take(cover, left, p, 'partial'); rules.partial++; continue; }
     let spread = false;
     for (const it of sorted) {
       if (left <= 0) break;
@@ -101,8 +90,37 @@ function allocate(items, payments) {
   return { allocations, unplaced, rules };
 }
 
-/** Name key for supplier matching (same rule as scripts/wct-abss-ap-opening.ts nameKey). */
-function nameKey(s) {
+/**
+ * ABSS's REAL allocation from the Invoice Transactions export: every payment row (CR id + date + amount) under an
+ * invoice number. items: [{ key, no, date, gross }] (mutated: open, paid[]); receipts: [{ ref, id, date }] (the CR
+ * journals). A row whose receipt is not among the CR journals, or whose invoice has no item, is returned unplaced.
+ */
+function allocateFromInvoiceTransactions(items, invoices, receipts) {
+  for (const it of items) { it.open = R(it.gross); it.paid = it.paid || []; }
+  const byNo = new Map();
+  for (const it of items) if (!byNo.has(it.no)) byNo.set(it.no, it); // the first part of a number takes ABSS's payments
+  const rcpt = new Map();
+  for (const r of receipts) rcpt.set(`${r.id}|${r.date}`, r);
+  const rcptById = new Map();
+  for (const r of receipts) rcptById.set(r.id, [...(rcptById.get(r.id) || []), r]);
+  const allocations = [];
+  const unplaced = [];
+  for (const v of invoices) {
+    for (const t of v.txns) {
+      if (!(t.payment > 0) || t.src !== 'CR') continue;
+      const r = rcpt.get(`${t.id}|${t.date}`) || ((rcptById.get(t.id) || []).length === 1 ? rcptById.get(t.id)[0] : null);
+      const it = byNo.get(v.no);
+      if (!r || !it) { unplaced.push({ ref: r ? r.ref : t.id, invoice: v.no, date: t.date, amount: t.payment, why: r ? 'invoice not imported' : 'receipt not in Cash Receipts' }); continue; }
+      it.open = R(it.open - t.payment);
+      it.paid.push({ ref: r.ref, date: t.date, amount: R(t.payment), rule: 'abss' });
+      allocations.push({ ref: r.ref, key: it.key, amount: R(t.payment), rule: 'abss' });
+    }
+  }
+  return { allocations, unplaced, rules: { abss: allocations.length } };
+}
+
+/** Loose party key for supplier matching (drops pte / ltd / co …; same rule as scripts/wct-abss-ap-opening.ts). */
+function partyKey(s) {
   return String(s || '')
     .toLowerCase()
     .replace(/&/g, ' and ')
@@ -113,23 +131,23 @@ function nameKey(s) {
 }
 
 /**
- * Same supplier? Name keys equal, or (ABSS card lists cut names at ~38 characters and sometimes append a phone number)
- * one key, without trailing number groups, is a prefix of the other and at least 12 characters long.
+ * Same party? Keys equal, or (ABSS card lists cut names at ~38 characters and sometimes append a phone number) one
+ * key, without trailing number groups, is a prefix of the other and at least 12 characters long.
  */
 function sameName(a, b) {
   const strip = (k) => k.replace(/(\s\d{5,})+$/, '').trim();
-  const x = strip(nameKey(a));
-  const y = strip(nameKey(b));
+  const x = strip(partyKey(a));
+  const y = strip(partyKey(b));
   if (!x || !y) return false;
   if (x === y) return true;
   const [s, l] = x.length <= y.length ? [x, y] : [y, x];
   return s.length >= 12 && l.startsWith(s);
 }
 
-/** The existing record whose name is the same supplier: exact key first, then a unique prefix match. */
+/** The existing record whose name is the same party: exact key first, then a unique prefix match. */
 function findByName(name, records) {
-  const k = nameKey(name);
-  const exact = records.filter((r) => nameKey(r.name) === k);
+  const k = partyKey(name);
+  const exact = records.filter((r) => partyKey(r.name) === k);
   if (exact.length) return exact[0];
   const near = records.filter((r) => sameName(r.name, name));
   return near.length === 1 ? near[0] : null;
@@ -150,10 +168,32 @@ function nextCode(kind, name, taken) {
 }
 
 /**
+ * ABSS's view of a ledger, per account code, signed Σ(debit - credit): balance-sheet accounts at their full balance;
+ * P&L accounts only from `fyStart` (ABSS's current year; null = all, i.e. ABSS never closed a year); retained
+ * earnings without the AIMS year-end closes dated from fyStart (ABSS has not closed those years yet).
+ * lines: [{ code, dr, cr, date, close? }] (close = the line belongs to a year-end close journal).
+ */
+function abssView(lines, opts = {}) {
+  const fy = opts.fyStart || null;
+  const re = opts.retainedEarnings || '3-8000';
+  const asAt = opts.asAt || null;
+  const pnl = (c) => /^[4-9]/.test(c);
+  const m = new Map();
+  for (const l of lines) {
+    if (asAt && l.date > asAt) continue;
+    if (fy && pnl(l.code) && (l.date < fy || l.close)) continue;
+    if (!fy && pnl(l.code) && l.close) continue;
+    if (l.code === re && l.close && (!fy || l.date >= fy)) continue;
+    m.set(l.code, R((m.get(l.code) || 0) + l.dr - l.cr));
+  }
+  return m;
+}
+
+/**
  * Trial balance vs the ABSS Accounts List. chart: [{ level, code, name }] in ABSS order; list: [{ name, balance }]
- * in the same order; signed: Map code -> Σ(debit - credit) in AIMS. Header rows = the sum of the posting accounts
- * under them (next rows with a deeper level); 3-9000 Current Year Earnings = all P&L (ABSS computes it).
- * Returns [{ code, name, level, header, abss, aims, diff, nameOk }].
+ * in the same order; signed: Map code -> Σ(debit - credit) (abssView). Header rows = the sum of the posting
+ * accounts under them; 3-9000 Current Year Earnings = all P&L in the map (ABSS computes it).
+ * Returns [{ code, name, level, header, abss, aims, diff, ok, nameOk }].
  */
 function compareTrialBalance(chart, list, signed, opts = {}) {
   const cye = opts.currentYearEarnings || '3-9000';
@@ -169,7 +209,6 @@ function compareTrialBalance(chart, list, signed, opts = {}) {
     for (let j = i + 1; j < chart.length && chart[j].level > row.level; j++) {
       if (isHeader(j)) continue;
       const c = chart[j].code;
-      // sign of a child in its parent's section (an Equity header adds the computed CYE, same sign)
       s += c === cye ? cyeValue : nat(c, signed.get(c) || 0);
     }
     return R(s);
@@ -178,8 +217,50 @@ function compareTrialBalance(chart, list, signed, opts = {}) {
     const l = list[i] || {};
     const aims = value(i);
     const abss = l.balance ?? null;
-    return { code: row.code, name: row.name, level: row.level, header: isHeader(i), abss, aims, diff: abss === null ? null : R(aims - abss), nameOk: l.name === row.name, listName: l.name ?? null };
+    const diff = abss === null ? null : R(aims - abss);
+    return { code: row.code, name: row.name, level: row.level, header: isHeader(i), abss, aims, diff, ok: diff !== null && Math.abs(diff) < 0.005, nameOk: cardKey(l.name) === cardKey(row.name), listName: l.name ?? null };
   });
 }
 
-module.exports = { numberEntries, journalType, allocate, nameKey, sameName, findByName, nextCode, compareTrialBalance };
+/**
+ * Possible duplicates for finance (owner 2026-11-26: import as ABSS has them, list them). One row per entry in a
+ * group; a group is flagged when, under DIFFERENT ABSS numbers or as a repeated number:
+ *   same-reference  same source, same POS / supplier invoice number in the memo, same amount
+ *   same-card-day   same source (SJ / PJ), same card, same date, same amount
+ *   repeated-number the same ABSS ID# carries two or more entries (all -2 / -3 parts); "identical" when the lines match
+ * entries: [{ jn, src, id, date, memo, card, amount, lines }]. Returns one row per entry: [{ group, why, jn, src, id, date, card, amount, memo, with }].
+ */
+function findDuplicates(entries, refOf) {
+  const groups = [];
+  const add = (why, list) => { if (list.length > 1) groups.push({ why, list }); };
+  const by = (keyFn) => {
+    const m = new Map();
+    for (const e of entries) {
+      const k = keyFn(e);
+      if (!k) continue;
+      m.set(k, [...(m.get(k) || []), e]);
+    }
+    return m;
+  };
+  for (const [k, v] of by((e) => (['SJ', 'PJ'].includes(e.src) && refOf(e) ? `${e.src}|${refOf(e)}|${e.amount.toFixed(2)}` : null))) if (new Set(v.map((x) => x.id)).size > 1) add(`same ${k.split('|')[0]} reference ${k.split('|')[1]} and amount under ${new Set(v.map((x) => x.id)).size} ABSS numbers`, v);
+  for (const [, v] of by((e) => (['SJ', 'PJ'].includes(e.src) && (e.card || e.memo) ? `${e.src}|${e.date}|${e.amount.toFixed(2)}|${cardKey(e.card || e.memo)}` : null))) if (new Set(v.map((x) => x.id)).size > 1) add('same card, date and amount under different ABSS numbers', v);
+  for (const [, v] of by((e) => `${e.src}|${e.id}`)) {
+    if (v.length < 2) continue;
+    const sig = v.map((x) => `${x.date}|${x.lines.map((l) => `${l.code}:${l.dr}:${l.cr}`).sort().join(',')}`);
+    add(sig.length !== new Set(sig).size ? 'ABSS number used twice with identical lines (exact double entry?)' : `ABSS number used by ${v.length} entries (imported as -2 / -3)`, v);
+  }
+  // one row per entry; an entry caught by two rules carries both reasons and groups
+  const byJn = new Map();
+  groups.forEach((g, i) => {
+    for (const e of g.list) {
+      const r = byJn.get(e.jn) || { group: String(i + 1), why: g.why, jn: e.jn, src: e.src, id: e.id, date: e.date, card: e.card || '', amount: e.amount, memo: e.memo, with: '' };
+      if (byJn.has(e.jn)) { r.group += ` ${i + 1}`; r.why += `; ${g.why}`; }
+      const others = g.list.filter((x) => x.jn !== e.jn).map((x) => x.jn);
+      r.with = [...new Set([...(r.with ? r.with.split(' ') : []), ...others])].join(' ');
+      byJn.set(e.jn, r);
+    }
+  });
+  return [...byJn.values()];
+}
+
+module.exports = { numberEntries, journalType, allocate, allocateFromInvoiceTransactions, partyKey, sameName, findByName, nextCode, abssView, compareTrialBalance, findDuplicates };
