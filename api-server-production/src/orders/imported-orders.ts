@@ -584,7 +584,7 @@ export function importedTracker(
   order: {
     erpDoNumbers?: string[];
     dos?: Array<{ id?: string | null; templateId?: string | null; name?: string | null; erpStatus?: string | null; done?: boolean | null }>;
-    reports?: Array<{ id?: string | null; reportNumber?: number | null; status?: string | null }>;
+    reports?: Array<{ id?: string | null; reportNumber?: number | null; srNumber?: string | null; status?: string | null }>;
   },
   st: Pick<ImportedOrderStatus, 'label'> & { status?: string },
 ) {
@@ -612,8 +612,8 @@ export function importedTracker(
           key: 'serviceReport',
           label: 'Service report',
           state: reports.every((r) => r.status === 'completed') ? ('done' as const) : ('todo' as const),
-          note: reports.map((r) => (r.reportNumber ? `#${r.reportNumber}` : 'Draft')).join(', '),
-          docs: reports.map((r) => ({ label: r.reportNumber ? `#${r.reportNumber}` : 'Draft', status: r.status === 'completed' ? 'Completed' : 'Draft', href: r.id ? `/portal/maintenance-reports/${r.id}` : null })),
+          note: reports.map((r) => r.srNumber || (r.reportNumber ? `#${r.reportNumber}` : 'Draft')).join(', '),
+          docs: reports.map((r) => ({ label: r.srNumber || (r.reportNumber ? `#${r.reportNumber}` : 'Draft'), status: r.status === 'completed' ? 'Completed' : 'Draft', href: r.id ? `/portal/maintenance-reports/${r.id}` : null })),
         }
       : { key: 'serviceReport', label: 'Service report', state: 'todo' as const, note: 'Not yet', action: 'addServiceReport' as const },
   ];

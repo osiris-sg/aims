@@ -1,3 +1,4 @@
+import { reportNoLabel } from './sr-number';
 import { orgToday } from '../common/org-today';
 
 /**
@@ -27,7 +28,8 @@ export function serviceReportFileName(r: {
   const serviceDate = typeof sd.serviceDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(sd.serviceDate) ? sd.serviceDate : null;
   const when = r.signedAt ?? r.createdAt ?? null;
   const date = serviceDate ?? (when ? orgToday(timeZone, when) : null);
-  const number = r.reportNumber != null ? `#${r.reportNumber}` : r.id.slice(0, 8);
+  // WCT group: SR202611-0001 (sr-number.ts); else #145.
+  const number = reportNoLabel(r) ?? r.id.slice(0, 8);
   return ['Service report', number, customer, date].filter(Boolean).join(' ') + '.pdf';
 }
 

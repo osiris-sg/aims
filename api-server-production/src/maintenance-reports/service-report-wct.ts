@@ -24,6 +24,7 @@
  *   the page count.
  */
 
+import { srNumberOf } from './sr-number';
 import {
   WCT_ADVISORY,
   WCT_CLOSING,
@@ -470,7 +471,7 @@ export function buildWctServiceReportHtml(input: WctServiceReportInput): string 
   const field = (f: string, value: string, ph: string) => (edit ? `<span data-f="${f}" data-ph="${ph}">${value}</span>` : value);
 
   const page1 = `
-    <div class="no">${esc(B.number === 'do' ? wctDoNumberLabel(sd.doNumber) : wctReportNumber(input.reportNumber))}</div>
+    <div class="no">${esc(B.number === 'do' ? wctDoNumberLabel(sd.doNumber) : (srNumberOf(sd) ?? wctReportNumber(input.reportNumber)))}</div>
     <div class="title">SERVICE REPORT</div>
     <div class="client"${bc ? ` style="border-color:${B.boxColor}"` : ''}>
       <div class="k">Company</div><div class="v">${field('customerName', esc(sd.customerName), 'company')}</div>
@@ -485,7 +486,7 @@ export function buildWctServiceReportHtml(input: WctServiceReportInput): string 
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Service Report ${esc(B.number === 'do' ? wctDoNumberLabel(sd.doNumber) : wctReportNumber(input.reportNumber))}</title>
+  <title>Service Report ${esc(B.number === 'do' ? wctDoNumberLabel(sd.doNumber) : (srNumberOf(sd) ?? wctReportNumber(input.reportNumber)))}</title>
   <style>${CSS}${bc ? BCAIR_CSS : ''}${edit ? EDIT_CSS : ''}</style>
 </head>
 <body>

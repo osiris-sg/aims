@@ -1,6 +1,6 @@
 import { assertImportedOrderOpen } from '../orders/imported-orders';
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { Prisma, MaintenanceReportKind, DeliveryStatus, DeliveryRunStatus, DeliveryDirection, InventoryStatus, ItemType } from '@prisma/client';
+import { Prisma, MaintenanceServiceReport, MaintenanceReportKind, DeliveryStatus, DeliveryRunStatus, DeliveryDirection, InventoryStatus, ItemType } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
 import { S3Service } from 'src/common/services/s3.service';
@@ -26,6 +26,7 @@ import { isOrgFeatureEnabled, NO_AUTO_CUSTOMER_EMAILS_FLAG } from '../common/org
 import { OrdersService } from '../orders/orders.service';
 import { isOrgFolderKey } from '../common/storage-keys';
 import { signBucketUrlsInHtml } from '../common/storage-sign';
+import { claimSrNumber, reportNoLabel, srNumberOf, SR_NUMBER_FLAG } from './sr-number';
 
 /** Org fields every renderer may need: name/logo for the stock sheets, the rest for the WCT letterhead + footer. */
 /** Most reports one bulk download may carry (POST /maintenance-reports/bulk-pdf). */
@@ -400,7 +401,7 @@ export class MaintenanceReportsService {
    * enough that two retries would be a strong signal of a different bug. Used
    * by the field submission and the office upload alike.
    */
-  private async createNumbered(organizationId: string, baseData: Prisma.MaintenanceServiceReportUncheckedCreateInput) {
+  private async createNumbered(organizationId: string, baseData: Prisma.MaintenanceServiceReportUncheckedCreateInput): Promise<MaintenanceServiceReport> {
     const computeNextNumber = async () => {
       const latest = await this.prisma.maintenanceServiceReport.findFirst({
         where: { organizationId, reportNumber: { not: null } },
@@ -413,9 +414,12 @@ export class MaintenanceReportsService {
     for (let attempt = 0; attempt < 2; attempt++) {
       const reportNumber = await computeNextNumber();
       try {
-        return await this.prisma.maintenanceServiceReport.create({
-          data: { ...baseData, reportNumber },
-        });
+        // WCT group (enableWctDocNav): the SR202611-0001 number too, claimed in the same transaction.
+        return await this.withSrNumber(organizationId, srNumberOf(baseData.serviceData), (db, sr) =>
+          db.maintenanceServiceReport.create({
+            data: { ...baseData, reportNumber, ...(sr ? { serviceData: { ...((baseData.serviceData as Record<string, any> | null) ?? {}), srNumber: sr } as Prisma.InputJsonValue } : {}) },
+          }),
+        );
       } catch (err) {
         if (
           err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -428,6 +432,25 @@ export class MaintenanceReportsService {
       }
     }
     throw new Error('Failed to assign a unique report number after retries');
+  }
+
+  /** WCT group service report numbers (sr-number.ts): the org's flag; a failed read = off. */
+  private async srNumbering(organizationId: string): Promise<boolean> {
+    try {
+      return await isOrgFeatureEnabled(this.prisma, organizationId, SR_NUMBER_FLAG);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Run the write that numbers a report. SR numbering on and the report has no SR number yet: inside a transaction
+   * that holds the org's SR lock, with the next SR202611-0001 number. Otherwise as before, with no SR number.
+   */
+  private async withSrNumber<T>(organizationId: string, has: string | null, write: (db: any, sr: string | null) => Promise<T>): Promise<T> {
+    if (has || !(await this.srNumbering(organizationId))) return write(this.prisma, null);
+    const day = await orgTodayFor(this.prisma, organizationId);
+    return this.prisma.$transaction(async (tx) => write(tx, await claimSrNumber(tx as any, organizationId, day)));
   }
 
   /**
@@ -497,7 +520,8 @@ export class MaintenanceReportsService {
       templateVersion: incoming.templateVersion ?? kept.templateVersion ?? 1,
       customerName: incoming.customerName || kept.customerName || run?.customer?.name || null,
       jobLocation: incoming.jobLocation || kept.jobLocation || run?.siteAddress || null,
-      clientEmail: incoming.clientEmail || kept.clientEmail || run?.customer?.email || null,
+      // An office report: only the address typed on the Finish step (never the customer's email on file).
+      clientEmail: kept.office === true ? incoming.clientEmail || null : incoming.clientEmail || kept.clientEmail || run?.customer?.email || null,
     };
 
     // Same per-org running number as create(): unique on (org, reportNumber),
@@ -512,7 +536,8 @@ export class MaintenanceReportsService {
       // A report reopened for editing keeps its number (2026-11-13).
       const reportNumber = report.reportNumber ?? (latest?.reportNumber ?? 0) + 1;
       try {
-        updated = await this.prisma.maintenanceServiceReport.update({
+        // A numbered report (reopened) keeps the number it has: no SR number for an old one.
+        updated = await this.withSrNumber(organizationId, report.reportNumber != null ? 'kept' : srNumberOf(serviceData), (db, sr) => db.maintenanceServiceReport.update({
           where: { id },
           data: {
             reportNumber,
@@ -520,7 +545,7 @@ export class MaintenanceReportsService {
             ...(body.technicianName ? { technicianName: body.technicianName } : {}),
             description: body.description?.trim() || serviceData.remarks || 'Service report',
             status: 'completed',
-            serviceData: serviceData as Prisma.InputJsonValue,
+            serviceData: (sr ? { ...serviceData, srNumber: sr } : serviceData) as Prisma.InputJsonValue,
             ...(serviceLine ? { deliveryItemId: serviceLine.id } : {}),
             ...(invoice ? { invoiceDocumentId: invoice.id } : {}),
             // An office report signed on screen (manual flow): the customer's signature comes with the completion.
@@ -528,7 +553,7 @@ export class MaintenanceReportsService {
               ? { signature: serviceData.clientSignatureKey, signedByName: String(serviceData.signedByName || '').trim() || null, signedAt: new Date() }
               : {}),
           },
-        });
+        }));
       } catch (err) {
         if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' && attempt === 0) continue;
         throw err;
@@ -981,7 +1006,9 @@ export class MaintenanceReportsService {
     const customer = await this.prisma.customer.findFirst({ where: { id: body.customerId, organizationId }, select: { id: true, name: true, email: true } });
     if (!customer) throw new NotFoundException('Customer not found in this organization');
     const d = await this.customerDo(organizationId, customer.id, body.doDocumentId);
-    const link = { office: true, customerId: customer.id, customerName: customer.name, clientEmail: customer.email ?? null, doDocumentId: d.id, doNumber: d.name, orderId: d.orderId, orderNo: d.orderNo, jobLocation: d.site };
+    // No customer email filled in (UAT 2026-11-25): the Finish step's email box starts empty; the office types one or
+    // sends the report from the order (Send service report), whose dialog offers the customer's address.
+    const link = { office: true, customerId: customer.id, customerName: customer.name, clientEmail: null, doDocumentId: d.id, doNumber: d.name, orderId: d.orderId, orderNo: d.orderNo, jobLocation: d.site };
     if (d.jobId) {
       const open = await this.prisma.maintenanceServiceReport.findFirst({
         where: { organizationId, deliveryId: d.jobId, kind: 'SERVICE', status: { not: 'completed' }, reportNumber: null },
@@ -1075,11 +1102,13 @@ export class MaintenanceReportsService {
         select: { reportNumber: true },
       });
       try {
-        saved = await this.prisma.maintenanceServiceReport.update({
-          where: { id },
-          data: { ...data, reportNumber: report.reportNumber ?? (latest?.reportNumber ?? 0) + 1 },
-          select: { id: true, reportNumber: true },
-        });
+        saved = await this.withSrNumber(organizationId, report.reportNumber != null ? 'kept' : srNumberOf(sd), (db, sr) =>
+          db.maintenanceServiceReport.update({
+            where: { id },
+            data: { ...data, ...(sr ? { serviceData: { ...(data.serviceData as Record<string, any>), srNumber: sr } as Prisma.InputJsonValue } : {}), reportNumber: report.reportNumber ?? (latest?.reportNumber ?? 0) + 1 },
+            select: { id: true, reportNumber: true },
+          }),
+        );
       } catch (err) {
         if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' && attempt === 0) continue;
         throw err;
@@ -1159,7 +1188,7 @@ export class MaintenanceReportsService {
       to,
       customerName: order.customer?.name || sd0.customerName || 'Customer',
       organizationName: org?.name ?? '',
-      reportNumber: reports.map((r) => r.reportNumber ?? r.id.slice(0, 8)).join(', '),
+      reportNumber: reports.map((r) => srNumberOf(r.serviceData) ?? r.reportNumber ?? r.id.slice(0, 8)).join(', '),
       serviceDate: sd0.serviceDate ?? '',
       extraAttachments: files,
     });
@@ -1353,7 +1382,7 @@ export class MaintenanceReportsService {
       cc: [this.email.getAdminEmail()],
       customerName,
       organizationName: report.organization.name,
-      reportNumber: report.reportNumber ?? report.id,
+      reportNumber: srNumberOf(sd) ?? report.reportNumber ?? report.id,
       serviceDate: sd.serviceDate ?? '',
       pdfBuffer,
     });
@@ -1821,7 +1850,33 @@ export class MaintenanceReportsService {
     });
     if (!report) throw new NotFoundException('Service report not found');
     if ((report.serviceData as any)?.deletedAt) throw new NotFoundException('This service report was deleted');
-    return { ...report, order: await this.orderOfReport(report, organizationId) };
+    return { ...report, order: await this.orderOfReport(report, organizationId), links: await this.reportLinksOf(report, organizationId) };
+  }
+
+  /**
+   * The report page's DO and Job pills (WCT group, UAT 2026-11-25): the DO the report was written for (its own link,
+   * else its job's DO) and its job. Read only; a failed read leaves the pill out.
+   */
+  private async reportLinksOf(report: { deliveryId: string | null; serviceData: unknown }, organizationId: string): Promise<{ do: { id: string; name: string | null } | null; job: { id: string; number: number | null } | null }> {
+    const sd = (report.serviceData ?? {}) as any;
+    let job: { id: string; number: number | null } | null = null;
+    let doc: { id: string; name: string | null } | null = typeof sd.doDocumentId === 'string' && sd.doDocumentId ? { id: sd.doDocumentId, name: typeof sd.doNumber === 'string' ? sd.doNumber : null } : null;
+    try {
+      if (report.deliveryId) {
+        const j: any = await this.prisma.delivery.findFirst({ where: { id: report.deliveryId, organizationId }, select: { id: true, deliveryNumber: true } });
+        if (j) job = { id: j.id, number: j.deliveryNumber ?? null };
+        if (j && !doc) {
+          const item: any = await this.prisma.deliveryItem.findFirst({
+            where: { deliveryId: j.id, documentId: { not: null }, document: { organizationId } },
+            select: { documentId: true, document: { select: { name: true } } },
+          });
+          if (item?.documentId) doc = { id: item.documentId, name: item.document?.name ?? null };
+        }
+      }
+    } catch {
+      /* the pills are a convenience: leave out what could not be read */
+    }
+    return { do: doc, job };
   }
 
   /**
@@ -1918,6 +1973,7 @@ export class MaintenanceReportsService {
             OR r."serviceData" ->> 'jobLocation' ILIKE ${like} ESCAPE '\\'
             OR r."serviceData" ->> 'serial' ILIKE ${like} ESCAPE '\\'
             OR r."serviceData" ->> 'model' ILIKE ${like} ESCAPE '\\'
+            OR r."serviceData" ->> 'srNumber' ILIKE ${like} ESCAPE '\\'
           )
         LIMIT 5000`;
       if (hits.length) orClauses.push({ id: { in: hits.map((h) => h.id) } });

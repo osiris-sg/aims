@@ -30,6 +30,9 @@ export interface SendServiceReportEmailParams {
   extraAttachments?: Array<{ filename: string; content: Buffer }>;
 }
 
+/** "#5" for a running number; a WCT group SR202611-0001 number as it is (no #). */
+const hashNo = (n: number | string) => (/^SR\d/.test(String(n)) ? String(n) : `#${n}`);
+
 @Injectable()
 export class EmailService {
   private resend: Resend;
@@ -269,7 +272,7 @@ export class EmailService {
       }
 
       this.logger.log(
-        `Sending service report #${params.reportNumber} email to ${params.to.join(', ')}`,
+        `Sending service report ${hashNo(params.reportNumber)} email to ${params.to.join(', ')}`,
       );
 
       const html = this.generateServiceReportEmailHtml(params);
@@ -277,7 +280,7 @@ export class EmailService {
       const emailData: any = {
         from: this.fromEmail,
         to: params.to,
-        subject: `Service Report #${params.reportNumber} — ${params.customerName}`,
+        subject: `Service Report ${hashNo(params.reportNumber)} — ${params.customerName}`,
         html,
       };
       if (params.cc && params.cc.length > 0) emailData.cc = params.cc;
@@ -394,7 +397,7 @@ export class EmailService {
           </div>
           <div class="content">
             <p>Hi ${customerName},</p>
-            <p>Service Report <strong>#${reportNumber}</strong> has been completed.</p>
+            <p>Service Report <strong>${hashNo(reportNumber)}</strong> has been completed.</p>
             <div class="details">
               <p><strong>Service Date:</strong> ${serviceDate}</p>
               <p><strong>Report Number:</strong> ${reportNumber}</p>
