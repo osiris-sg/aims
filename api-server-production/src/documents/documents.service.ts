@@ -73,6 +73,7 @@ import { orgToday, orgTimeZoneFor, orgTodayFor } from '../common/org-today';
 import { DO_DATE_FLAG, ownDocDate, withDoDate } from './do-date';
 import { insertWithLockedNumber } from '../document-numbering/locked-number';
 import { signBucketUrlsInHtml } from '../common/storage-sign';
+import { GST_MOVE_KEYS, withoutGstMove } from '../common/gst-move-keys';
 
 /** Create invoice's lines as the office confirmed them in the dialog (round 19 imported, round 36 AIMS orders). */
 // discount / discountType (2026-11-25): the quotation line's discount carried onto the invoice line (% or $ for the line).
@@ -3883,8 +3884,12 @@ export class DocumentsService {
     nameOverride?: string,
     // Round 36 (WCT group order invoices, createOrderInvoice): the number is claimed INSIDE the transaction that
     // writes the row (document-numbering/locked-number.ts), retried on a clash. Absent = unchanged for every caller.
-    opts: { lockedNumber?: boolean } = {},
+    // keepGstMove: only the GST switch's own credit note keeps its gstMove link (gst-switch.service.ts).
+    opts: { lockedNumber?: boolean; keepGstMove?: boolean } = {},
   ) {
+    // A new document never inherits a GST move ("Previously <no.>", move history, credit / re-issue links) from the
+    // document it was made from: a DO or invoice made from a moved quotation is new (WCT group, 2026-11-25).
+    if (!opts.keepGstMove) config = withoutGstMove(config) ?? {};
     // The serial is claimed BEFORE the row is written. If the write then fails
     // the number is gone for good — eight JPSG invoice numbers (0057-0064)
     // were burned this way on 2026-10-19, leaving a gap an auditor will ask
@@ -4716,6 +4721,9 @@ export class DocumentsService {
       delete duplicatedConfig.documentNumber;
       // A copy of an imported (old-ERP) DO is a new native DO: it does not inherit the import marker.
       if (isErpImportedDo(original)) delete duplicatedConfig.erpImport;
+      // A copy of a document moved by the GST switch is a new document (WCT group, 2026-11-25): no "Previously <no.>",
+      // no move history, no credit / re-issue links.
+      for (const k of GST_MOVE_KEYS) delete duplicatedConfig[k];
       if (duplicatedConfig.documentInfo) {
         duplicatedConfig.documentInfo = { ...duplicatedConfig.documentInfo };
         delete duplicatedConfig.documentInfo.documentNumber;

@@ -7,7 +7,7 @@
 // DO -> Service report (WCT invoices first), but Invoice and DO each tick on
 // their own whichever happens first; the service report comes last.
 
-import { flowDocStatus } from "./wctStatusFlow";
+import { flowDocStatus, flowDoRowWord } from "./wctStatusFlow";
 
 export type HubStatus =
   | "QUOTATION_SIGNED"
@@ -243,7 +243,7 @@ export function hubSteps(order: {
   createdAt?: string | null;
   sourceQuotation?: { id: string; name?: string | null; status?: string | null; type?: string | null; documentTemplateId?: string | null } | null;
   /** DO first: the order's DOs with or without a job (the DO step lists these). */
-  deliveryOrders?: { id: string; name?: string | null; tag?: string | null; templateId?: string | null; completed?: boolean; awaitingSignature?: boolean; jobs?: { id: string; status: string; isDraft?: boolean }[] }[];
+  deliveryOrders?: { id: string; name?: string | null; tag?: string | null; templateId?: string | null; completed?: boolean; awaitingSignature?: boolean; saved?: boolean; status?: string | null; jobs?: { id: string; status: string; isDraft?: boolean }[] }[];
   jobs?: { id?: string; status: string; isDraft?: boolean; deliveryOrder?: { id: string; name?: string | null; tag?: string | null; templateId?: string | null } | null }[];
   invoices?: { id: string; name?: string | null; status?: string | null; type?: string | null; documentTemplateId?: string | null; href?: string | null; extra?: boolean; split?: { part: number; of: number } | null; cancelled?: boolean; edited?: boolean }[];
   jobReports?: { id: string; reportNumber?: number | null; status: string; uploaded?: boolean; sentAt?: string | null; photosFile?: boolean }[];
@@ -309,7 +309,7 @@ export function hubSteps(order: {
               label: d.name || "DO",
               // Same words as the order page's Delivery orders section.
               status: flow
-                ? d.completed ? "Accepted" : d.awaitingSignature || (d.jobs ?? []).some((j) => j.isDraft === false) ? "Pending" : "Draft"
+                ? flowDoRowWord(d)
                 : d.completed ? "Completed" : d.awaitingSignature ? "Awaiting signature" : (d.jobs ?? []).some((j) => j.isDraft === false) ? "Scheduled" : "Draft",
               href: docHref("DELIVERY_ORDER", d.templateId, d.id),
               file: d.completed && done ? { label: "PDF" as const, path: `/delivery-group-posts/delivery/${done.id}/signed-do?documentId=${d.id}` } : null,

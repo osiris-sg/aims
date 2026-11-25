@@ -5461,7 +5461,12 @@ export default function TabbedDocumentCreator({
           {!isTemplateEditMode && (documentId || existingData?.id) && !isSettlementType && (
             <Box data-tour="editor-status" sx={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
               {isRealDoOnScheduleEnabled && String(actualDocumentType || "").toUpperCase() === "DELIVERY_ORDER" ? (
-                <DoStatusTag tag={docDoTag({ status: existingData?.status, config: existingData })} />
+                // The DO itself (with this session's saves) goes in too, so the WCT wording reads the same as the DO
+                // list: Draft = made by the system, Pending = saved by a person (2026-11-25).
+                <DoStatusTag
+                  tag={docDoTag({ status: existingData?.status, config: existingData })}
+                  doc={{ status: existingData?.status, cancelled: (existingData as any)?.cancelled ?? null, config: { ...((existingData as any)?.config || {}), savedAt: liveTracking.savedAt ?? (existingData as any)?.config?.savedAt ?? existingData?.savedAt } }}
+                />
               ) : (
                 // config.savedAt is carried from this session's saves as well as the
                 // stored config, so any status rule that reads it sees the current value.

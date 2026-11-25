@@ -34,8 +34,10 @@ const DOC_LIST: Array<[string, string, string]> = [
   [WCT, 'QO202611-0067', 'UAT 1125 (was QO202611-0066 / QOB202611-0004)'],
   [WCT, 'DO202611052', 'UAT 1125 (empty DO from the all-on-a-DO check)'], [WCT, 'DO202611053', 'UAT 1125 (confirmed)'], [WCT, 'DO202611054', 'UAT 1125 (signed by link)'],
   [WCT, 'INV202611-0040-1', 'UAT 1125 split part 1 (draft)'], [WCT, 'INV202611-0040-2', 'UAT 1125 split part 2 (draft)'],
+  [WCT, 'QO202611-0068', 'UAT 1125 retest'], [WCT, 'DO202611055', 'UAT 1125 retest (confirmed)'],
+  [WCT, 'INV202611-0041-1', 'UAT 1125 retest split part 1 (draft)'], [WCT, 'INV202611-0041-2', 'UAT 1125 retest split part 2 (draft)'],
 ];
-const ORDER_LIST: Array<[string, string, string]> = [[WCT, 'ORDW202611-017', 'UAT 1125 (was ORDW202611-016 / ORDB202611-005)']];
+const ORDER_LIST: Array<[string, string, string]> = [[WCT, 'ORDW202611-017', 'UAT 1125 (was ORDW202611-016 / ORDB202611-005)'], [WCT, 'ORDW202611-018', 'UAT 1125 retest']];
 const JOB_LIST: Array<[string, number, string]> = [
   [WCT, 16, 'UAT 1125 calendar job "UAT 1125 Calendar Shop, delete"'], [WCT, 17, 'UAT 1125 postponed record of job #18'],
 ];

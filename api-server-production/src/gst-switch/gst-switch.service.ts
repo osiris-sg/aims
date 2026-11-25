@@ -316,7 +316,7 @@ export class GstSwitchService {
       const amount = owedOf(d.config);
       const cnTemplate = await this.documents.resolveTemplateIdForType('CREDIT_NOTE', orgId);
       const cfg = creditNoteConfig({ id: d.id, name: d.name, config: d.config }, { date: today, to: target, gstLabel: gstLabel(wantGst) });
-      const cn: any = await this.documents.createBasicDocument(cnTemplate, 'CREDIT_NOTE', orgId, cfg, undefined, actor, undefined, { lockedNumber: true });
+      const cn: any = await this.documents.createBasicDocument(cnTemplate, 'CREDIT_NOTE', orgId, cfg, undefined, actor, undefined, { lockedNumber: true, keepGstMove: true });
       const saved = await this.db.document.update({ where: { id: cn.id }, data: { status: 'confirmed' }, select: { id: true, name: true, config: true } });
       await this.documents.repostGlForDocument(orgId, saved.id, 'CREDIT_NOTE', saved.config, saved.name, actor);
       const je = await this.db.journalEntry.count({ where: { organizationId: orgId, sourceDocumentId: saved.id, status: { not: 'VOID' } } });

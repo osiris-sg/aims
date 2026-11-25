@@ -1472,6 +1472,9 @@ export class OrdersService {
           date: doDateOrCreated(c, d.createdAt, doTz),
           completed,
           awaitingSignature: !completed && c.awaitingSignature === true,
+          // 2026-11-25: saved by a person in the editor (config.savedAt), so the order page words a DO like the DO list:
+          // Draft = made by the system, Pending = saved by someone.
+          saved: !!c.savedAt,
           // 2026-11-23: the signed / stamped DO uploaded on completion (Complete DO, Upload signed DO): the FILE column opens it.
           stampedFileKey: completed ? stampedDoKeyOf(d.attachments) : null,
           invoiceId: c.orderInvoiceId && !String(c.orderInvoiceId).startsWith('claim:') ? c.orderInvoiceId : null,

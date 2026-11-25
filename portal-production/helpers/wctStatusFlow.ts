@@ -76,6 +76,18 @@ export function flowDocStatus(doc: FlowDoc | null | undefined): FlowStatus | nul
   return null;
 }
 
+/**
+ * The WCT word for a DO row on the order page / order hub, the same rule as flowDocStatus (the DO list and editor):
+ * Accepted once delivered and signed; Pending once saved by a person, confirmed or waiting for the signature;
+ * otherwise Draft (made by the system, nobody has saved it). A scheduled job does not change the word (2026-11-25).
+ */
+export function flowDoRowWord(d: { completed?: boolean; awaitingSignature?: boolean; saved?: boolean; status?: string | null }): "Accepted" | "Pending" | "Draft" {
+  if (d.completed) return "Accepted";
+  const raw = String(d.status || "unconfirmed").toLowerCase();
+  const draftish = raw === "draft" || raw === "unconfirmed";
+  return d.awaitingSignature || d.saved || !draftish ? "Pending" : "Draft";
+}
+
 /** List Status filter options per document type (values the server's status filter understands). */
 export function flowStatusOptions(types: string[], opts: { voided?: boolean } = {}): { value: string; label: string }[] | null {
   const t = types.map(typeOf);

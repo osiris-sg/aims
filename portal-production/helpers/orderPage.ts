@@ -9,7 +9,7 @@
 import { HUB_ACTION_LABEL, hubNextStep, hubRowActions, hubStatus, hubStatusInfo, hubSteps, type HubActionKey } from "./wctOrderHub";
 import { importedBilledPct, importedLinkSourceLabel, importedMoney, importedProgress, importedStatusHue, importedSteps, type ImportedLinkType } from "./importedOrders";
 import { invoiceNowText, jobStatusLabel, orderStatusLabel } from "./wctOrders";
-import { flowDocStatus, flowOrderStatus } from "./wctStatusFlow";
+import { flowDocStatus, flowDoRowWord, flowOrderStatus } from "./wctStatusFlow";
 import { crossOrgHref, crossOrgLabel } from "./crossOrg";
 import { PLACEHOLDER_TIP } from "./linkDoc";
 
@@ -234,7 +234,7 @@ const cardClick = (docs: OrderCardDoc[], add: "add-do" | "service-report" | "cre
 
 function doStatusOf(d: any, flow = false): string {
   // WCT group wording (enableWctStatusFlow): Draft → Pending → Accepted.
-  if (flow) return d.completed ? "Accepted" : d.awaitingSignature || (d.jobs ?? []).some((j: any) => j.isDraft === false) ? "Pending" : "Draft";
+  if (flow) return flowDoRowWord(d);
   if (d.completed) return "Completed";
   if (d.awaitingSignature) return "Awaiting signature";
   return (d.jobs ?? []).some((j: any) => j.isDraft === false) ? "Scheduled" : "Draft";
