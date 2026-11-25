@@ -205,7 +205,18 @@ export class PublicSignService {
     const via = String(body?.via || '').toLowerCase() === 'email' ? 'email' : 'whatsapp';
     const doc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { id: true, name: true, config: true, documentTemplateId: true, type: true, projectId: true } });
     if (!doc) throw new NotFoundException('Document not found');
-    const link = await this.createForDocument(documentId, organizationId);
+    // Invoices send a VIEW/PAY link (no signature); quotations / VOs mint the
+    // sign link. Same send machinery either way (number resolution, 24h-window
+    // template fallback, wa.me fallback, history). guru 2026-11-25.
+    const INVOICE_TYPES = ['INVOICE', 'TI', 'TI2'];
+    const isInvoice = INVOICE_TYPES.includes(String(doc.type).toUpperCase());
+    const link = isInvoice
+      ? await (async () => {
+          const t = await this.documents.ensurePayToken(documentId, organizationId);
+          const base = (process.env.PORTAL_BASE_URL || 'https://app.ai-ms.io').replace(/\/$/, '');
+          return { url: `${base}/pay/${t}`, expiresAt: null as Date | null };
+        })()
+      : await this.createForDocument(documentId, organizationId);
     const cfg: any = doc.config || {};
     const di: any = cfg.documentInfo || {};
     const isVo = String(doc.type).toUpperCase() === VO_TYPE;
@@ -234,8 +245,10 @@ export class PublicSignService {
     const amount = total > 0 ? ` (${isVo ? 'net ' : ''}S$ ${total.toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` : '';
     const until = link.expiresAt ? ` The link is valid until ${new Date(link.expiresAt).toLocaleDateString('en-SG', { day: '2-digit', month: 'short', year: 'numeric' })}.` : '';
     const greeting = contactName || customerName ? `Hi ${contactName || customerName}, ` : 'Hi, ';
-    const docLabel = isDo ? 'delivery order' : isVo ? 'variation order' : 'quotation';
-    const message = String(body?.message || '').trim() || `${greeting}please review and sign ${docLabel} ${doc.name || ''}${amount} here: ${link.url}.${until} Thank you, ${org?.name || 'AIMS'}.`;
+    const docLabel = isDo ? 'delivery order' : isInvoice ? 'invoice' : isVo ? 'variation order' : 'quotation';
+    const message = String(body?.message || '').trim() || (isInvoice
+      ? `${greeting}here is your invoice ${doc.name || ''}${amount}: ${link.url}. Thank you, ${org?.name || 'AIMS'}.`
+      : `${greeting}please review and sign ${docLabel} ${doc.name || ''}${amount} here: ${link.url}.${until} Thank you, ${org?.name || 'AIMS'}.`);
     const text = message.includes(link.url) ? message : `${message}\n${link.url}`;
     const base = { via, to, url: link.url, expiresAt: link.expiresAt ?? null, message: text } as const;
     // Document history row ("History & notes" in the editor), same table the
@@ -252,14 +265,16 @@ export class PublicSignService {
             resourceId: doc.id,
             resourceName: doc.name || null,
             organizationId,
-            details: { detail: ok ? `Sign link sent to ${to} on ${how}` : `Sign link to ${to} on ${how} failed${detail ? `: ${detail}` : ''}`, via, to },
+            details: { detail: ok ? `${isInvoice ? 'Invoice link' : 'Sign link'} sent to ${to} on ${how}` : `${isInvoice ? 'Invoice link' : 'Sign link'} to ${to} on ${how} failed${detail ? `: ${detail}` : ''}`, via, to },
           },
         })
         .catch(() => null);
 
     if (via === 'email') {
-      const html = `<p>${escapeHtml(greeting.trim())}</p><p>Please review and sign ${docLabel} <b>${escapeHtml(doc.name || '')}</b>${escapeHtml(amount)}:</p><p><a href="${link.url}">${link.url}</a></p><p>${escapeHtml(until.trim())}</p><p>Thank you,<br/>${escapeHtml(org?.name || 'AIMS')}</p>`;
-      const res = await this.email.sendSimpleEmail({ to: [to], subject: `${isDo ? 'Delivery order' : isVo ? 'Variation order' : 'Quotation'} ${doc.name || ''} from ${org?.name || 'AIMS'} — please sign`, html });
+      const html = isInvoice
+        ? `<p>${escapeHtml(greeting.trim())}</p><p>Here is your invoice <b>${escapeHtml(doc.name || '')}</b>${escapeHtml(amount)}:</p><p><a href="${link.url}">${link.url}</a></p><p>Thank you,<br/>${escapeHtml(org?.name || 'AIMS')}</p>`
+        : `<p>${escapeHtml(greeting.trim())}</p><p>Please review and sign ${docLabel} <b>${escapeHtml(doc.name || '')}</b>${escapeHtml(amount)}:</p><p><a href="${link.url}">${link.url}</a></p><p>${escapeHtml(until.trim())}</p><p>Thank you,<br/>${escapeHtml(org?.name || 'AIMS')}</p>`;
+      const res = await this.email.sendSimpleEmail({ to: [to], subject: isInvoice ? `Invoice ${doc.name || ''} from ${org?.name || 'AIMS'}` : `${isDo ? 'Delivery order' : isVo ? 'Variation order' : 'Quotation'} ${doc.name || ''} from ${org?.name || 'AIMS'} — please sign`, html });
       await record('email', res.success, res.error);
       return res.success ? { sent: true, ...base } : { sent: false, ...base, reason: res.error || 'email failed' };
     }

@@ -281,6 +281,15 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   enableFieldPayroll: false,
   enableFieldReports: false,
   fieldEngineLive: false,
+  // Sign an OFFICE Delivery Order through its shared "Share DO link (view /
+  // sign)" — a DO typed up in the office that no rider ever delivered, so it has
+  // no field proof to sign against. On a DO that DID go out, the customer signs
+  // in the field and the link only shows that sign-off; this flag has no effect
+  // there. With it on, opening or signing the link mints the one proof row the
+  // signature lands on (idempotent, and it works for links minted beforehand).
+  // Default OFF. Previously undeclared here, so it existed only in code and
+  // could not be seen or switched in the admin panel (guru 2026-11-24).
+  enableOfficeDoSign: false,
   // Guest DELIVERY link on a Delivery Order — the "Share / Revoke delivery link"
   // pair in the DO's ⋮ menu. DEFAULT OFF (guru 2026-11-24): signing happens
   // through the DO link (view / sign) beside it, and two near-identical pairs of
