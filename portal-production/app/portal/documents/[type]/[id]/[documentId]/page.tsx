@@ -12,6 +12,7 @@ import { crossOrgHref, safeOpenInOrg } from "@/helpers/crossOrg";
 import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { toast } from "react-toastify";
 import { useGetSuppliers, useGetDocumentNav } from "@/app/portal/hooks/api";
+import { docTypeFamily } from "@/helpers/docTypeFamily";
 import { useCustomerPool } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useGetProjects } from "@/containers/DocumentTemplates/hooks/useGetProjects";
 import { useGetDeliveryOrders } from "@/containers/DocumentTemplates/hooks/useGetDeliveryOrders";
@@ -98,9 +99,15 @@ export default function page() {
     router.replace(`/portal/sales/variation-orders/${documentId}`);
   }, [isVoType, documentId, router]);
 
-  // Documents on this template for the prev/next arrows — lean rows (no
-  // config). The fetch-all list took 12s on Chong Aik (guru 2026-10-23).
-  const { documents: allDocuments = [], refetch: refetchDocuments } = useGetDocumentNav({ templateId: id as string });
+  // Documents of this TYPE for the prev/next arrows — lean rows (no config;
+  // the fetch-all list took 12s on Chong Aik, guru 2026-10-23). By type, not
+  // by the route's template id: the shared template library lets an org run
+  // several templates per type, and a document built on another one had no
+  // neighbours at all (guru 2026-11-25: "how come I can't Previous and Next
+  // for this document?"). The number series below still keeps the walk inside
+  // the document's own run of numbers.
+  const navTypes = useMemo(() => docTypeFamily(type as string), [type]);
+  const { documents: allDocuments = [], refetch: refetchDocuments } = useGetDocumentNav({ documentTypes: navTypes, enabled: navTypes.length > 0 });
 
   // Prev/Next walks the RUNNING NUMBER, not the creation date, and stays inside
   // the document's own number series (guru 2026-10-20).
@@ -154,18 +161,17 @@ export default function page() {
   // contract — the prefetch buffer and the index maths below both rely on
   // index+1 being "previous" and index-1 being "next".
   const filteredDocuments = useMemo(() => {
-    if (!allDocuments.length || !id) return [];
-    const sameTemplate = allDocuments.filter((doc: any) => doc.templateId === id);
-    const current = sameTemplate.find((doc: any) => doc.id === documentId);
+    if (!allDocuments.length) return [];
+    const current = allDocuments.find((doc: any) => doc.id === documentId);
     const currentSeries = current ? seriesKeyOf(current.name ?? current.documentNumber) : null;
     const inSeries =
       currentSeries === null
-        ? sameTemplate
-        : sameTemplate.filter((doc: any) => seriesKeyOf(doc.name ?? doc.documentNumber) === currentSeries);
+        ? allDocuments
+        : allDocuments.filter((doc: any) => seriesKeyOf(doc.name ?? doc.documentNumber) === currentSeries);
     return inSeries.sort((a: any, b: any) =>
       compareRunningNumber(b.name ?? b.documentNumber, a.name ?? a.documentNumber),
     );
-  }, [allDocuments, id, documentId, seriesKeyOf, compareRunningNumber]);
+  }, [allDocuments, documentId, seriesKeyOf, compareRunningNumber]);
 
   // Find current document index and calculate navigation
   const currentIndex = useMemo(() => {
@@ -485,7 +491,8 @@ export default function page() {
       const prevDoc = filteredDocuments[currentIndex + 1];
       // Check buffer after navigation
       checkAndPrefetchMore('previous');
-      router.push(`/portal/documents/${type}/${id}/${prevDoc.id}`);
+      // Each neighbour opens on ITS OWN template (it may differ from this one's).
+      router.push(`/portal/documents/${type}/${prevDoc.templateId || id}/${prevDoc.id}`);
       // Reset after a short delay
       setTimeout(() => { isNavigatingRef.current = false; }, 500);
     }
@@ -500,7 +507,7 @@ export default function page() {
       const nextDoc = filteredDocuments[currentIndex - 1];
       // Check buffer after navigation
       checkAndPrefetchMore('next');
-      router.push(`/portal/documents/${type}/${id}/${nextDoc.id}`);
+      router.push(`/portal/documents/${type}/${nextDoc.templateId || id}/${nextDoc.id}`);
       // Reset after a short delay
       setTimeout(() => { isNavigatingRef.current = false; }, 500);
     }
