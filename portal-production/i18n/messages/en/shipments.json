@@ -600,7 +600,16 @@
     "newShipment": "New shipment",
     "blSays": "B/L: ",
     "hsDiffers": "HS code differs from the product ({code})",
-    "hsFromProduct": "from the product (the B/L prints no HS code)"
+    "hsFromProduct": "from the product (the B/L prints no HS code)",
+    "fixBeforeSave": "Not saved — fix: {list}",
+    "problem": {
+      "contract": "pick the contract",
+      "productLine": "pick the product line",
+      "currency": "currency (3 letters, e.g. USD)",
+      "deliveryMonth": "delivery month (YYYY-MM)",
+      "dates": "a date is not valid",
+      "number": "{field} must be a number ≥ 0"
+    }
   },
   "trackingPasteDialog": {
     "status": {

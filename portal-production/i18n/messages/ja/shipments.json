@@ -600,7 +600,16 @@
     "newShipment": "新規出荷",
     "blSays": "B/L: ",
     "hsDiffers": "HSコードが製品と異なります（{code}）",
-    "hsFromProduct": "製品のHSコード（B/Lに記載なし）"
+    "hsFromProduct": "製品のHSコード（B/Lに記載なし）",
+    "fixBeforeSave": "保存されていません — 修正してください: {list}",
+    "problem": {
+      "contract": "契約を選択",
+      "productLine": "製品行を選択",
+      "currency": "通貨（3文字、例: USD）",
+      "deliveryMonth": "納入月（YYYY-MM）",
+      "dates": "日付が正しくありません",
+      "number": "{field} は0以上の数値にしてください"
+    }
   },
   "trackingPasteDialog": {
     "status": {

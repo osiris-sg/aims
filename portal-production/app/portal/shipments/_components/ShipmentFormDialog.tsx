@@ -24,6 +24,7 @@ import { useContracts, useTradeMutation } from "../_lib/hooks";
 import { commodityOf, lineLabel, toDateInput } from "../_lib/format";
 import { filledSx, PdfDropZone, SourcePdfPane } from "./PdfDrop";
 import CiVersionsNote from "./CiVersionsNote";
+import { formProblems } from "../_lib/shipment-form-check";
 import { anyDateError, guardDate } from "../_lib/dates";
 import { factPrefill, factSuggestion } from "../_lib/shipment-picker";
 import { hsDiffers, normHs, sameFieldValue } from "../_lib/hs";
@@ -332,12 +333,30 @@ export default function ShipmentFormDialog({
   const currencyError = !/^[A-Z]{3}$/.test(form.currency.trim());
   const datesError = !!form.etd && !!form.eta && form.eta < form.etd;
   const monthError = form.deliveryMonth.trim() !== "" && !MONTH.test(form.deliveryMonth.trim());
-  const invalid =
-    (!order && !contractId) || (lineRequired && !lineId) || currencyError || monthError || anyDateError(form.etd, form.eta, form.actualArrivalDate, form.deliveryMonth) || DECIMAL_KEYS.some((k) => badDecimal(form[k])) || INT_KEYS.some((k) => badInt(form[k]));
+  // Round BY: one list of what blocks Save (shown when Save is pressed) — a contract only when creating outside an order.
+  const NUM_LABELS: Record<string, string> = { netWeightMt: t("netWeight"), grossWeightMt: t("grossWeight"), ciAmount: t("ciAmount"), totalBundles: t("bundles"), totalPieces: t("pieces"), containerCount: t("containers") };
+  const problems = formProblems({
+    creating: !shipment,
+    underOrder: !!order,
+    contractId,
+    lineRequired,
+    lineId,
+    currency: form.currency,
+    deliveryMonth: form.deliveryMonth,
+    dateError: anyDateError(form.etd, form.eta, form.actualArrivalDate, form.deliveryMonth),
+    badNumbers: [...DECIMAL_KEYS.filter((k) => badDecimal(form[k])), ...INT_KEYS.filter((k) => badInt(form[k]))].map((k) => NUM_LABELS[k] ?? k),
+  });
+  const invalid = problems.length > 0;
+  const problemText = problems
+    .map((p) => (p.key === "number" ? t("problem.number", { field: p.field ?? "" }) : t(`problem.${p.key}`)))
+    .join(" · ");
 
   const submit = async () => {
     setTouched(true);
-    if (invalid) return;
+    if (invalid) {
+      setError(t("fixBeforeSave", { list: problemText }));
+      return;
+    }
     if (overQty && !askOver) {
       setAskOver(true);
       return;
