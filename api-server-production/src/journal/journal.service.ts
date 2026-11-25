@@ -1008,9 +1008,21 @@ export class JournalService {
     const truncated = entries.length > MAX_JOURNALS;
     if (truncated) entries.pop();
 
+    // The document each journal was posted from, so a report row can open it (Audit Trail,
+    // J/V Listing — guru 2026-11-25: every row that names a document opens it), the same
+    // trio the account ledger rows carry.
+    const srcIds = [...new Set(entries.map((e) => (e as any).sourceDocumentId).filter(Boolean))] as string[];
+    const srcDocs = srcIds.length
+      ? await this.prisma.document.findMany({ where: { id: { in: srcIds } }, select: { id: true, type: true, documentTemplateId: true } })
+      : [];
+    const srcById = new Map(srcDocs.map((d) => [d.id, d]));
+
     const journals = entries.map((e) => ({
       id: e.id,
       journalNumber: e.journalNumber,
+      sourceDocumentId: (e as any).sourceDocumentId ?? null,
+      sourceDocumentType: srcById.get((e as any).sourceDocumentId)?.type ?? null,
+      sourceTemplateId: srcById.get((e as any).sourceDocumentId)?.documentTemplateId ?? null,
       entryDate: e.entryDate.toISOString(),
       type: e.type,
       status: e.status,

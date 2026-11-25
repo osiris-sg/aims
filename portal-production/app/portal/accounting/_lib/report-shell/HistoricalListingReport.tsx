@@ -1,6 +1,7 @@
 "use client";
 
 import { bandLabel, bandRow, splitConfirmed } from "./confirmBands";
+import { sourceHref } from "../open-source";
 
 // Debtor Historical Listing (legacy screenshots 71/72 — guru 2026-07-20:
 // Xero style, legacy words verbatim): per-debtor transaction history for a
@@ -45,7 +46,7 @@ type DebtorBlock = {
   code: string;
   name: string;
   currency: string; // customer master currency
-  rows: Array<{ reference: string; date: string | null; remarks: string; debit: number; credit: number; unconfirmed: boolean }>;
+  rows: Array<{ reference: string; href: string | null; date: string | null; remarks: string; debit: number; credit: number; unconfirmed: boolean }>;
   opening: number;
   closing: number;
   totalDebit: number;
@@ -109,6 +110,8 @@ export default function HistoricalListingReport({ side = "receivable" }: { side?
           if (!txs.length && Math.abs(opening) < 0.005 && targets.length > 1) return;
           const rows = txs.map((t) => ({
             reference: t.reference || "",
+            // The document behind the row (invoice / credit note / bill) — the Reference opens it.
+            href: sourceHref({ documentId: t.docId, documentType: t.docTypeKey, templateId: t.templateId }, ""),
             date: t.date || null,
             remarks: t.description || t.transactionType || "",
             debit: Number(t.debit) || 0,
@@ -194,7 +197,7 @@ export default function HistoricalListingReport({ side = "receivable" }: { side?
           kind: "row",
           key: `r-${bl.code}-${i}`,
           cells: [
-            r.reference,
+            r.href ? { text: r.reference, href: r.href, newTab: true } : r.reference,
             r.date ? fmtDate(r.date) : "",
             r.remarks,
             "SGD",

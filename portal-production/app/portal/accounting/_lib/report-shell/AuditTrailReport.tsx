@@ -10,6 +10,7 @@
 // side-rail Audit Trail button lands here scoped to receipts).
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { sourceHref } from "../open-source";
 import { useSearchParams } from "next/navigation";
 import { Box, TextField, Typography } from "@mui/material";
 import { toast } from "react-toastify";
@@ -32,6 +33,8 @@ type TrailRow = {
   unconfirmed: boolean;
   date: string;
   docRef: string;
+  // What the Document-Ref opens (new tab): the posting document, else the journal itself as a J/V.
+  href: string | null;
   accountCode: string;
   account: string;
   description: string;
@@ -64,11 +67,13 @@ export default function AuditTrailReport() {
           // Manual journals display as "J/V 000005" (doc-type prefix plan);
           // document-sourced journals carry their stamped reference.
           const docRef = j.reference || (j.journalNumber ? `J/V ${String(j.journalNumber).replace(/^JV-?/, "")}` : "");
+          const href = sourceHref({ journalEntryId: j.id, documentId: j.sourceDocumentId, documentType: j.sourceDocumentType, templateId: j.sourceTemplateId }, "");
           for (const l of j.lines || []) {
             out.push({
               unconfirmed: !!j.isUnconfirmed,
               date: l.date || j.entryDate,
               docRef,
+              href,
               accountCode: l.accountCode || "",
               account: l.account || "",
               description: l.description || j.description || "",
@@ -138,7 +143,7 @@ export default function AuditTrailReport() {
     const out: ReportRow[] = filtered.map((l, i) => ({
       kind: "row",
       key: `l${i}`,
-      cells: [fmtDate(l.date), l.docRef, l.accountCode, l.account, l.description, l.debit || null, l.credit || null],
+      cells: [fmtDate(l.date), l.href ? { text: l.docRef, href: l.href, newTab: true } : l.docRef, l.accountCode, l.account, l.description, l.debit || null, l.credit || null],
     }));
     out.push({ kind: "total", key: "__total", cells: ["TOTAL", "", "", "", "", totalDebit, totalCredit] });
     return out;

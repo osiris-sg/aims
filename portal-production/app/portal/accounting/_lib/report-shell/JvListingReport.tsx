@@ -10,6 +10,7 @@
 // a preset in the range picker. Print/CSV from the shell footer.
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { sourceHref } from "../open-source";
 import { Stack, Typography } from "@mui/material";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../api";
@@ -33,6 +34,7 @@ function sideTotals(lines: Array<{ amount: number; foreignAmount: number | null 
 }
 type JvLine = {
   jvNo: string;
+  href: string | null; // the J/V No. opens the voucher (new tab)
   date: string;
   accn: string;
   description: string;
@@ -77,6 +79,7 @@ export default function JvListingReport() {
           const sign = amount < 0 ? -1 : 1;
           bucket.push({
             jvNo: j.journalNumber,
+            href: sourceHref({ journalEntryId: j.id, documentId: j.sourceDocumentId, documentType: j.sourceDocumentType, templateId: j.sourceTemplateId }, ""),
             date: j.entryDate,
             accn: l.accountCode || "",
             description:
@@ -122,7 +125,7 @@ export default function JvListingReport() {
     const out: ReportRow[] = [];
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
-      out.push({ kind: "row", key: `l-${i}`, cells: [l.jvNo, fmtDate(l.date), l.accn, l.description, l.foreignAmount, l.curr, l.amount] });
+      out.push({ kind: "row", key: `l-${i}`, cells: [l.href ? { text: l.jvNo, href: l.href, newTab: true } : l.jvNo, fmtDate(l.date), l.accn, l.description, l.foreignAmount, l.curr, l.amount] });
     }
     // A balanced journal nets to 0 in the single signed Amount column, so a
     // plain sum printed "-" (guru 2026-10-23). Totals are shown per SIDE —

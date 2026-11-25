@@ -23,6 +23,7 @@ import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
 import { todayIso } from "@/helpers/orgToday";
 import DateInput from "@/components/DateInput";
+import { withActiveOrg } from "@/helpers/request";
 
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -67,12 +68,28 @@ type SoaTx = {
 
 type AgedDoc = {
   id: string;
+  docType?: string;
+  templateId?: string | null;
   number: string;
   date: string;
   reference: string | null;
   total: number; // outstanding
   currency: string | null;
 };
+
+// A row that names a document opens it (guru 2026-11-25: "i thought i alr added a feature where u
+// can click into the document" — the Statement-Of-Accounts report had it, this dialog did not).
+// New tab, because the dialog sits on top of the receipt being keyed.
+const docHref = (id?: string | null, type?: string | null, templateId?: string | null): string | null =>
+  id && type && templateId ? withActiveOrg(`/portal/documents/${type}/${templateId}/${id}`) : null;
+const openDoc = (href: string | null) => {
+  if (href) window.open(href, "_blank", "noopener");
+};
+const refCellSx = (linked: boolean) => ({
+  fontVariantNumeric: "tabular-nums" as const,
+  whiteSpace: "nowrap" as const,
+  ...(linked ? { color: "primary.main", fontWeight: 600, textDecoration: "underline", textDecorationColor: "transparent", "&:hover": { textDecorationColor: "currentColor" } } : {}),
+});
 
 const MONTH_LABELS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
@@ -305,16 +322,19 @@ export default function DebtorStatementDialog({
                       </TableCell>
                     </TableRow>
                   ) : (
-                    rows.map((r, i) => (
-                      <TableRow key={i} hover>
-                        <TableCell sx={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{r.reference}</TableCell>
+                    rows.map((r, i) => {
+                      const href = docHref((r as any).docId, (r as any).docTypeKey, (r as any).templateId);
+                      return (
+                      <TableRow key={i} hover onClick={() => openDoc(href)} sx={href ? { cursor: "pointer" } : undefined} title={href ? "Open the document in a new tab" : undefined}>
+                        <TableCell sx={refCellSx(!!href)}>{r.reference}</TableCell>
                         <TableCell sx={{ whiteSpace: "nowrap" }}>{dmy(r.date)}</TableCell>
                         <TableCell>{r.description || r.transactionType}</TableCell>
                         <TableCell sx={mono}>{r.debit ? fmt(r.debit) : ""}</TableCell>
                         <TableCell sx={mono}>{r.credit ? fmt(r.credit) : ""}</TableCell>
                         <TableCell sx={mono}>{fmt(r.running)}</TableCell>
                       </TableRow>
-                    ))
+                      );
+                    })
                   )}
                   {/* Totals as table rows so they align exactly under the
                       Debit / Credit / Balance columns. */}
@@ -407,15 +427,18 @@ export default function DebtorStatementDialog({
               </TableRow>
             </TableHead>
             <TableBody>
-              {(monthDetail?.docs || []).map((d) => (
-                <TableRow key={d.id} hover>
-                  <TableCell sx={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{d.number}</TableCell>
+              {(monthDetail?.docs || []).map((d) => {
+                const href = docHref(d.id, d.docType, d.templateId);
+                return (
+                <TableRow key={d.id} hover onClick={() => openDoc(href)} sx={href ? { cursor: "pointer" } : undefined} title={href ? "Open the document in a new tab" : undefined}>
+                  <TableCell sx={refCellSx(!!href)}>{d.number}</TableCell>
                   <TableCell sx={{ whiteSpace: "nowrap" }}>{dmy(d.date)}</TableCell>
                   <TableCell>{d.reference || "INVOICE"}</TableCell>
                   <TableCell sx={mono}>{fmt(d.total)}</TableCell>
                   <TableCell>{d.currency || "SGD"}</TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
           <Box sx={{ p: 1.5, px: 2, display: "flex", justifyContent: "flex-end", borderTop: "1px solid", borderColor: "divider" }}>
