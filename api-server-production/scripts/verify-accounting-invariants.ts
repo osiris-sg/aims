@@ -11,11 +11,14 @@
  *   3. journal internal imbalance (Σ line debits ≠ Σ line credits)
  *   4. GL out of balance (Σ debits ≠ Σ credits across active journals)
  *   5. stale document tie: an active native SGD document journal whose total
- *      no longer matches its document's gross (totalWithTax fallback chain)
+ *      no longer matches its document's gross (totalWithTax fallback chain).
+ *      Imported ledgers (ABSS, createdBy "abss-gl:…") are checked by 5c instead.
  *
  * WARN (reported, not fatal — legitimate timing/layer differences exist):
  *   6. AR control (debtorControl) vs Σ outstandingBalance over open invoices
  *   7. AP control (creditorControl) vs Σ outstanding over open bills
+ *   5c. imported-ledger tie (ABSS): every live entry under one number added up on
+ *      the AR / AP control account vs the document's gross (scripts/lib/imported-ledger-tie.js)
  *
  * Layout aware: old single `public` schema (staging/prod) or per-org schemas
  * (dev since 2026-09-28). DATABASE_URL from the environment (Render cron) or
@@ -28,6 +31,8 @@ import { PrismaNeon } from "@prisma/adapter-neon";
 import { neonConfig } from "@neondatabase/serverless";
 import * as fs from "fs";
 import ws = require("ws");
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { IMPORTED_LEDGER_PREFIX, importedLedgerTie, perOrg, beforeOpening: isBeforeOpening } = require("./lib/imported-ledger-tie");
 neonConfig.webSocketConstructor = ws as unknown as typeof WebSocket;
 
 const ENV = process.argv[2];
@@ -118,14 +123,66 @@ async function checkSchema(s: string, hasDoc: boolean) {
 
   // 5. stale document tie (SGD docs only — foreign docs post in base at a rate)
   const stale = await q(
-    `select je."journalNumber", je.type, je."totalDebit"::float je_total, ${DOC_GROSS}::float doc_gross, d.name
+    `select je."organizationId" org, je."journalNumber", je.type, je."totalDebit"::float je_total, ${DOC_GROSS}::float doc_gross, d.name
        from "${s}"."JournalEntry" je
        join "${s}"."Document" d on d.id::text = je."sourceDocumentId"
       where ${NATIVE_ACTIVE}
+        and coalesce(je."createdBy", '') not like '${IMPORTED_LEDGER_PREFIX}%'
         and coalesce(nullif(d.config->>'currency',''), 'SGD') = 'SGD'
         and ${DOC_GROSS} is not null
         and abs(je."totalDebit" - ${DOC_GROSS}) > 0.02`);
-  if (stale.length) FAIL(s, `${stale.length} journal(s) disagree with their document's gross`, stale);
+  if (stale.length) FAIL(s, `${stale.length} journal(s) disagree with their document's gross (per org: ${perOrg(stale)})`, stale);
+
+  // 5c. imported-ledger tie (ABSS, owner 2026-11-25): the document's tied ABSS journal plus every other live entry
+  // of the same batch under the same reference, added up on the org's AR (sales) / AP (purchases) control account,
+  // vs the document's gross. A real split / amendment / discount line ties; what is still off is a WARN.
+  try {
+    // The ledger's opening day per batch: a document dated before it has its original sale in the opening balance,
+    // so only later amendments are entries; there is nothing to add up against it (skipped, counted).
+    const opening = new Map(
+      (await q<{ batch: string; d: string }>(
+        `select je."createdBy" batch, min(je."entryDate")::date::text d from "${s}"."JournalEntry" je
+          where je."createdBy" like '${IMPORTED_LEDGER_PREFIX}%' and je.status <> 'VOID' and je.type in ('INVOICE','BILL') group by 1`)).map((r) => [r.batch, r.d]),
+    );
+    const tied = await q<{ org: string; doc: string; name: string; dtype: string; gross: number; batch: string; refs: string[]; journals: string[]; docDate: string | null }>(
+      `select je."organizationId" org, d.id::text doc, d.name, d.type::text dtype, ${DOC_GROSS}::float gross,
+              left(coalesce(nullif(d.config->'documentInfo'->>'date',''), nullif(d.config->>'date',''), nullif(d.config->>'invoiceDate','')), 10) "docDate",
+              min(je."createdBy") batch, array_agg(distinct coalesce(je.reference, je."journalNumber")) refs, array_agg(je."journalNumber") journals
+         from "${s}"."JournalEntry" je join "${s}"."Document" d on d.id::text = je."sourceDocumentId"
+        where je.status <> 'VOID' and je."createdBy" like '${IMPORTED_LEDGER_PREFIX}%'
+          and coalesce(nullif(d.config->>'currency',''), 'SGD') = 'SGD' and ${DOC_GROSS} is not null
+        group by 1, 2, 3, 4, 5, 6`);
+    const controls = new Map(
+      (await q<{ org: string; c: any }>(`select a."organizationId" org, a."controlAccounts" c from "${s}"."AccountingSetting" a`)).map((r) => [r.org, (r.c || {}) as Record<string, string>]),
+    );
+    const off: Array<{ org: string; name: string; gross: number; booked: number; diff: number }> = [];
+    let beforeOpening = 0;
+    for (const t of tied) {
+      const open = opening.get(t.batch);
+      if (isBeforeOpening(t.docDate, open)) { beforeOpening++; continue; }
+      const side = ["BILL", "SUPPLIER_INVOICE", "PURCHASE_INVOICE"].includes(String(t.dtype).toUpperCase()) ? "AP" : "AR";
+      const code = side === "AP" ? controls.get(t.org)?.creditorControl : controls.get(t.org)?.debtorControl;
+      if (!code) continue;
+      const [net] = await q<{ v: number | null }>(
+        `select round(sum(l.debit - l.credit)::numeric, 2)::float v
+           from "${s}"."JournalEntryLine" l
+           join "${s}"."JournalEntry" je on je.id = l."journalEntryId"
+           join "${s}"."ChartOfAccount" ca on ca.id = l."accountId"
+          where je."organizationId" = $1 and je.status <> 'VOID' and je."createdBy" = $2
+            and (coalesce(je.reference, je."journalNumber") = any($3) or je."sourceDocumentId" = $4)
+            -- an entry under the same number that has its own document (ABSS's "-2" bill / invoice) is that document's
+            and (je."sourceDocumentId" is null or je."sourceDocumentId" = $4) and ca.code = $5`,
+        t.org, t.batch, t.refs, t.doc, code);
+      const v = importedLedgerTie({ side, docGross: t.gross, controlNet: net?.v ?? 0 });
+      if (!v.ok) off.push({ org: t.org, name: t.name, gross: t.gross, booked: Math.round((t.gross + v.diff) * 100) / 100, diff: v.diff });
+    }
+    if (off.length) {
+      WARN(s, `${off.length} imported-ledger document(s) (ABSS) still differ after adding up every entry under the number (per org: ${perOrg(off)}; ${beforeOpening} dated before the ledger's opening skipped)`);
+      for (const r of off.slice(0, 5)) console.warn(`     ${JSON.stringify(r)}`);
+    }
+  } catch (e: any) {
+    WARN(s, `imported-ledger tie skipped: ${String(e?.message || e).slice(0, 120)}`);
+  }
 
   // 5b. two live generations of one document family (guru 2026-11-19).
   // "Create Revision" used to leave the original live, so confirming the
