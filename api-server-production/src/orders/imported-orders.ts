@@ -303,7 +303,8 @@ export function planImportedOrders(
   } = {},
 ): ImportedPlan {
   const exclude = opts.exclude ?? new Set<string>();
-  const live = docs.filter((d) => !exclude.has(d.organizationId) && erpImportOf(d.config) && d.config?.voided !== true);
+  // A moved "(NG)" placeholder (config.ngPlaceholder) is never linked or counted by the import (2026-11-25).
+  const live = docs.filter((d) => !exclude.has(d.organizationId) && erpImportOf(d.config) && d.config?.voided !== true && !isNgPlaceholderMarked(d));
   const quotes = live.filter((d) => d.type === 'QUOTATION' && d.name);
   const byKey = new Map<number, PlanDoc[]>();
   for (const q of quotes) {
@@ -362,7 +363,7 @@ export function planImportedOrders(
     const m: any = importedMarkerOf(ex) || {};
     const ld: any = ex.linkedDocuments || {};
     const curIds: string[] = Array.isArray(ld.invoice) ? ld.invoice.map((x: any) => x?.id).filter(Boolean) : [];
-    const cur = curIds.map((id) => docById.get(id)).filter(Boolean).map((doc) => ({ doc: doc as PlanDoc, source: (m.linkSources?.[(doc as PlanDoc).id] ?? 'contract_no') as ImportedLinkSource }));
+    const cur = curIds.map((id) => docById.get(id)).filter((d) => !!d && !isNgPlaceholderMarked(d)).map((doc) => ({ doc: doc as PlanDoc, source: (m.linkSources?.[(doc as PlanDoc).id] ?? 'contract_no') as ImportedLinkSource }));
     // An invoice the office unlinked from the order (round 19, "Unlink") is never linked back by a re-run.
     const unlinked = unlinkedIdsOf(ex);
     const addInvoices = (ex.sourceQuotationId ? perQuote.get(ex.sourceQuotationId) ?? [] : []).filter((i) => !curIds.includes(i.doc.id) && !unlinked.has(i.doc.id)).sort(byDate);
@@ -683,6 +684,20 @@ export const CROSS_PLACEHOLDER_MAX = 1;
 export const isCrossPlaceholder = (d: { config?: any }): boolean => (Number(grossOf(d?.config)) || 0) <= CROSS_PLACEHOLDER_MAX;
 
 /**
+ * An ERP "(NG)" $1 placeholder invoice MOVED into this company (WCT group, owner 2026-11-25, scripts/wct-ng-bcair.ts):
+ * config.ngPlaceholder = { amount, fromOrgId, number, at }. Like a cross-company placeholder it is shown on the order
+ * as a greyed "placeholder, not counted" pill and never counts in Billed / Left to bill / status, whatever its amount
+ * ($1.00, $1.07, $1.08). Only documents the move stamped carry it: no other org or document changes.
+ */
+export const NG_PLACEHOLDER_KEY = 'ngPlaceholder';
+export const isNgPlaceholderMarked = (d: { config?: any } | null | undefined): boolean => {
+  const m = d?.config?.[NG_PLACEHOLDER_KEY];
+  return m === true || (!!m && typeof m === 'object' && !Array.isArray(m));
+};
+/** The marker the move stamps (the amount and where it came from, for the record). */
+export const ngPlaceholderMarker = (o: { amount: number; fromOrgId: string; number: string | null; at: string }) => ({ amount: o.amount, fromOrgId: o.fromOrgId, number: o.number, at: o.at });
+
+/**
  * Read what the status needs for one or many imported orders in a few batched queries. AIMS DOs are read only for
  * orders with no counted invoice (they decide the status only then).
  */
@@ -733,8 +748,11 @@ export async function loadImportedOrderInputs(
     const m: any = importedMarkerOf(o) || {};
     const own = refsOf(o, 'invoice').map((r) => r.id);
     const cross = crossOrgInvoiceRefsOf(o).map((r) => crossById.get(r.id)).filter(Boolean);
-    const crossPlaceholderDocs = cross.filter(isCrossPlaceholder);
-    const invoiceDocs = [...withSplitPartIds(own, own.map((id) => byId.get(id)).filter(Boolean)).map((id) => byId.get(id)).filter(Boolean), ...cross.filter((d) => !isCrossPlaceholder(d))];
+    const ownDocs = withSplitPartIds(own, own.map((id) => byId.get(id)).filter(Boolean)).map((id) => byId.get(id)).filter(Boolean);
+    // Placeholders (shown greyed, never counted): another company's $1-or-less invoices and this company's moved
+    // "(NG)" placeholders (config.ngPlaceholder, 2026-11-25).
+    const crossPlaceholderDocs = [...ownDocs.filter(isNgPlaceholderMarked), ...cross.filter((d) => isCrossPlaceholder(d) || isNgPlaceholderMarked(d))];
+    const invoiceDocs = [...ownDocs.filter((d) => !isNgPlaceholderMarked(d)), ...cross.filter((d) => !isCrossPlaceholder(d) && !isNgPlaceholderMarked(d))];
     const creditNoteDocs = refsOf(o, 'creditNote').map((r) => byId.get(r.id)).filter(Boolean);
     const linkedQuotations = linkedQuotationRefsOf(o).map((r) => byId.get(r.id)).filter((d) => d && !isDead(d));
     const srcCfg = o.sourceQuotationId ? quoteCfg.get(o.sourceQuotationId) ?? null : null;

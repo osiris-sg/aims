@@ -656,7 +656,8 @@ export class OrdersService {
     return rows.map((o) => {
       const m: any = importedMarkerOf(o);
       const doNumbers = importedDoNumbers(m?.erpDoNumbers, (o.linkedDocuments as any)?.do, aimsDos.get(o.id) ?? []);
-      const invoiceRefs = this.importedInvoiceRefs(o);
+      // Moved "(NG)" placeholders (ref.placeholder, 2026-11-25) are not the order's invoices in the list's cells.
+      const invoiceRefs = this.importedInvoiceRefs(o).filter((r: any) => r.placeholder !== true);
       return {
         id: o.id,
         orderNumber: o.orderNumber,
@@ -708,7 +709,7 @@ export class OrdersService {
   private importedBilledPctFromLinks(order: { linkedDocuments?: unknown }): number | null {
     const m: any = importedMarkerOf(order) || {};
     if (typeof m.billedPct === 'number') return m.billedPct;
-    const billed = this.importedInvoiceRefs(order).reduce((t, r) => t + Math.max(0, (Number(r.total) || 0) - (Number(m.credits?.[r.id]) || 0)), 0);
+    const billed = this.importedInvoiceRefs(order).filter((r: any) => r.placeholder !== true).reduce((t, r) => t + Math.max(0, (Number(r.total) || 0) - (Number(m.credits?.[r.id]) || 0)), 0);
     return billedPercent(Math.round(billed * 100) / 100, m.quoteTotal ?? null);
   }
 
@@ -1195,7 +1196,8 @@ export class OrdersService {
         templateId: d.documentTemplateId,
         date: d.config?.date ?? null,
         total: grossOf(d.config),
-        crossOrg: { orgId: d.crossOrg.orgId, orgName: d.crossOrg.orgName, canOpen: canOpen.has(d.crossOrg.orgId) },
+        // A moved "(NG)" placeholder is this company's own document (no crossOrg): a plain link, greyed.
+        crossOrg: d.crossOrg ? { orgId: d.crossOrg.orgId, orgName: d.crossOrg.orgName, canOpen: canOpen.has(d.crossOrg.orgId) } : null,
       })),
       creditNotes: inputs.creditNoteDocs.map((d: any) => ({ id: d.id, name: d.name, type: d.type, status: d.status, templateId: d.documentTemplateId, total: grossOf(d.config) })),
       total: st.total,
