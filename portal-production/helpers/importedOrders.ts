@@ -144,6 +144,8 @@ const LINK_LABEL: Record<string, string> = {
   contract_no: "ERP contract no.",
   tracker_quotation_no: "Tracker quotation no.",
   line_text: "ERP line text",
+  // WCT group (2026-11-25): an "(NG)" invoice moved into this company by scripts/wct-ng-bcair.ts.
+  "moved-from-wct": "Moved from WCT (S)",
 };
 export const importedLinkSourceLabel = (s?: string | null) => (s ? LINK_LABEL[s] ?? s : "");
 

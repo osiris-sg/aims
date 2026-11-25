@@ -787,7 +787,7 @@ type Inv = {
       [`Placeholders moved ~3,031 (${act('move', 'placeholder').length})`, PLACEHOLDERS !== 'move' || Math.abs(act('move', 'placeholder').length - 3031) <= 15],
       [`Real moved ~4 (${act('move', 'real').length})`, Math.abs(act('move', 'real').length - 4) <= 2],
       [`$0 removed >= 156 (${act('remove', 'zero').length})`, ZERO !== 'remove' || act('remove', 'zero').length >= 156],
-      [`Twins removed (${removing.filter((d) => d.twins).length}: placeholders ${removing.filter((d) => d.twins && d.cls === 'placeholder').length}, $0 ${removing.filter((d) => d.twins && d.cls === 'zero').length}, real ${removing.filter((d) => d.twins && d.cls === 'real').length})`, !TWINS_DELETE || removing.some((d) => d.twins)],
+      [`Twins removed, counted outside the held list (${removing.filter((d) => d.twins).length}: placeholders ${removing.filter((d) => d.twins && d.cls === 'placeholder').length}, $0 ${removing.filter((d) => d.twins && d.cls === 'zero').length}, real ${removing.filter((d) => d.twins && d.cls === 'real').length})`, !TWINS_DELETE || invs.filter((d) => !d.frozen && d.twins && !(TWINS_MODE === 'delete-except-placeholders' && d.cls === 'placeholder')).every((d) => removing.includes(d))], // twins outside the held list, all removed (owner 25 Nov)
       ['Full id sweep clean', !strays.length],
     ] as Array<[string, boolean]>;
     say(`GUARDS: ${guards.every(([, ok]) => ok) ? 'ALL PASS' : 'FAIL'}`);
