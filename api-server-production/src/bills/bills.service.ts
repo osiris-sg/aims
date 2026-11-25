@@ -135,9 +135,28 @@ export class BillsService {
   private toBill(doc: { id: string; name: string | null; createdAt: Date; updatedAt: Date; status: any; config: any; attachments: any; type?: string; documentTemplateId?: string | null }, supplierName?: string | null) {
     const docKindOf = (d: any) => this.docKind(d);
     const c: any = doc.config || {};
-    const subtotal = c.subtotal ?? c.xeroSubtotal ?? 0;
-    const taxAmount = c.taxAmount ?? c.xeroTax ?? 0;
-    const totalAmount = c.totalAmount ?? grossStampOf(c) ?? 0;
+    const fin = (v: any): number | null => (v === null || v === undefined || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null);
+    const lineRows: any[] = Array.isArray(c.lines) ? c.lines : Array.isArray(c.items) ? c.items : [];
+    const linesSum = ROUND(lineRows.reduce((s: number, l: any) => s + (fin(l?.amount) ?? 0), 0));
+    const lineTaxSum = ROUND(lineRows.reduce((s: number, l: any) => s + (fin(l?.taxAmount) ?? 0), 0));
+    const amountsAreOf = c.amountsAre || (c.documentInfo?.absorbTax ? 'INCLUSIVE' : 'EXCLUSIVE');
+    const totalAmount = fin(c.totalAmount) ?? grossStampOf(c) ?? 0;
+    // GST: the editor stores `taxAmount`, but a bill mirrored from Xero (scripts/mirror-xero-to-aims.ts,
+    // the Biofuel history) carries it as `gstAmount` + per-line `taxAmount` and its total as
+    // totalWithTax — never a header taxAmount. Read only taxAmount and that bill shows "Tax (GST) 0"
+    // under a 9% code while its total already holds the GST (guru 2026-11-25, 149122: lines 960,
+    // total 1,046.40, GST box 0 — "raised this before but wasn't fixed"). The figure that closes
+    // lines → total is the real GST, whichever key holds it.
+    let taxAmount = fin(c.taxAmount) ?? fin(c.gstAmount) ?? fin(c.xeroTax) ?? (lineRows.length ? lineTaxSum : 0);
+    if (amountsAreOf !== 'INCLUSIVE' && linesSum !== 0 && ROUND(linesSum + taxAmount) !== ROUND(totalAmount)) {
+      // Only a figure the bill actually stores is trusted — never total minus lines, which
+      // would turn a discount or an inclusive-priced line into "GST".
+      const fit = [fin(c.gstAmount), fin(c.xeroTax), lineTaxSum]
+        .filter((t): t is number => t !== null)
+        .find((t) => ROUND(linesSum + t) === ROUND(totalAmount));
+      if (fit !== undefined) taxAmount = fit;
+    }
+    const subtotal = fin(c.subtotal) ?? fin(c.subTotal) ?? fin(c.xeroSubtotal) ?? (amountsAreOf === 'INCLUSIVE' ? ROUND(linesSum - taxAmount) : linesSum);
     const xeroBalance = outstandingOf(c);
     let amountPaid =
       c.amountPaid !== undefined
@@ -176,7 +195,7 @@ export class BillsService {
       amountPaid,
       currency: c.currency || c.documentInfo?.currency || 'SGD',
       taxCode: c.documentInfo?.taxCode || null,
-      amountsAre: c.amountsAre || (c.documentInfo?.absorbTax ? 'INCLUSIVE' : 'EXCLUSIVE'),
+      amountsAre: amountsAreOf,
       // WCT: a SIN saved before 2026-11-04 (header quotation only) shows that quotation on every line.
       lines: Array.isArray(c.quotationIds) || !c.quotationId ? c.lines || c.items || [] : (c.lines || c.items || []).map((l: any) => (l?.quotationId ? l : { ...l, quotationId: c.quotationId, quotationNumber: c.quotationNumber || null })),
       sourcePoId: c.sourcePoId || null,
@@ -546,7 +565,7 @@ export class BillsService {
       if (opts?.postOnSave !== false) {
         try {
           const posted = await this.postBillJournal(organizationId, doc.id, userId, { confirmed: false });
-          await this.patchConfig(doc.id, { journalEntryId: posted.id });
+          if (posted) await this.patchConfig(doc.id, { journalEntryId: posted.id });
         } catch (e: any) {
           console.warn(`Bill ${dto.billNumber}: save-post skipped — ${e?.message || e}`);
         }
@@ -675,7 +694,12 @@ export class BillsService {
       const ownJournal = existing.journalEntryId
         ? await this.prisma.journalEntry.findFirst({ where: { id: existing.journalEntryId, organizationId, status: { not: 'VOID' } }, select: { id: true } })
         : null;
-      if (!ownJournal) throw new BadRequestException(`${label} was posted outside AIMS (imported), so it cannot be edited here. Void it and key it again.`);
+      // A $0 bill (guru 2026-11-25: "everything can post without amount, they can edit later the
+      // amount just like invoice") is confirmed WITHOUT a journal — there was nothing to post — so
+      // the missing journal is by design, not a sign that it was imported. Its journal is minted
+      // below once an amount is keyed in.
+      const zeroBill = Math.abs(Number(existing.totalAmount) || 0) < 0.005;
+      if (!ownJournal && !zeroBill) throw new BadRequestException(`${label} was posted outside AIMS (imported), so it cannot be edited here. Void it and key it again.`);
     }
     await assertPeriodOpen(this.prisma, { organizationId, date: existing.billDate, actorId: opts?.userId, what: existing.billNumber ? `Bill ${existing.billNumber}` : 'This bill' });
     if (dto.billDate) await assertPeriodOpen(this.prisma, { organizationId, date: dto.billDate, actorId: opts?.userId, what: existing.billNumber ? `Bill ${existing.billNumber}` : 'This bill', verb: 'dated there' });
@@ -773,7 +797,7 @@ export class BillsService {
         // A confirmed bill reposts CONFIRMED — it stays Awaiting Payment with one live journal.
         const posted = await this.postBillJournal(organizationId, id, opts?.userId, { confirmed: afterConfirm });
         await this.patchConfig(id, {
-          journalEntryId: posted.id,
+          journalEntryId: posted?.id ?? null,
           ...(afterConfirm ? { editedAfterConfirmAt: new Date().toISOString(), editedAfterConfirmBy: opts?.userId || null } : {}),
         });
       }
@@ -842,19 +866,23 @@ export class BillsService {
 
     const posted = await this.postBillJournal(organizationId, id, userId, { confirmed: true });
     await this.patchStatus(id, 'POSTED');
-    await this.patchConfig(id, { journalEntryId: posted.id, postedAt: new Date().toISOString(), postedBy: userId });
+    await this.patchConfig(id, { journalEntryId: posted?.id ?? null, postedAt: new Date().toISOString(), postedBy: userId });
     return this.findOne(organizationId, id);
   }
 
   // Builds + posts the bill's journal (Dr expense lines / Dr input tax / Cr AP).
   // confirmed=false → the entry carries the UNCONFIRMED tag (save-posting);
   // confirmed=true → the posting IS the confirm step (legacy pre-JE bills).
+  // Returns null for a $0 bill: nothing to post, exactly as a $0 invoice confirms
+  // without a journal (journal-auto-post "gross <= 0; skipping"). guru 2026-11-25:
+  // the supplier's $0 invoice (K050321/26) still has to be posted so it is on
+  // record; the amount is keyed in later, and that edit mints the journal.
   private async postBillJournal(
     organizationId: string,
     id: string,
     userId: string | undefined,
     opts: { confirmed: boolean },
-  ) {
+  ): Promise<{ id: string } | null> {
     // "Post journals from documents" OFF (ADH, lot-based books): a bill never posts. Saves catch this and skip.
     if (!(await documentGlPostingOn(this.prisma as any, organizationId))) {
       throw new BadRequestException('This organization does not post journals from documents');
@@ -925,8 +953,8 @@ export class BillsService {
         description: l.description || `Bill ${bill.billNumber}`,
       });
     }
-    if (lines.length === 0) {
-      throw new BadRequestException('This bill has no line with an amount, so there is nothing to post.');
+    if (lines.length === 0 && ROUND(bill.taxAmount || 0) === 0 && ROUND(bill.totalAmount || 0) === 0) {
+      return null; // a $0 bill: posted on record, no journal until it carries an amount
     }
     if (inclusive) {
       const targetNet = ROUND(linesSum - bill.taxAmount);
@@ -937,7 +965,9 @@ export class BillsService {
     if (bill.taxAmount > 0 && taxAccount) {
       lines.push({ accountId: taxAccount.id, debit: bill.taxAmount, credit: 0, description: `Input tax — ${bill.billNumber}` });
     }
-    lines.push({ accountId: creditor.id, debit: 0, credit: bill.totalAmount, description: `Bill ${bill.billNumber}` });
+    if (ROUND(bill.totalAmount || 0) !== 0) {
+      lines.push({ accountId: creditor.id, debit: 0, credit: bill.totalAmount, description: `Bill ${bill.billNumber}` });
+    }
 
     // Supplier Purchase Return (SPR — supplier credit/debit note): the exact
     // mirror of a supplier invoice. Dr Trade Payables / Cr expenses + input tax.
@@ -1183,8 +1213,10 @@ export class BillsService {
     const doc = await this.prisma.document.findUnique({ where: { id: billId }, select: { config: true } });
     if (!doc) return;
     const c: any = doc.config || {};
-    const gross = ROUND(Number(grossHint ?? c.totalAmount ?? grossStampOf(c) ?? 0) || 0);
-    if (gross <= 0) return;
+    const raw = grossHint ?? c.totalAmount ?? grossStampOf(c);
+    if (raw == null || raw === '' || !Number.isFinite(Number(raw))) return; // no readable total: leave the stamps alone
+    const gross = ROUND(Number(raw));
+    if (gross < 0) return;
     const config = stampDocumentMoney(c, { paid: ROUND(paid), outstanding: ROUND(Math.max(0, gross - paid)) });
     await this.prisma.document.update({ where: { id: billId }, data: { config: config as Prisma.InputJsonValue } });
   }
