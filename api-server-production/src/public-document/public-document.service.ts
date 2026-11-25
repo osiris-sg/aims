@@ -268,33 +268,28 @@ export class PublicDocumentService {
   /**
    * Is a delivery RUN behind this DO? A field DO's items each carry the run
    * (DeliveryItem.documentId), so one row is enough to tell. An office DO has
-   * none — which is exactly what makes it an office DO.
+   * none — which is exactly what makes it an office DO. The run found here is
+   * the one THIS document is the delivery note for: its own, never a
+   * relative's.
+   *
+   * A REVISION deliberately finds nothing here (guru 2026-11-25). It is a
+   * fresh, unconfirmed document: its ancestor's run was signed off in the
+   * field, so borrowing that run sent the revision down the field branch,
+   * which asks "is an acknowledgement still unsigned on that run?" — no — and
+   * concluded the revision could never be signed. Treating it as run-less is
+   * what is wanted: it takes the office path and gets its own proof row to
+   * sign, exactly like any other document raised in the office.
+   *
+   * This is only about SIGNING. The revision still shows its family's
+   * condition photos: those come from getById's own family lookup
+   * (documents.service), which is a separate path and unaffected.
    */
-  private async runBehindDocument(documentId: string, organizationId?: string): Promise<string | null> {
+  private async runBehindDocument(documentId: string, _organizationId?: string): Promise<string | null> {
     const item = await this.prisma.deliveryItem.findFirst({
       where: { documentId },
       select: { deliveryId: true },
     });
-    if (item?.deliveryId) return item.deliveryId;
-    // THE REVISION KEEPS THE DELIVERY (guru 2026-11-24). "Create Revision"
-    // copies the content but leaves DeliveryItem.documentId on the ORIGINAL, so
-    // a revised DO looked run-less here and signing fell through to the
-    // office-DO branch — which is off for every org, so the shared link offered
-    // no way to sign at all. The delivery happened once and belongs to the
-    // whole family, so look through it before concluding there is no run.
-    if (!organizationId) return null;
-    const doc = await this.prisma.document.findFirst({
-      where: { id: documentId, organizationId },
-      select: { id: true, baseDocumentId: true },
-    });
-    if (!doc) return null;
-    const famIds = await this.documentsService.revisionFamilyIds(doc, organizationId);
-    if (!famIds.length) return null;
-    const kin = await this.prisma.deliveryItem.findFirst({
-      where: { documentId: { in: famIds } },
-      select: { deliveryId: true },
-    });
-    return kin?.deliveryId ?? null;
+    return item?.deliveryId ?? null;
   }
 
   /**
