@@ -121,6 +121,8 @@ export interface DocChain {
   quotations: Array<{ id: string; name: string | null; href: string | null }>;
   dos: Array<{ id: string; name: string | null; href: string | null }>;
   invoices: Array<{ id: string; name: string | null; href: string | null; placeholder?: boolean }>;
+  /** The order's service reports (UAT 2026-11-25): SR202611-0001 / #5 / Draft. Absent on an older API. */
+  reports?: Array<{ id: string; name: string | null; href: string | null }>;
   canCreateDo: boolean;
   canCreateInvoice: boolean;
   direct: Array<{ id: string; type: string; name: string | null; href: string | null }>;
@@ -139,6 +141,8 @@ export function chainSections(c: DocChain | null | undefined): Array<{ key: stri
     { key: "qo", label: "QO", items: items(c.quotations) },
     { key: "do", label: c.dos.length > 1 ? "DOs" : "DO", items: items(c.dos), ...(c.canCreateDo ? { create: "do" as const } : {}) },
     { key: "invoice", label: c.invoices.length > 1 ? "Invoices" : "Invoice", items: items(c.invoices), ...(c.canCreateInvoice ? { create: "invoice" as const } : {}) },
+    // The order's service reports, when it has any.
+    ...(c.reports?.length ? [{ key: "report", label: c.reports.length > 1 ? "Service reports" : "Service report", items: items(c.reports) }] : []),
   ];
 }
 

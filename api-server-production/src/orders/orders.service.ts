@@ -1,3 +1,4 @@
+import { reportTitle, srNumberOf } from '../maintenance-reports/sr-number';
 import { memberOrgIds } from '../organizations/org-group';
 import { randomUUID } from 'crypto';
 import { HttpException, HttpStatus, Injectable, Optional } from '@nestjs/common';
@@ -827,13 +828,16 @@ export class OrdersService {
       return { onOrder: other ? { id: other.id, orderNumber: other.orderNumber } : null, onThisOrder: (holders ?? []).some((h) => h.id === order.id) };
     };
     if (type === 'SERVICE_REPORT') {
-      const n = q ? reportNumberOf(q) : null;
-      if (q && n == null) return [];
+      // WCT group: "SR202611-0001" finds the report by its SR number; otherwise digits = the running number.
+      const sr = q && /^SR\d{6}-\d{4,}$/i.test(q.trim()) ? q.trim().toUpperCase() : null;
+      const n = q && !sr ? reportNumberOf(q) : null;
+      if (q && n == null && !sr) return [];
       const rows: any[] = await this.prisma.maintenanceServiceReport.findMany({
         where: {
           organizationId,
           kind: 'SERVICE',
           ...(n != null ? { reportNumber: n } : {}),
+          ...(sr ? { serviceData: { path: ['srNumber'], equals: sr } } : {}),
           OR: [{ serviceData: { path: ['customerId'], equals: order.customerId } }, { delivery: { customerId: order.customerId } }],
         } as any,
         select: { id: true, reportNumber: true, status: true, createdAt: true, deliveryId: true, serviceData: true },
@@ -845,7 +849,7 @@ export class OrdersService {
       return live.map((r) => ({
         id: r.id,
         type,
-        name: r.reportNumber ? `Service report #${r.reportNumber}` : 'Service report (draft)',
+        name: reportTitle(r),
         date: (r.serviceData as any)?.serviceDate ?? r.createdAt,
         status: r.status === 'completed' ? 'Completed' : 'Draft',
         total: null,
@@ -895,7 +899,7 @@ export class OrdersService {
         select: { id: true, reportNumber: true, deliveryId: true, serviceData: true, delivery: { select: { customerId: true } } },
       });
       if (!r || (r.serviceData as any)?.deletedAt) throw new HttpException('Service report not found', HttpStatus.NOT_FOUND);
-      const name = r.reportNumber ? `Service report #${r.reportNumber}` : 'This service report';
+      const name = reportTitle(r, 'This service report');
       const cust = (r.serviceData as any)?.customerId ?? r.delivery?.customerId ?? null;
       if (cust !== order.customerId) throw new HttpException(`${name} is for another customer`, HttpStatus.BAD_REQUEST);
       const holders = (await orderHoldersOf(this.prisma, organizationId, type, [{ id: r.id, serviceData: r.serviceData, deliveryId: r.deliveryId }])).get(r.id) ?? [];
@@ -951,7 +955,7 @@ export class OrdersService {
       const att = (Array.isArray(order.attachments) ? (order.attachments as any[]) : []).find((a) => a?.kind === 'report' && a.reportId === docId);
       if (!att) throw new HttpException('This service report is not linked on this order (a report written for its DO or job stays with it)', HttpStatus.BAD_REQUEST);
       await this.removeOrderAttachment(order.id, organizationId, att.id);
-      return { type, id: docId, name: att.reportNumber ? `Service report #${att.reportNumber}` : 'Service report', orderNumber: order.orderNumber };
+      return { type, id: docId, name: reportTitle({ reportNumber: att.reportNumber ?? null, serviceData: att.srNumber ? { srNumber: att.srNumber } : null }, 'Service report'), orderNumber: order.orderNumber };
     }
     if (type === 'QUOTATION' && docId === order.sourceQuotationId) throw new HttpException("The order's own quotation cannot be unlinked", HttpStatus.BAD_REQUEST);
     const doc: any = await this.prisma.document.findFirst({ where: { id: docId, organizationId }, select: { id: true, name: true, type: true, config: true } });
@@ -1707,11 +1711,12 @@ export class OrdersService {
       if (!body.reportId) throw new HttpException('Pick a service report', HttpStatus.BAD_REQUEST);
       const report = await this.prisma.maintenanceServiceReport.findFirst({
         where: { id: body.reportId, organizationId, kind: 'SERVICE' },
-        select: { id: true, reportNumber: true, status: true },
+        select: { id: true, reportNumber: true, status: true, serviceData: true },
       });
       if (!report) throw new HttpException('Service report not found', HttpStatus.NOT_FOUND);
       if (list.some((a) => a.kind === 'report' && a.reportId === report.id)) return this.orderAttachmentsView(organizationId, list);
-      entry = { ...stamp, kind: 'report', reportId: report.id, reportNumber: report.reportNumber ?? null, label: body.label?.trim() || 'Service report' };
+      const sr = srNumberOf(report.serviceData);
+      entry = { ...stamp, kind: 'report', reportId: report.id, reportNumber: report.reportNumber ?? null, ...(sr ? { srNumber: sr } : {}), label: body.label?.trim() || 'Service report' };
     } else {
       const key = String(body.fileKey || '').trim();
       if (!key || !body.fileName) throw new HttpException('Upload the file first', HttpStatus.BAD_REQUEST);
@@ -1745,11 +1750,11 @@ export class OrdersService {
     const n = number && /^\d+$/.test(number.trim()) ? parseInt(number.trim(), 10) : null;
     const reports = await this.prisma.maintenanceServiceReport.findMany({
       where: { organizationId, kind: 'SERVICE', OR: [{ deliveryId: { in: jobs.map((j) => j.id) } }, ...(n !== null ? [{ reportNumber: n }] : [])] },
-      select: { id: true, reportNumber: true, status: true, deliveryId: true, createdAt: true, technicianName: true },
+      select: { id: true, reportNumber: true, status: true, deliveryId: true, createdAt: true, technicianName: true, serviceData: true },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
-    return reports.map((r) => ({ ...r, jobNumber: r.deliveryId ? jobNo.get(r.deliveryId) ?? null : null, ofThisOrder: !!(r.deliveryId && jobNo.has(r.deliveryId)) }));
+    return reports.map(({ serviceData, ...r }) => ({ ...r, srNumber: srNumberOf(serviceData), jobNumber: r.deliveryId ? jobNo.get(r.deliveryId) ?? null : null, ofThisOrder: !!(r.deliveryId && jobNo.has(r.deliveryId)) }));
   }
 
   /** Service reports on the order's jobs, oldest job first: number, status, draft / uploaded, job number. */
@@ -1780,6 +1785,8 @@ export class OrdersService {
       return {
         id: r.id,
         reportNumber: r.reportNumber,
+        // WCT group: SR202611-0001 (sr-number.ts); null on other orgs and older reports.
+        srNumber: srNumberOf(sd),
         status: r.status,
         jobNumber: r.deliveryId ? jobNo.get(r.deliveryId) ?? null : null,
         uploaded: sd.uploaded === true,
@@ -1797,9 +1804,9 @@ export class OrdersService {
   private async orderAttachmentsView(organizationId: string, list: any[]) {
     const ids = list.filter((a) => a?.kind === 'report' && a.reportId).map((a) => a.reportId);
     const reports = ids.length
-      ? await this.prisma.maintenanceServiceReport.findMany({ where: { id: { in: ids }, organizationId }, select: { id: true, reportNumber: true, status: true } })
+      ? await this.prisma.maintenanceServiceReport.findMany({ where: { id: { in: ids }, organizationId }, select: { id: true, reportNumber: true, status: true, serviceData: true } })
       : [];
-    const byId = new Map(reports.map((r) => [r.id, r]));
+    const byId = new Map(reports.map(({ serviceData, ...r }: any) => [r.id, { ...r, srNumber: srNumberOf(serviceData) }]));
     // An entry saved without a name (before names were looked up) gets one now, for display only.
     const names = await this.userNames(list.filter((a) => a && !a.addedByName && a.addedBy).map((a) => a.addedBy));
     return list.map((a) => {

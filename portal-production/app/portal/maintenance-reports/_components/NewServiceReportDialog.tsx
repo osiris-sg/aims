@@ -6,18 +6,28 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Stack } from "@mui/material";
+import { Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField } from "@mui/material";
 import { request } from "@/helpers/request";
 import CustomerDoPicker from "./CustomerDoPicker";
+import { reportDoLabel, type OrderReportDo } from "@/helpers/serviceReportOrder";
 
 export default function NewServiceReportDialog({
   open,
   onClose,
   prefill,
+  orderDos,
+  onStarted,
 }: {
   open: boolean;
   onClose: () => void;
   prefill?: { customer: { id: string; name: string } | null; doId?: string | null };
+  /**
+   * From the WCT order page (UAT 2026-11-25): the customer is the order's, the DO is one of the order's DOs (the
+   * prefill's doId pre-picked, else the person picks). No customer search, no other customer's DOs.
+   */
+  orderDos?: OrderReportDo[] | null;
+  /** The report was started: the caller opens the form (the order page, in a dialog); else the form page opens. */
+  onStarted?: (reportId: string) => void;
 }) {
   const router = useRouter();
   const { getToken } = useAuth();
@@ -43,7 +53,10 @@ export default function NewServiceReportDialog({
       const res: any = await request({ path: "/maintenance-reports/office", method: "POST", ownError: true }, { customerId: customer.id, doDocumentId: doId }, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Could not start the report");
       const r = res?.data ?? res;
-      router.push(`/portal/maintenance-reports/${r.id}/form`);
+      if (onStarted) {
+        setBusy(false);
+        onStarted(r.id);
+      } else router.push(`/portal/maintenance-reports/${r.id}/form`);
     } catch (e: any) {
       setError(e?.message || "Could not start the report");
       setBusy(false);
@@ -55,7 +68,21 @@ export default function NewServiceReportDialog({
       <DialogTitle>New service report</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
-          <CustomerDoPicker customer={customer} doId={doId} onCustomer={setCustomer} onDo={(d) => setDoId(d?.id ?? null)} disabled={busy} />
+          {orderDos ? (
+            <>
+              <TextField label="Customer" value={customer?.name ?? ""} fullWidth size="small" disabled />
+              <TextField select label="DO" required value={doId ?? ""} onChange={(e) => setDoId(e.target.value || null)} disabled={busy || !orderDos.length} fullWidth size="small" data-tour="service-report-new-do">
+                {orderDos.map((d) => (
+                  <MenuItem key={d.id} value={d.id}>
+                    {reportDoLabel(d)}
+                  </MenuItem>
+                ))}
+              </TextField>
+              {!orderDos.length && <Alert severity="info">This order has no DO yet. Add a DO first.</Alert>}
+            </>
+          ) : (
+            <CustomerDoPicker customer={customer} doId={doId} onCustomer={setCustomer} onDo={(d) => setDoId(d?.id ?? null)} disabled={busy} />
+          )}
           {error && <Alert severity="error">{error}</Alert>}
         </Stack>
       </DialogContent>

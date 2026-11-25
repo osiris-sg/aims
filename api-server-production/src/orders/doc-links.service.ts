@@ -1,3 +1,4 @@
+import { reportNoLabel } from '../maintenance-reports/sr-number';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { grossOf } from '../common/document-money';
@@ -90,7 +91,7 @@ export class DocLinksService {
     if (!holders.length) return null;
     const order: any = await this.prisma.order.findFirst({
       where: { id: holders[0].id, organizationId },
-      select: { id: true, orderNumber: true, status: true, sourceQuotationId: true, linkedDocuments: true, sourceQuotation: { select: { id: true, name: true, type: true, documentTemplateId: true } } },
+      select: { id: true, orderNumber: true, status: true, sourceQuotationId: true, linkedDocuments: true, attachments: true, sourceQuotation: { select: { id: true, name: true, type: true, documentTemplateId: true } } },
     });
     if (!order) return null;
     const ownQuote = kind === 'QUOTATION' && order.sourceQuotationId === doc.id;
@@ -341,6 +342,30 @@ export class DocLinksService {
   // ── Doc chain (left panel) ────────────────────────────────────────────────
 
   /**
+   * The order's service reports for the doc chain (UAT 2026-11-25): written on its jobs, for one of its DOs
+   * (serviceData.orderId) or linked on the order; deleted ones left out; oldest first. Named by number
+   * (SR202611-0001, else #5), "Draft" before it has one. A failed read = none (the panel still shows the rest).
+   */
+  private async chainReports(organizationId: string, o: { id: string; attachments?: unknown }): Promise<ChainDoc[]> {
+    try {
+      const linked = (Array.isArray(o.attachments) ? (o.attachments as any[]) : []).filter((a) => a?.kind === 'report' && typeof a.reportId === 'string' && UUID.test(a.reportId)).map((a) => a.reportId as string);
+      const rows: any[] = await this.prisma.maintenanceServiceReport.findMany({
+        where: {
+          organizationId,
+          kind: 'SERVICE',
+          OR: [{ delivery: { orderId: o.id, status: { not: 'cancelled' } } }, { serviceData: { path: ['orderId'], equals: o.id } }, ...(linked.length ? [{ id: { in: linked } }] : [])],
+        },
+        select: { id: true, reportNumber: true, serviceData: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+        take: 50,
+      });
+      return rows.filter((r) => !(r.serviceData as any)?.deletedAt).map((r) => ({ id: r.id, name: reportNoLabel(r) ?? 'Draft', type: 'SERVICE_REPORT', href: `/portal/maintenance-reports/${r.id}` }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * GET /order-refs/chain/:documentId: the order's quotation(s), DO(s) and invoice(s) (live ones), each with its
    * editor link, and whether "+ Create DO" / "+ Create invoice" apply. No order: the direct links only.
    */
@@ -349,7 +374,7 @@ export class DocLinksService {
     const { doc, kind } = await this.loadDoc(organizationId, documentId);
     const held = await this.orderOf(organizationId, doc, kind);
     const direct = await this.freshDirect(organizationId, doc.config);
-    if (!held) return { kind, order: null, quotations: [], dos: [], invoices: [], canCreateDo: false, canCreateInvoice: false, direct };
+    if (!held) return { kind, order: null, quotations: [], dos: [], invoices: [], reports: [], canCreateDo: false, canCreateInvoice: false, direct };
     const o = held.order;
     const ld: any = o.linkedDocuments || {};
     const refs = (k: string): any[] => (Array.isArray(ld[k]) ? ld[k].filter((x: any) => x && typeof x.id === 'string') : []);
@@ -406,6 +431,7 @@ export class DocLinksService {
       quotations: ofKind('QUOTATION'),
       dos: [...dos, ...erpOnly],
       invoices: [...invoices, ...crossOut],
+      reports: await this.chainReports(organizationId, o),
       canCreateDo: open && dos.length + erpOnly.length === 0,
       canCreateInvoice: open && invoices.length + crossOut.filter((x) => !x.placeholder).length === 0,
       direct,

@@ -103,11 +103,14 @@ function gridOf(d: WctDraft, key: string) {
 export default function WctReportView({
   reportId,
   reportNumber,
+  srNumber,
   extraActions,
   editable = false,
 }: {
   reportId: string;
   reportNumber: number | null;
+  /** WCT group: SR202611-0001 (the downloaded file's name). */
+  srNumber?: string | null;
   /** Buttons placed before Download PDF / Print (the photos file controls). */
   extraActions?: React.ReactNode;
   /** In-place editing (a WCT report not completed yet). */
@@ -442,7 +445,7 @@ export default function WctReportView({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `service-report-${reportNumber != null ? String(reportNumber).padStart(6, "0") : reportId.slice(0, 8)}.pdf`;
+      a.download = `service-report-${srNumber || (reportNumber != null ? String(reportNumber).padStart(6, "0") : reportId.slice(0, 8))}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();

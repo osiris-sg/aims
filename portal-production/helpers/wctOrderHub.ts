@@ -8,6 +8,7 @@
 // their own whichever happens first; the service report comes last.
 
 import { flowDocStatus, flowDoRowWord } from "./wctStatusFlow";
+import { reportNoText } from "./serviceReportOrder";
 
 export type HubStatus =
   | "QUOTATION_SIGNED"
@@ -246,7 +247,7 @@ export function hubSteps(order: {
   deliveryOrders?: { id: string; name?: string | null; tag?: string | null; templateId?: string | null; completed?: boolean; awaitingSignature?: boolean; saved?: boolean; status?: string | null; jobs?: { id: string; status: string; isDraft?: boolean }[] }[];
   jobs?: { id?: string; status: string; isDraft?: boolean; deliveryOrder?: { id: string; name?: string | null; tag?: string | null; templateId?: string | null } | null }[];
   invoices?: { id: string; name?: string | null; status?: string | null; type?: string | null; documentTemplateId?: string | null; href?: string | null; extra?: boolean; split?: { part: number; of: number } | null; cancelled?: boolean; edited?: boolean }[];
-  jobReports?: { id: string; reportNumber?: number | null; status: string; uploaded?: boolean; sentAt?: string | null; photosFile?: boolean }[];
+  jobReports?: { id: string; reportNumber?: number | null; srNumber?: string | null; status: string; uploaded?: boolean; sentAt?: string | null; photosFile?: boolean }[];
   /** WCT group wording (enableWctStatusFlow): Pending / Accepted, Draft / Pending / Awaiting Payment / Paid, Draft / Pending / Accepted. */
   statusFlow?: boolean;
 }): HubStep[] {
@@ -332,7 +333,7 @@ export function hubSteps(order: {
       current: false,
       date: ymd((d as any).serviceReportSentAt) ?? ymd(d.SERVICE_REPORT_SENT),
       docs: (order.jobReports ?? []).map((r) => ({
-        label: r.reportNumber ? `Service report #${r.reportNumber}` : "Service report (draft)",
+        label: reportNoText(r) ? `Service report ${reportNoText(r)}` : "Service report (draft)",
         status: r.sentAt ? "Sent" : r.uploaded ? "Uploaded" : r.status === "completed" ? "Completed" : "Draft",
         href: `/portal/maintenance-reports/${r.id}`,
         file: r.photosFile ? { label: "Photos" as const, path: `/maintenance-reports/${r.id}/photos-file` } : null,

@@ -30,8 +30,11 @@ test("order page: one Service report button, wired to the old flows", () => {
   // Round 24: the actions row's one "Service report" button (helpers/orderPage.ts), its menu on this page.
   assert.match(read("helpers/orderPage.ts"), /\{ key: "service-report", label: "Service report", show: true, disabled: false, primary: false, tip: null, tour: "wct-order-add-report" \}/);
   assert.match(src, /serviceReportMenuItems\(manualFlow\)/);
-  // manual flow: New / Upload go to the Service Reports page's flows; otherwise Upload stores on the order; Link opens the dialog.
-  assert.match(src, /if \(it\.key === "new" \|\| \(it\.key === "upload" && manualFlow\)\) router\.push\(serviceReportFlowHref\(it\.key, srPrefillFor\(doId\)\)\);/);
+  // manual flow (UAT 2026-11-25): New / Upload open their dialogs ON the order page (no leaving it); otherwise Upload
+  // stores on the order; Link opens the dialog.
+  assert.match(src, /if \(it\.key === "new"\) setSrNew\(\{ doId \}\);/);
+  assert.match(src, /else if \(it\.key === "upload" && manualFlow\) setSrUpload\(\{ doId \}\);/);
+  assert.doesNotMatch(src, /serviceReportFlowHref/);
   assert.match(src, /else if \(it\.key === "upload"\) fileRef\.current\?\.click\(\);/);
   // Round 24: Link existing opens the one Link existing document dialog on Service report (both order kinds).
   assert.match(src, /else setLinkOpen\("SERVICE_REPORT"\);/);

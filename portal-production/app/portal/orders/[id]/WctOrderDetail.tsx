@@ -20,7 +20,11 @@ import DoSignLinkDialog from "@/components/delivery/DoSignLinkDialog";
 import QuickJobDialog from "@/components/Dashboard/jobs-calendar/QuickJobDialog";
 import { linkedToast } from "@/helpers/quickJobQuotation";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
-import { ORDER_FILE_ACCEPT, orderUploadTip, serviceReportFlowHref, serviceReportMenuItems, type ServiceReportPrefill } from "@/helpers/serviceReportFlow";
+import { ORDER_FILE_ACCEPT, orderUploadTip, serviceReportMenuItems } from "@/helpers/serviceReportFlow";
+import { orderReportDos, prePickedDoId } from "@/helpers/serviceReportOrder";
+import NewServiceReportDialog from "@/app/portal/maintenance-reports/_components/NewServiceReportDialog";
+import UploadServiceReportDialog from "@/app/portal/maintenance-reports/_components/UploadServiceReportDialog";
+import WctServiceReportForm from "@/components/service-report/WctServiceReportForm";
 import { hubActionTarget, type HubActionKey } from "@/helpers/wctOrderHub";
 import { invoiceDialogLines, type ImportedLinkType } from "@/helpers/importedOrders";
 import { canUnlinkRow, docRowMenu, nativeInvoiceAsk, orderPageModel, type OrderAction, type OrderCard, type OrderDocRow } from "@/helpers/orderPage";
@@ -105,6 +109,10 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
   const [sendReportOpen, setSendReportOpen] = useState(false);
   // One "Service report" menu (round 12): New / Upload file (manual flow) or Upload file, and Link existing; at the click.
   const [srMenu, setSrMenu] = useState<{ pos: Pos; doId: string | null } | null>(null);
+  // Service report New / Upload file stay on the order page (UAT 2026-11-25): the dialog, then the form in a full-screen dialog.
+  const [srNew, setSrNew] = useState<{ doId: string | null } | null>(null);
+  const [srUpload, setSrUpload] = useState<{ doId: string | null } | null>(null);
+  const [srFormId, setSrFormId] = useState<string | null>(null);
   // DO first (manual flow, 2026-11-13): complete a DO with no job; its sign link; a DO row's menu.
   const [completeDo, setCompleteDo] = useState<OrderDo | null>(null);
   // "Attach signed copy" (2026-11-23): the same Complete DO dialog, opened on Upload signed DO.
@@ -508,16 +516,10 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
     setRowMenu({ pos, row });
   };
 
-  // The report's customer and DO, prefilled: the order's customer, its last completed DO (else its first DO, a job's DO, a linked DO).
-  const srPrefillFor = (doId: string | null): ServiceReportPrefill => ({
-    customer: order.customer ? { id: order.customer.id, name: order.customer.name } : null,
-    doId:
-      doId ??
-      ([...dos].reverse().find((d) => d.completed) ?? dos[0])?.id ??
-      ([...liveJobs].reverse().find((j) => j.status === "completed" && j.deliveryOrder) ?? liveJobs.find((j) => j.deliveryOrder))?.deliveryOrder?.id ??
-      (o.linkedDos ?? []).find((d: any) => d.id)?.id ??
-      null,
-  });
+  // The report's customer and DO: the order's customer; the DO pre-picked only when it is the order's only DO and not
+  // a draft (or the DO the person clicked on). Several DOs, or a draft one: the person picks (UAT 2026-11-25).
+  const reportDos = orderReportDos(o);
+  const srCustomer = order.customer ? { id: order.customer.id, name: order.customer.name } : null;
 
   return (
     <OrderPageLayout
@@ -586,8 +588,9 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
               onClick={() => {
                 const doId = srMenu?.doId ?? null;
                 setSrMenu(null);
-                // Manual flow: the Service Reports page's own New / Upload flow, customer + DO prefilled.
-                if (it.key === "new" || (it.key === "upload" && manualFlow)) router.push(serviceReportFlowHref(it.key, srPrefillFor(doId)));
+                // Manual flow: New / Upload open here, on the order page, with the order's customer and DO.
+                if (it.key === "new") setSrNew({ doId });
+                else if (it.key === "upload" && manualFlow) setSrUpload({ doId });
                 // Otherwise Upload file stores the file on the order.
                 else if (it.key === "upload") fileRef.current?.click();
                 else setLinkOpen("SERVICE_REPORT");
@@ -619,6 +622,45 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
           }}
         />
       )}
+      <NewServiceReportDialog
+        open={!!srNew}
+        onClose={() => setSrNew(null)}
+        prefill={{ customer: srCustomer, doId: prePickedDoId(reportDos, srNew?.doId) }}
+        orderDos={reportDos}
+        onStarted={(rid) => {
+          setSrNew(null);
+          setSrFormId(rid);
+          void load();
+        }}
+      />
+      <UploadServiceReportDialog
+        open={!!srUpload}
+        onClose={() => setSrUpload(null)}
+        wctOrders
+        manualFlow
+        prefill={{ customer: srCustomer, doId: prePickedDoId(reportDos, srUpload?.doId) }}
+        onUploaded={() => {
+          setSrUpload(null);
+          toast.success("Service report uploaded");
+          void load();
+        }}
+      />
+      <Dialog fullScreen open={!!srFormId} onClose={() => setSrFormId(null)}>
+        <DialogContent>
+          <Box sx={{ maxWidth: 720, mx: "auto" }}>
+            {srFormId && (
+              <WctServiceReportForm
+                reportId={srFormId}
+                office
+                onExit={() => {
+                  setSrFormId(null);
+                  void load();
+                }}
+              />
+            )}
+          </Box>
+        </DialogContent>
+      </Dialog>
       <ScheduleDeliveryDialog open={addOpen} onClose={() => setAddOpen(false)} onCreated={() => void load()} prefill={prefill} />
       {completeDo && (
         <OfficeCompleteJobDialog

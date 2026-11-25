@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { reportNoText } from "@/helpers/serviceReportOrder";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -378,7 +379,7 @@ export default function MaintenanceReportsListPage() {
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2" fontWeight={600}>
-                      {row.reportNumber ?? "—"}
+                      {(row.serviceData as any)?.srNumber ?? row.reportNumber ?? "—"}
                     </Typography>
                   </TableCell>
                   <TableCell>{row.serviceData?.customerName ?? "—"}</TableCell>
@@ -460,7 +461,7 @@ export default function MaintenanceReportsListPage() {
       <Dialog open={!!toDelete} onClose={() => !deleting && setToDelete(null)}>
         <DialogTitle>Delete service report</DialogTitle>
         <DialogContent>
-          <DialogContentText>Delete report {toDelete?.reportNumber != null ? `#${toDelete.reportNumber}` : "draft"}? Its number stays as a gap.</DialogContentText>
+          <DialogContentText>Delete report {reportNoText(toDelete) ?? "draft"}? Its number stays as a gap.</DialogContentText>
           {deleteError && (
             <Alert severity="error" sx={{ mt: 2 }}>
               {deleteError}
