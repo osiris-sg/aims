@@ -3,7 +3,8 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import {
   collectCss,
-  computeFitScale,
+  fitPolicyFor,
+  planFitScale,
   fitToPageCss,
   measurePrintHeightMm,
   PRINT_FIT_CLASS,
@@ -209,7 +210,9 @@ ${links}
   // sheet that already fits gets scale 1 and no extra CSS at all.
   if (opts.fitSelector) {
     const naturalMm = await measurePrintHeightMm(build(""), opts.fitSelector);
-    const scale = computeFitScale(naturalMm, opts.fitBandMm);
+    // Biofuel's DO layout flows across pages instead of shrinking hard (see FLOW_LAYOUT_SELECTOR).
+    const policy = fitPolicyFor(clone);
+    const scale = planFitScale(naturalMm, opts.fitBandMm, policy);
     if (scale < 1) {
       if (willStillOverflow(naturalMm, opts.fitBandMm)) {
         // Past the floor: shrinking stops and the document is allowed to run
@@ -219,7 +222,7 @@ ${links}
             `at the ${scale} floor — printing across pages instead.`,
         );
       }
-      return build(fitToPageCss(opts.fitSelector, scale, naturalMm));
+      return build(fitToPageCss(opts.fitSelector, scale, naturalMm, policy.origin));
     }
   }
   return build("");

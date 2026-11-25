@@ -5,6 +5,9 @@ import { resolveTimeZone } from '../org-today';
 import { DESCRIPTION_HAS_MODEL, DESCRIPTION_HAS_SERIAL } from './document-html/shared';
 import { signBucketUrlsInHtml } from '../storage-sign';
 
+/** Fit-to-page floor for every sheet except the flow layout (see planFit). */
+const DEFAULT_FIT_FLOOR = 0.7;
+
 @Injectable()
 export class PdfGeneratorService {
   /**
@@ -14,7 +17,7 @@ export class PdfGeneratorService {
    * silent one.
    * Mirrors PRINT_SCALE_FLOOR in portal-production/lib/printScale.ts.
    */
-  private static readonly FIT_SCALE_FLOOR = 0.7;
+  private static readonly FIT_SCALE_FLOOR = DEFAULT_FIT_FLOOR;
 
   /**
    * @param options.margin page margins for the PDF. Omitted = the legacy
@@ -148,18 +151,23 @@ export class PdfGeneratorService {
   }
 
   /** Scale the sheet so it prints on one page (see generatePdfFromHtml). */
+  // planFit below mirrors portal lib/printScale.ts planFitScale.
   private async fitToOnePage(page: puppeteer.Page, fitToPage: { selector: string; bandMm: number }) {
     const { selector, bandMm } = fitToPage;
     await page.emulateMediaType('print');
-    const naturalMm = await page.evaluate((sel) => {
+    const { naturalMm, flow } = await page.evaluate((sel) => {
       const el = document.querySelector(sel) as HTMLElement | null;
-      if (!el) return 0;
-      return (el.getBoundingClientRect().height / 96) * 25.4;
+      if (!el) return { naturalMm: 0, flow: false };
+      return {
+        naturalMm: (el.getBoundingClientRect().height / 96) * 25.4,
+        // Biofuel's DO layout (portal lib/printScale.ts FLOW_LAYOUT_SELECTOR).
+        flow: !!(el.matches('[data-do-layout="biofuel"]') || el.querySelector('[data-do-layout="biofuel"]')),
+      };
     }, selector);
 
-    if (naturalMm > bandMm) {
-      const needed = Math.floor((bandMm / naturalMm) * 1000) / 1000;
-      const scale = Math.max(PdfGeneratorService.FIT_SCALE_FLOOR, needed);
+    const plan = planFit(naturalMm, bandMm, flow);
+    if (plan) {
+      const { scale, needed } = plan;
       const scaledMm = (naturalMm * scale).toFixed(2);
       if (needed < PdfGeneratorService.FIT_SCALE_FLOOR) {
         console.warn(
@@ -179,7 +187,7 @@ export class PdfGeneratorService {
           .aims-print-fit { height: ${scaledMm}mm !important; overflow: hidden !important; }
           .aims-print-fit ${selector} {
             transform: scale(${scale}) !important;
-            transform-origin: top left !important;
+            transform-origin: ${flow ? 'top center' : 'top left'} !important;
           }
         }`,
       });
@@ -719,4 +727,18 @@ export class PdfGeneratorService {
 </html>
     `;
   }
+}
+
+/**
+ * Fit-to-page plan (mirrors portal lib/printScale.ts planFitScale). null = leave
+ * the sheet alone. `flow` (Biofuel's DO layout, DO202611114): only a mild
+ * shrink (down to 0.9) when that fits one page; taller prints at full width
+ * across pages instead of 0.7 in the corner and still spilling.
+ */
+export function planFit(naturalMm: number, bandMm: number, flow: boolean): { scale: number; needed: number } | null {
+  if (!(naturalMm > bandMm) || !(bandMm > 0)) return null;
+  const needed = Math.floor((bandMm / naturalMm) * 1000) / 1000;
+  const floor = flow ? 0.9 : DEFAULT_FIT_FLOOR;
+  if (needed < floor) return flow ? null : { scale: floor, needed };
+  return { scale: needed, needed };
 }

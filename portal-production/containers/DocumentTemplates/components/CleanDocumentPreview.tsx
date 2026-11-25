@@ -2780,6 +2780,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         // `[data-print-paper][data-print-sheet="do"]` rule. Other document
         // types keep their existing print behaviour untouched.
         data-print-sheet="do"
+        // Biofuel's layout (proof photos on rows + Timeline): printing flows
+        // across pages at full width instead of shrinking hard (lib/printScale.ts
+        // FLOW_LAYOUT_SELECTOR, DO202611114).
+        data-do-layout={isBiofuel ? "biofuel" : undefined}
         sx={{
           width: "210mm",
           minHeight: "297mm",
@@ -3057,8 +3061,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                                 )}
                                 <Box sx={{ display: "flex", gap: 0.5, rowGap: 0.5, mt: labelled ? 0.25 : 0, flexWrap: "wrap" }}>
                                   {g.photos.map((key: string, photoIdx: number) => (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img key={key} src={resolvePhotoSrc(key)} alt="" onClick={() => openZoom(g.photos, photoIdx)} style={{ width: "23%", aspectRatio: "4 / 3", objectFit: "cover", border: "1px solid #ccc", cursor: "pointer" }} />
+                                    // Printed as small thumbnails, six to a row (DO202611114).
+                                    <Box component="img" key={key} src={resolvePhotoSrc(key)} alt="" onClick={() => openZoom(g.photos, photoIdx)} sx={{ width: "23%", aspectRatio: "4 / 3", objectFit: "cover", border: "1px solid #ccc", cursor: "pointer", "@media print": { width: "15.5%" } }} />
                                   ))}
                                 </Box>
                               </Box>
