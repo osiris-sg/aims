@@ -1757,8 +1757,8 @@ model Shipment {
   deliveryMonth     String? // "YYYY-MM", defaults from the contract
   portOfLoading     String?
   portOfDischarge   String?
-  netWeightMt       Decimal?          @db.Decimal(14, 3)
-  grossWeightMt     Decimal?          @db.Decimal(14, 3)
+  netWeightMt       Decimal?          @db.Decimal(14, 4) // Round BZ: 4 dp = the B/L's precision (50,039.5 kg = 50.0395 MT)
+  grossWeightMt     Decimal?          @db.Decimal(14, 4)
   totalBundles      Int?
   totalPieces       Int?
   containerCount    Int?
