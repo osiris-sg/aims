@@ -133,7 +133,7 @@ export default function DebtorStatementDialog({
               format: "json",
             }),
           }),
-          apiCall(`/statements/aged?side=receivable&asOf=${cutOff}&level=detail&ageingBy=documentDate`, token),
+          apiCall(`/statements/aged?side=receivable&asOf=${cutOff}&level=detail&ageingBy=documentDate&includeNotes=true`, token),
         ]);
         if (cancelled) return;
         setOpening(Number(soa?.statement?.openingBalance) || 0);

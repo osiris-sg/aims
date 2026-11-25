@@ -8,10 +8,17 @@ import { bandLabel, bandRow } from "./confirmBands";
 // renders on screen, one section per customer (statement table + Ageing
 // Analysis). Print (shell footer) page-breaks between customers; CSV exports
 // the lot.
-//   - "All outstanding" = open-item statement: everything still owed at the
-//     start of the period (at its then-outstanding value) + the period's
-//     transactions, running balance → closing = amount owed.
+//   - "All outstanding" = open-item statement (guru 2026-11-25): ONLY the
+//     items still open at the period end, each at its outstanding value as
+//     of that date (the Aged detail as of the cut-off, includeNotes): unpaid
+//     invoices and debit notes as debits, unapplied credit notes as credits —
+//     no receipts or offsets; the total is the amount owed and ties to the
+//     Ageing Analysis. (Until then it was the prior month's open items plus the
+//     month's transactions, which printed receipts under an "outstanding"
+//     heading.)
 //   - "Current month" = BALANCE B/F line + the period's transactions.
+//   - "All activity" = every invoice, credit note and receipt from the first
+//     transaction to the period end, running balance (no B/F line).
 // Deep-linkable: ?tab=debtor-statement&contactId=...&asOf=YYYY-MM-DD (the
 // Official Receipt's Debtor Statement dialog links here — single customer).
 
@@ -77,14 +84,13 @@ const monthEndISO = (iso: string) => {
   return toISO(d.getFullYear(), d.getMonth(), new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate());
 };
 const monthStartISO = (iso: string) => `${iso.slice(0, 7)}-01`;
-const prevMonthEndISO = (iso: string) => {
-  const d = new Date(monthStartISO(iso));
-  return toISO(d.getFullYear(), d.getMonth() - 1, new Date(d.getFullYear(), d.getMonth(), 0).getDate());
-};
 
 const MONTH_LABELS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
-type AgedDoc = { id: string; number: string; date: string; reference: string | null; total: number; currency: string | null };
+// total = outstanding at the as-of date, NEGATIVE for an unapplied credit note.
+type AgedDoc = { id: string; docType?: string; number: string; date: string; reference: string | null; total: number; currency: string | null };
+const isCreditDoc = (t?: string) => t === "CN" || t === "CREDIT_NOTE" || t === "PURCHASE_RETURN";
+const isDebitNoteDoc = (t?: string) => t === "DN" || t === "DEBIT_NOTE";
 
 function bucketizeByMonth(docs: AgedDoc[], cutISO: string) {
   const cut = new Date(cutISO);
@@ -102,6 +108,13 @@ function bucketizeByMonth(docs: AgedDoc[], cutISO: string) {
   }
   return list;
 }
+
+type Scope = "outstanding" | "current" | "activity";
+const SCOPE_LABEL: Record<Scope, string> = {
+  outstanding: "All outstanding items",
+  current: "Current month transactions",
+  activity: "All activity",
+};
 
 type StRow = { reference: string; date: string | null; remarks: string; debit: number; credit: number; running: number; unconfirmed?: boolean };
 type CustomerStatement = {
@@ -121,7 +134,7 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
   const [fromCustomer, setFromCustomer] = useState<any>(null);
   const [toCustomer, setToCustomer] = useState<any>(null);
   const [asOf, setAsOf] = useState(() => monthEndISO(todayIso()));
-  const [scope, setScope] = useState<"outstanding" | "current">("outstanding");
+  const [scope, setScope] = useState<Scope>("outstanding");
   const [loading, setLoading] = useState(false);
   const [statements, setStatements] = useState<CustomerStatement[] | null>(null);
   // One statement on screen at a time (guru 2026-07-24) — step customer by
@@ -150,15 +163,10 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
       }
       setLoading(true);
       try {
-        const prevEnd = prevMonthEndISO(cut);
-        // One aged-detail call per as-of covers EVERY customer in the range.
-        const [agedPrevRaw, agedNowRaw] = await Promise.all([
-          request(`/statements/aged?side=${words.agedSide}&asOf=${prevEnd}&level=detail&ageingBy=documentDate`),
-          request(`/statements/aged?side=${words.agedSide}&asOf=${cut}&level=detail&ageingBy=documentDate`),
-        ]);
-        const prevByContact = new Map<string, AgedDoc[]>(
-          ((unwrap(agedPrevRaw)?.groups || []) as any[]).map((g: any) => [g.contactId, g.docs || []]),
-        );
+        // One aged-detail call covers EVERY customer in the range: the open
+        // items at the period end feed the "All outstanding" rows and the
+        // Ageing Analysis of every mode.
+        const agedNowRaw = await request(`/statements/aged?side=${words.agedSide}&asOf=${cut}&level=detail&ageingBy=documentDate&includeNotes=true`);
         const nowByContact = new Map<string, AgedDoc[]>(
           ((unwrap(agedNowRaw)?.groups || []) as any[]).map((g: any) => [g.contactId, g.docs || []]),
         );
@@ -168,18 +176,21 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
         const chunkSize = 5;
         for (let i = 0; i < targets.length; i += chunkSize) {
           const chunk = targets.slice(i, i + chunkSize);
+          // The statement body: the cut-off month for "Current month", the
+          // whole history for "All activity"; "All outstanding" needs none.
           const soas = await Promise.all(
             chunk.map((c: any) =>
-              request(words.soaUrl, {
-                method: "POST",
-                body: JSON.stringify({ [words.soaIdKey]: c.id, startDate: monthStartISO(cut), endDate: cut, format: "json" }),
-              }).catch(() => null),
+              sc === "outstanding"
+                ? Promise.resolve(null)
+                : request(words.soaUrl, {
+                    method: "POST",
+                    body: JSON.stringify({ [words.soaIdKey]: c.id, ...(sc === "current" ? { startDate: monthStartISO(cut) } : {}), endDate: cut, format: "json" }),
+                  }).catch(() => null),
             ),
           );
           chunk.forEach((c: any, j: number) => {
             const soa = unwrap(soas[j]);
-            const monthTxs: any[] = soa?.transactions || [];
-            const prevDocs = prevByContact.get(c.id) || [];
+            const monthTxs: any[] = sc === "outstanding" ? [] : soa?.transactions || [];
             const nowDocs = nowByContact.get(c.id) || [];
 
             // Rows are collected first, then ordered confirmed-first with the
@@ -189,10 +200,16 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
             const pending: StRow[] = [];
             let run = 0;
             if (sc === "outstanding") {
-              for (const d of prevDocs) {
-                pending.push({ reference: d.number, date: d.date, remarks: d.reference || (side === "payable" ? "SUPPLIER INVOICE" : "INVOICE"), debit: Number(d.total) || 0, credit: 0, running: 0, unconfirmed: !!(d as any).unconfirmed });
+              for (const d of nowDocs) {
+                const total = Number(d.total) || 0;
+                const placeholder = isCreditDoc(d.docType)
+                  ? side === "payable" ? "SUPPLIER CREDIT NOTE" : "CREDIT NOTE"
+                  : isDebitNoteDoc(d.docType)
+                    ? "DEBIT NOTE"
+                    : side === "payable" ? "SUPPLIER INVOICE" : "INVOICE";
+                pending.push({ reference: d.number, date: d.date, remarks: d.reference || placeholder, debit: total > 0 ? total : 0, credit: total < 0 ? -total : 0, running: 0, unconfirmed: !!(d as any).unconfirmed });
               }
-            } else {
+            } else if (sc === "current") {
               run = R(soaSummaryOf(soa).opening);
               pending.push({ reference: "", date: null, remarks: "BALANCE B/F", debit: 0, credit: 0, running: run });
             }
@@ -315,7 +332,7 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
     doc.setFont("helvetica", "normal").setFontSize(9);
     doc.text(`To : ${s.customer.name}${s.customer.code ? `  (${s.customer.code})` : ""}`, 12, 38);
     doc.text(`PERIOD ENDING : ${fmtDate(asOf)}`, pageW - 12, 38, { align: "right" });
-    doc.text(scope === "outstanding" ? "All outstanding items" : "Current month transactions", 12, 43);
+    doc.text(SCOPE_LABEL[scope], 12, 43);
 
     autoTable(doc, {
       startY: 48,
@@ -429,7 +446,7 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
       title: "Statement-Of-Accounts",
       emailTo: statements.length === 1 && onScreenEmail ? [onScreenEmail] : [],
       orgName: organization?.name || "",
-      metaLines: [`Period ending ${fmtDate(asOf)}`, scope === "outstanding" ? "All outstanding items" : "Current month transactions"],
+      metaLines: [`Period ending ${fmtDate(asOf)}`, SCOPE_LABEL[scope]],
       tables: statements.map((s) => ({
         heading: `To : ${s.customer.name}${s.customer.code ? `  (${s.customer.code})` : ""}`,
         headers: ["Reference", "Date", "Remarks", "Debit", "Credit", "Balance"],
@@ -506,6 +523,7 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
             options={[
               { value: "outstanding", label: "All outstanding" },
               { value: "current", label: "Current month" },
+              { value: "activity", label: "All activity" },
             ]}
           />
         </>
@@ -514,7 +532,7 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
         statements
           ? [
               `Period ending ${fmtDate(asOf)}`,
-              scope === "outstanding" ? "All outstanding items" : "Current month transactions",
+              SCOPE_LABEL[scope],
             ]
           : []
       }

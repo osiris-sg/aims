@@ -164,6 +164,7 @@ export class StatementsController {
     @Query('periodDays') periodDays?: string,
     @Query('ageingBy') ageingBy?: 'dueDate' | 'documentDate',
     @Query('level') level?: 'summary' | 'detail',
+    @Query('includeNotes') includeNotes?: string,
   ) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) throw new Error('User is not assigned to any organization');
@@ -173,6 +174,8 @@ export class StatementsController {
       periodDays: periodDays ? parseInt(periodDays, 10) : undefined,
       ageingBy,
       level,
+      // 'true': open credit / debit notes as signed rows (Statement-Of-Accounts only).
+      includeNotes: String(includeNotes) === 'true',
     });
   }
 

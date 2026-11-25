@@ -154,10 +154,22 @@ export class StatementsService {
           add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: ref || `Credit Note ${doc.name || ''}`.trim(), docReference: ref || null, transactionType: 'CREDIT_NOTE', debit: 0, credit: gross, balance: 0, documentType: 'CREDIT_NOTE', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId, unconfirmed: isUnconfirmedDoc((doc as any).status) }, -gross);
         }
       }
+      // A Manual Offset that applies a credit note printed on this statement
+      // to invoices printed on it is an ALLOCATION, not a transaction: the
+      // credit note's own line already carries the credit, and the offset's
+      // legs (credit each invoice, debit the credit note) net to zero on the
+      // same day. Printing them showed MegaBuilders three MO-000002 rows under
+      // its credit note (guru 2026-11-25: "it looks wrong still"). Legacy
+      // prints the invoices and the C/N, nothing for the offset.
+      const allocationOffsets = new Set<string>();
+      for (const p of payments) {
+        if (p.paymentMethod === 'offset' && p.receiptId && p.documentId && shownCreditNotes.has(p.documentId)) allocationOffsets.add(p.receiptId);
+      }
       for (const p of payments) {
         // Customer money in = REC; Manual Offsets stay plain (a function, not
         // a document type — guru's prefix plan).
         if (p.documentId && hiddenCreditNotes.has(p.documentId)) continue;
+        if (p.paymentMethod === 'offset' && p.receiptId && allocationOffsets.has(p.receiptId)) continue;
         const usesCredit = !!p.documentId && shownCreditNotes.has(p.documentId);
         const payRef = p.reference || p.id.slice(0, 8);
         add(

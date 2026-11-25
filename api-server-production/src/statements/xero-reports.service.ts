@@ -72,17 +72,27 @@ export class XeroReportsService {
    * of memory and restarted). The scan reads money, dates, contact and reference only, so the rows it builds are
    * the same; the invoice detail report reads its lines separately.
    */
-  protected async scanDocRows(organizationId: string, type: 'INVOICE' | 'BILL'): Promise<Array<{ id: string; name: string | null; type: string; documentTemplateId: string | null; status: any; createdAt: Date; config: any }>> {
+  protected async scanDocRows(organizationId: string, types: string[]): Promise<Array<{ id: string; name: string | null; type: string; documentTemplateId: string | null; status: any; createdAt: Date; config: any }>> {
     return this.prisma.$queryRaw`
       SELECT d.id::text AS id, d.name, d.type, d."documentTemplateId", d.status::text AS status, d."createdAt", (d.config - ${SCAN_SKIP_KEYS}::text[]) AS config
       FROM "Document" d
-      WHERE d."organizationId" = ${organizationId} AND d.type = ${type}`;
+      WHERE d."organizationId" = ${organizationId} AND d.type = ANY(${types}::text[])`;
   }
 
-  private async scanDocs(organizationId: string, side: Side, opts?: { paymentsUpTo?: Date }): Promise<DocRow[]> {
+  // The documents a side's scan reads. Invoices / bills always; with `includeNotes` the open
+  // CREDIT NOTES (a negative receivable / payable) and DEBIT NOTES (AR) or PURCHASE RETURNS (AP)
+  // too, so a statement's open items and ageing can carry them (guru 2026-11-25: "outstanding
+  // should also show credit and debit note").
+  private static readonly SCAN_TYPES = {
+    receivable: { base: ['INVOICE'], notes: ['CN', 'CREDIT_NOTE', 'DN', 'DEBIT_NOTE'], credit: new Set(['CN', 'CREDIT_NOTE']) },
+    payable: { base: ['BILL'], notes: ['CREDIT_NOTE', 'PURCHASE_RETURN'], credit: new Set(['CREDIT_NOTE', 'PURCHASE_RETURN']) },
+  } as const;
+
+  private async scanDocs(organizationId: string, side: Side, opts?: { paymentsUpTo?: Date; includeNotes?: boolean }): Promise<DocRow[]> {
     const isAR = side === 'receivable';
+    const kinds = XeroReportsService.SCAN_TYPES[isAR ? 'receivable' : 'payable'];
     const [docs, setting] = await Promise.all([
-      this.scanDocRows(organizationId, isAR ? 'INVOICE' : 'BILL'),
+      this.scanDocRows(organizationId, opts?.includeNotes ? [...kinds.base, ...kinds.notes] : [...kinds.base]),
       this.prisma.accountingSetting.findUnique({
         where: { organizationId },
         select: { baseCurrency: true, currencyRates: true },
@@ -145,36 +155,47 @@ export class XeroReportsService {
       const contactName = (isAR ? (c.customerName || c.customer?.name) : (c.supplierName || c.supplier?.name)) || 'Unknown';
       const date = c.date ? new Date(c.date) : doc.createdAt;
       const dueDate = c.dueDate ? new Date(c.dueDate) : null;
+      // A credit note (or purchase return) is a NEGATIVE open item: its "payments" are the
+      // allocations that used it up (AR: positive Payment rows on the note; AP: BillPayment rows
+      // stored NEGATIVE on the note, so their sign flips), and every money figure it carries is
+      // negated below so buckets, totals and statements net it off.
+      const isCredit = (kinds.credit as ReadonlySet<string>).has(doc.type);
+      const applied = (v: number) => (isCredit && !isAR ? -v : v);
       const payInfo = payByDoc.get(doc.id);
-      const recordedPaid = R(payInfo?.total ?? 0);
+      const recordedPaid = R(applied(payInfo?.total ?? 0));
       let outstanding: number;
       let paid: number;
       if (outstandingOf(c) !== undefined && outstandingOf(c) !== null) {
         // xeroBalance is maintained LIVE by updateInvoiceStatusAfterPayment on
         // every native payment — it is already net of payments. Subtracting
         // recorded payments again double-counted every post-import payment.
-        outstanding = R(Math.max(0, Number(outstandingOf(c))));
+        outstanding = R(Math.max(0, Math.abs(Number(outstandingOf(c)))));
         // …but it is TODAY's balance: at an earlier cut-off, money recorded since is still owed.
-        const after = payAfterByDoc.get(doc.id) || 0;
+        const after = applied(payAfterByDoc.get(doc.id) || 0);
         if (after > 0.005) outstanding = R(Math.min(gross, outstanding + after));
         paid = R(gross - outstanding);
       } else {
         paid = recordedPaid;
         outstanding = R(Math.max(0, gross - paid));
       }
+      const sign = isCredit ? -1 : 1;
       // Multi-currency: face amounts are in the doc's trading currency —
       // convert to base at the standing rate so report totals stay coherent.
       const docCurrency = String(c.currency || baseCurrency).toUpperCase();
       const isForeign = docCurrency !== baseCurrency;
       const fxRate = isForeign ? Number(fxRates[docCurrency]) || 1 : 1;
-      const foreignGross = isForeign ? gross : null;
-      const foreignOutstanding = isForeign ? outstanding : null;
+      const foreignGross = isForeign ? sign * gross : null;
+      const foreignOutstanding = isForeign ? sign * outstanding : null;
       if (isForeign) {
         gross = R(gross * fxRate);
         net = R(net * fxRate);
         paid = R(paid * fxRate);
         outstanding = R(outstanding * fxRate);
       }
+      gross = R(sign * gross);
+      net = R(sign * net);
+      paid = R(sign * paid);
+      outstanding = R(sign * outstanding);
 
       rows.push({
         id: doc.id,
@@ -195,12 +216,12 @@ export class XeroReportsService {
         paid,
         outstanding,
         lastPaymentDate: payInfo?.last ?? null,
-        status: doc.status || (outstanding <= 0.005 ? 'paid' : 'outstanding'),
+        status: doc.status || (Math.abs(outstanding) <= 0.005 ? 'paid' : 'outstanding'),
         // Saved but not yet confirmed — ageing / statement reports print it
         // under an "Unconfirmed" band (every report, guru 2026-11-12).
         unconfirmed: isUnconfirmedDoc(doc.status),
         openingBalance: isOpeningBalanceDoc(c),
-        source: isAR ? 'Receivable Invoice' : 'Payable Invoice',
+        source: isCredit ? (isAR ? 'Receivable Credit Note' : 'Payable Credit Note') : doc.type === 'DN' || doc.type === 'DEBIT_NOTE' ? 'Receivable Debit Note' : isAR ? 'Receivable Invoice' : 'Payable Invoice',
         currency: isForeign ? docCurrency : null,
         foreignGross,
         foreignOutstanding,
@@ -293,7 +314,7 @@ export class XeroReportsService {
   async aged(
     organizationId: string,
     side: Side,
-    opts: { asOf?: string; periods?: number; periodDays?: number; ageingBy?: 'dueDate' | 'documentDate'; level?: 'summary' | 'detail' },
+    opts: { asOf?: string; periods?: number; periodDays?: number; ageingBy?: 'dueDate' | 'documentDate'; level?: 'summary' | 'detail'; includeNotes?: boolean },
   ) {
     const asOf = opts.asOf ? new Date(opts.asOf) : new Date();
     const periods = Math.min(Math.max(opts.periods ?? 4, 1), 12);
@@ -301,8 +322,10 @@ export class XeroReportsService {
     const ageingBy = opts.ageingBy === 'documentDate' ? 'documentDate' : 'dueDate';
     const level = opts.level === 'detail' ? 'detail' : 'summary';
 
-    const docs = (await this.scanDocs(organizationId, side, { paymentsUpTo: asOf })).filter(
-      (d) => d.outstanding > 0.005 && d.date <= asOf,
+    // includeNotes: open credit notes (negative) and debit notes ride along — the Statement-Of-
+    // Accounts' open items and its Ageing Analysis ask for them; the aged reports do not.
+    const docs = (await this.scanDocs(organizationId, side, { paymentsUpTo: asOf, includeNotes: !!opts.includeNotes })).filter(
+      (d) => Math.abs(d.outstanding) > 0.005 && d.date <= asOf,
     );
 
     // bucketIndex: 0 = Current (age <= 0), 1..periods = aged periods, periods+1 = Older; then, only when the
