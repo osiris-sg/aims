@@ -1198,6 +1198,7 @@ export class OrdersService {
         total: grossOf(d.config),
         // A moved "(NG)" placeholder is this company's own document (no crossOrg): a plain link, greyed.
         crossOrg: d.crossOrg ? { orgId: d.crossOrg.orgId, orgName: d.crossOrg.orgName, canOpen: canOpen.has(d.crossOrg.orgId) } : null,
+        linkSource: d.crossOrg ? null : m?.linkSources?.[d.id] ?? null,
       })),
       creditNotes: inputs.creditNoteDocs.map((d: any) => ({ id: d.id, name: d.name, type: d.type, status: d.status, templateId: d.documentTemplateId, total: grossOf(d.config) })),
       total: st.total,

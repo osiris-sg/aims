@@ -26,3 +26,26 @@ test("doc chain: an own placeholder is greyed and does not stop + Create invoice
   assert.deepEqual(invSec.items.map((i) => !!i.placeholder), [true]);
   assert.equal(invSec.create, "invoice");
 });
+
+test("labels: a moved invoice reads Moved from WCT (S); a moved placeholder is own, not another company's", () => {
+  const m = importedOrderPage({
+    id: "o1",
+    orderNumber: "ORD-Q-014936",
+    sourceQuotation: { id: "q1", name: "Q-014936", type: "QUOTATION", documentTemplateId: "tq" },
+    invoices: [{ id: "i1", name: "I-015304", type: "INVOICE", templateId: "t", total: 250, stateLabel: "Unpaid", linkSource: "moved-from-wct" }],
+    crossPlaceholders: [
+      { id: "p1", name: "I-007118", type: "INVOICE", templateId: "t", total: 1, crossOrg: null, linkSource: "moved-from-wct" },
+      { id: "p2", name: "I-013120", type: "INVOICE", templateId: "t", total: 1, crossOrg: { orgId: "5c700000-0000-4000-8000-5c7000000001", orgName: "WCT (S)", canOpen: false } },
+    ],
+  });
+  const inv = m.documents.filter((r) => r.kind === "invoice");
+  assert.deepEqual(inv.map((r) => [r.number, r.by, !!r.placeholder]), [
+    ["I-015304", "Moved from WCT (S)", false],
+    ["I-007118", "Moved from WCT (S)", true],
+    ["I-013120 · WCT (S)", "WCT (S) (read only)", true],
+  ]);
+  assert.equal(inv[1].href, "/portal/documents/INVOICE/t/p1");
+  assert.equal(inv[1].unlinkBlocked, "Placeholder, not counted");
+  assert.equal(inv[2].href, null);
+  assert.ok(inv.every((r) => !String(r.by).includes("\u2014")));
+});

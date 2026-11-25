@@ -129,6 +129,8 @@ export const UNLINK_BLOCKED = {
   madeOnOrder: "Made on this order",
   writtenForOrder: "Written for this order",
   withInvoice: "Goes with its invoice",
+  // A moved "(NG)" placeholder (this company's own invoice, never counted; 2026-11-25).
+  placeholder: "Placeholder, not counted",
   // Round 33: a linked DO billed by Create invoice stays while that invoice is live.
   billed: "Billed: void its invoice first",
   // 2026-11-23: another group company's invoice billed against this quotation (read only here).
@@ -764,13 +766,14 @@ export function importedOrderPage(o: any, ctx: OrderPageContext = {}): OrderPage
       placeholder: true,
       date: i.date ?? null,
       status: "",
-      by: `${i.crossOrg?.orgName || "Other company"} (read only)`,
+      // Another company's placeholder reads "<company> (read only)"; a moved one is this company's own invoice.
+      by: i.crossOrg ? `${i.crossOrg.orgName || "Other company"} (read only)` : importedLinkSourceLabel(i.linkSource),
       amount: i.total ?? null,
       owed: null,
       href: invHref(i),
       file: null,
       unlink: null,
-      unlinkBlocked: UNLINK_BLOCKED.crossOrg,
+      unlinkBlocked: i.crossOrg ? UNLINK_BLOCKED.crossOrg : UNLINK_BLOCKED.placeholder,
     });
   }
   for (const c of o.creditNotes ?? []) {
