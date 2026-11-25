@@ -229,7 +229,17 @@ export default function BillEditorDialog({
   // 13.62 — the second time it happened).
   const taxManualSumRef = useRef<number | null>(null);
   const sumOf = (ls: Array<{ amount?: any }>) => ls.reduce((t, l) => t + (parseFloat(String(l?.amount ?? "")) || 0), 0);
-  const keepTaxFor = (ls: Array<{ amount?: any }>) => {
+  // A kept figure of ZERO is never authoritative (guru 2026-11-25, 149122: "the tax code is
+  // correct but the auto calculated GST amt remains 0 … raised this before"): an extraction that
+  // read no GST, or a draft saved before the code was set, anchored "0" as if someone had typed
+  // it, and the box stayed 0 under a 9% code until a line amount was retyped. Zero means "not
+  // known" — the rate decides. Typing 0 by hand still sticks (the onChange sets the ref itself).
+  const keepTaxFor = (ls: Array<{ amount?: any }>, figure: any) => {
+    if (!(parseFloat(String(figure ?? "")) > 0)) {
+      taxManualRef.current = false;
+      taxManualSumRef.current = null;
+      return;
+    }
     taxManualRef.current = true;
     taxManualSumRef.current = sumOf(ls);
   };
@@ -292,7 +302,7 @@ export default function BillEditorDialog({
       setTaxCode(editing.taxCode || (editing.amountsAre === "NO_TAX" ? "12" : "4"));
       // Keep the stored tax while the amounts stay as stored; the first change
       // to a line amount recomputes it at the rate (see taxManualSumRef).
-      keepTaxFor(Array.isArray(editing.lines) ? editing.lines : []);
+      keepTaxFor(Array.isArray(editing.lines) ? editing.lines : [], editing.taxAmount);
       setInboundChannel(editing.inboundChannel || "MANUAL");
       setAttachments(Array.isArray(editing.attachments) ? editing.attachments : []);
       const toRows = (ls: any[]) =>
@@ -324,7 +334,7 @@ export default function BillEditorDialog({
             if (cancelled || !full) return;
             const fullLines = Array.isArray(full.lines) ? full.lines : [];
             setLines(toRows(fullLines));
-            keepTaxFor(fullLines); // the stored tax belongs to THESE amounts
+            keepTaxFor(fullLines, editing.taxAmount); // the stored tax belongs to THESE amounts
             if (full.attachments) setAttachments(Array.isArray(full.attachments) ? full.attachments : []);
           })
           .catch((e: any) => toast.error(e?.message || "Failed to load bill lines"));
@@ -488,7 +498,7 @@ export default function BillEditorDialog({
         setTaxAmount(String(extracted.taxAmount || 0));
         // Extracted actuals win over the computed rate — for the extracted
         // amounts; retyping a line recomputes.
-        keepTaxFor(Array.isArray(extracted.lines) ? extracted.lines : []);
+        keepTaxFor(Array.isArray(extracted.lines) ? extracted.lines : [], extracted.taxAmount);
       }
       if (Array.isArray(extracted.lines) && extracted.lines.length > 0) {
         setLines(
@@ -569,7 +579,7 @@ export default function BillEditorDialog({
       reference: "",
       description: "",
       taxAmount: extracted?.taxAmount !== undefined ? String(extracted.taxAmount || 0) : "0",
-      taxManual: extracted?.taxAmount !== undefined,
+      taxManual: Number(extracted?.taxAmount) > 0, // 0 / null from the reader = unknown → the rate decides
       amountsAre: "EXCLUSIVE",
       taxCode: "4",
       lines:
