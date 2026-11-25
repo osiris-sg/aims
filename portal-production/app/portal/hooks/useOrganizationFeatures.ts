@@ -73,6 +73,9 @@ interface OrganizationFeatures {
   enableInvoiceSplit?: boolean;
   /** In-app Back + toolbar Send menu (2026-11-17; WCT group). */
   enableWctDocNav?: boolean;
+  /** Toolbar "Send" menu alone (email / WhatsApp), without the rest of the WCT
+   *  doc-nav bundle — so any org can get the Send dropdown (2026-11-25). */
+  enableDocSendMenu?: boolean;
   /** WCT status set on quotation / DO / invoice lists (2026-11-19; WCT group). */
   enableWctStatuses?: boolean;
   /** Soft delete of drafts: hidden, number kept as a gap (2026-11-19; WCT group). */
@@ -384,6 +387,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // WCT doc navigation (2026-11-17): Back buttons go to the previous page in the app (else the
   // parent list), and one "Send" menu on quotation / invoice / DO / service report. Default OFF; WCT group.
   enableWctDocNav: false,
+  enableDocSendMenu: false,
   // WCT status set on quotation / DO / invoice lists (helpers/wctStatuses.ts). Default OFF; WCT group.
   enableWctStatuses: false,
   // Soft delete of drafts (hidden, number kept as a gap). Default OFF; WCT group.
@@ -506,6 +510,7 @@ export function useOrganizationFeatures() {
     // Needs WCT orders too, the flow it extends (same rule as the API).
     isInvoiceSplitEnabled: (features.enableInvoiceSplit ?? false) && (features.postInvoicesOnConfirm ?? false),
     isWctDocNavEnabled: features.enableWctDocNav ?? false,
+    isDocSendMenuEnabled: features.enableDocSendMenu ?? false,
     isWctStatusesEnabled: features.enableWctStatuses ?? false,
     isSoftDeleteDraftsEnabled: features.enableSoftDeleteDrafts ?? false,
     isManualOrderFlowEnabled: (features.enableManualOrderFlow ?? false) && (features.enableWctOrders ?? false),
