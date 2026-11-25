@@ -369,8 +369,8 @@ export default function DocumentListView({
 
   // ⋮ menu Delete (WCT group, 2026-11-25; helpers/wctMenuDelete.ts): drafts AND confirmed quotations / DOs / invoices,
   // for people with Edit on Sales. The server says what can go (paid invoice, documents made from it…).
-  const { hasPermission } = useUserPermissions();
-  const menuDel = menuDeleteOn({ softDelete: isSoftDeleteDraftsEnabled, wctDocNav: isWctDocNavEnabled, types: documentTypes }) && canMenuDelete(hasPermission);
+  const { hasPermission, userRoles, isLoading: permsLoading } = useUserPermissions();
+  const menuDel = menuDeleteOn({ softDelete: isSoftDeleteDraftsEnabled, wctDocNav: isWctDocNavEnabled, types: documentTypes }) && !permsLoading && canMenuDelete(hasPermission, userRoles);
   const [rowVerdict, setRowVerdict] = useState<{ id: string; v: MenuDeleteVerdict | null } | null>(null);
   const [menuDelTarget, setMenuDelTarget] = useState<{ ids: string[]; title: string; skipped: number } | null>(null);
   const [menuDelBusy, setMenuDelBusy] = useState(false);

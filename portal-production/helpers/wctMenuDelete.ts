@@ -13,8 +13,12 @@ export function menuDeleteOn(o: { softDelete?: boolean; wctDocNav?: boolean; typ
   return !!o.softDelete && !!o.wctDocNav && o.types.length > 0 && o.types.every((t) => TYPES.has(String(t ?? "").toUpperCase()));
 }
 
-/** Only people with Edit on Sales (documents:delete) see Delete at all. */
-export const canMenuDelete = (hasPermission: (resource: string, action: string) => boolean) => hasPermission("documents", "delete");
+/**
+ * Only people with Edit on Sales (documents:delete) see Delete at all. No roles in the org = the platform admin (the
+ * same reading as the top bar, useNavModules); the server checks documents:delete on every delete anyway.
+ */
+export const canMenuDelete = (hasPermission: (resource: string, action: string) => boolean, roles?: unknown[] | null) =>
+  (Array.isArray(roles) && roles.length === 0) || hasPermission("documents", "delete");
 
 export const deleteConfirmTitle = (name: string | null | undefined) => `Delete ${name || "this document"}?`;
 

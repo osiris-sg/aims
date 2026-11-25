@@ -16,6 +16,9 @@ test("on for the WCT group's quotation / DO / invoice lists only", () => {
 test("only people with Edit on Sales (documents:delete)", () => {
   assert.equal(canMenuDelete((r, a) => r === "documents" && a === "delete"), true);
   assert.equal(canMenuDelete(() => false), false);
+  assert.equal(canMenuDelete(() => false, [{ name: "Viewer" }]), false);
+  // No roles in the org = the platform admin (server-checked).
+  assert.equal(canMenuDelete(() => false, []), true);
 });
 
 test("confirm title, bulk mix summary, toast", () => {

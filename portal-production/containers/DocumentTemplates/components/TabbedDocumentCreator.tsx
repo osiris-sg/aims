@@ -4233,13 +4233,14 @@ export default function TabbedDocumentCreator({
   const closeMoreMenu = () => setMoreMenuAnchor(null);
   // ⋮ menu Delete (WCT group, 2026-11-25; helpers/wctMenuDelete.ts): the same Delete as the lists, for people with Edit
   // on Sales. Checked with the server when the menu opens; greyed with its reason when it can't go.
-  const { hasPermission: hasDocPermission } = useUserPermissions();
+  const { hasPermission: hasDocPermission, userRoles: docUserRoles, isLoading: docPermsLoading } = useUserPermissions();
   const menuDelDocId = (existingData as any)?.id || documentId || null;
   const menuDel =
     !!menuDelDocId &&
     !isTemplateEditMode &&
     menuDeleteOn({ softDelete: orgFeatureFlags?.enableSoftDeleteDrafts === true, wctDocNav: !!isWctDocNavEnabled, types: [actualDocumentType || documentType] }) &&
-    canMenuDelete(hasDocPermission);
+    !docPermsLoading &&
+    canMenuDelete(hasDocPermission, docUserRoles);
   const [menuDelVerdict, setMenuDelVerdict] = useState<MenuDeleteVerdict | null>(null);
   const [menuDelConfirm, setMenuDelConfirm] = useState(false);
   const [menuDelBusy, setMenuDelBusy] = useState(false);
