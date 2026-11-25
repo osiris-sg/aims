@@ -49,6 +49,7 @@ import ProjectContactPicker, { ContactLite, ContactAssignment } from "@/app/port
 import { useOrganization } from "@hooks/useOrganization";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { runWords } from "@/helpers/jobWording";
+import { matchTypedLine, typedLineQueries } from "./typedLineMatch";
 import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import ExtractQuotationDialog from "@/containers/DocumentTemplates/components/ExtractQuotationDialog";
 import SiteClockSchedulePicker, { SiteClockPick } from "./SiteClockSchedulePicker";
@@ -79,7 +80,7 @@ interface ProjectOption { id: string; name: string }
 // description). quantity is shared.
 // assetClass applies to free-typed rows only — a catalog row reads its class
 // off the picked asset.
-interface Row { asset: AssetOption | null; description: string; freeTyped: boolean; quantity: string; assetClass: AssetClass }
+interface Row { asset: AssetOption | null; description: string; freeTyped: boolean; quantity: string; assetClass: AssetClass; keepTyped?: boolean }
 
 // What a schedule may be based on (enableScheduleWizard). Mirrors the backend's
 // src/deliveries/schedule-source.ts — keep the two in step.
@@ -310,6 +311,8 @@ export default function ScheduleDeliveryDialog({
   // keeps the flat form.
   const wizard = !!isScheduleWizardEnabled && !prefill && (!editRun || !!editRun.isDraft);
   const [activeStep, setActiveStep] = useState(0);
+  // Stepped schedule: a typed line that looks like a catalog product asks the office to pick (#122).
+  const [pickFor, setPickFor] = useState<{ row: number; candidates: AssetOption[] } | null>(null);
   // WHAT this schedule is based on. The point of the whole wizard: a run never
   // goes out with nothing behind it. Sent as dto.scheduleSource, and the
   // backend enforces the same rule, so a stale tab cannot schedule around it.
@@ -1173,6 +1176,39 @@ export default function ScheduleDeliveryDialog({
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
+      // enableScheduleWizard (Biofuel): a typed line that IS a catalog product is
+      // linked to it; a near or double match stops here so the office picks.
+      let sendRows = validRows;
+      if (isScheduleWizardEnabled && !asDraft) {
+        const next = [...rows];
+        let ask: { row: number; candidates: AssetOption[] } | null = null;
+        for (let i = 0; i < next.length && !ask; i++) {
+          const r = next[i];
+          if (!r.freeTyped || r.keepTyped || !r.description.trim()) continue;
+          const found: AssetOption[] = [];
+          for (const q of typedLineQueries(r.description)) {
+            try {
+              const res: any = await request({ path: `/assets/search?q=${encodeURIComponent(q.slice(0, 60))}`, method: "GET", quiet: true }, {}, token);
+              found.push(...(Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : []));
+            } catch {
+              /* search unavailable: the server still links exact matches */
+            }
+          }
+          const m = matchTypedLine(r.description, found);
+          if (m.kind === "exact") next[i] = { ...r, asset: m.product, description: "", freeTyped: false, keepTyped: false };
+          else if (m.kind === "pick") ask = { row: i, candidates: m.candidates };
+        }
+        if (next.some((r, i) => r !== rows[i])) setRows(next);
+        if (ask) {
+          setPickFor(ask);
+          if (wizard) setActiveStep(3);
+          setSubmitting(false);
+          return;
+        }
+        sendRows = next.filter(
+          (r) => (r.freeTyped ? r.description.trim().length > 0 : !!r.asset) && (parseInt(r.quantity, 10) || 0) >= 1,
+        );
+      }
       // Combine the separate date + time into one local datetime → ISO.
       // A draft may have no date yet, so only build one when there is a date.
       // All-day: the date only (yyyy-MM-dd); the server stores the day's 00:00.
@@ -1189,7 +1225,7 @@ export default function ScheduleDeliveryDialog({
           ...(asDraft ? { isDraft: true } : {}),
           ...(scheduledFor ? { scheduledFor } : {}),
           scheduledAllDay: allDay,
-          items: validRows.map((r) =>
+          items: sendRows.map((r) =>
             r.freeTyped
               ? {
                   description: r.description.trim(),
@@ -1759,8 +1795,9 @@ export default function ScheduleDeliveryDialog({
         </Typography>
         <Stack spacing={1.5} sx={{ mb: 1 }}>
           {rows.map((row, i) => (
-            // Phone: qty/type fields wrap under the product picker instead of clipping
-            <Stack key={i} direction="row" spacing={1} alignItems="flex-start" sx={{ flexWrap: { xs: "wrap", sm: "nowrap" }, rowGap: 1 }}>
+            <React.Fragment key={i}>
+            {/* Phone: qty/type fields wrap under the product picker instead of clipping */}
+            <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ flexWrap: { xs: "wrap", sm: "nowrap" }, rowGap: 1 }}>
               {row.freeTyped ? (
                 // Free-typed line: a description (no catalog product). Carries to the
                 // DO as a plain line; a rider can never unit-bind to it.
@@ -1769,7 +1806,7 @@ export default function ScheduleDeliveryDialog({
                   label="Free-typed item"
                   placeholder="e.g. 1 set 25 mm 5 core cable"
                   value={row.description}
-                  onChange={(e) => setRow(i, { description: e.target.value })}
+                  onChange={(e) => setRow(i, { description: e.target.value, keepTyped: false })}
                   sx={{ flex: 1 }}
                 />
               ) : (
@@ -1829,6 +1866,39 @@ export default function ScheduleDeliveryDialog({
                 <DeleteOutlineIcon />
               </IconButton>
             </Stack>
+            {pickFor?.row === i && row.freeTyped && (
+              <Box sx={{ border: 1, borderColor: "warning.main", borderRadius: 1, p: 1 }}>
+                <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
+                  Pick the product for "{row.description.trim()}"
+                </Typography>
+                <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", rowGap: 1 }}>
+                  {pickFor.candidates.map((c) => (
+                    <Button
+                      key={c.id}
+                      size="small"
+                      variant="contained"
+                      onClick={() => {
+                        setRow(i, { asset: c, description: "", freeTyped: false, keepTyped: false });
+                        setPickFor(null);
+                      }}
+                    >
+                      {c.name} · {c.skuKey}
+                    </Button>
+                  ))}
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => {
+                      setRow(i, { keepTyped: true });
+                      setPickFor(null);
+                    }}
+                  >
+                    Keep as typed
+                  </Button>
+                </Stack>
+              </Box>
+            )}
+            </React.Fragment>
           ))}
         </Stack>
         <Stack direction="row" spacing={1}>
