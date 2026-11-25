@@ -38,7 +38,10 @@ test("editor: WCT QO / DO / Invoice right box is Remarks on config.remarks; no C
   assert.doesNotMatch(src, /title="Internal remarks"/);
   assert.doesNotMatch(src, /"Internal remarks" : "Remarks"/);
   assert.doesNotMatch(src, /quotation-customer-remarks/);
-  assert.match(src, /: remarksSplit\n\s+\? \(formData as any\)\.remarks \|\| ""/);
+  // 2026-11-25: Remarks is its OWN field (config.remarks) for EVERY org, no longer bound to
+  // documentInfo.referenceNo for non-WCT orgs ("if a document has a ref it's not linked to
+  // remarks") -- so there is no remarksSplit branch left to assert.
+  assert.match(src, /: \(formData as any\)\.remarks \|\| ""/);
   assert.match(src, /\{ \.\.\.prev, remarks: next \}/);
   // Old internal remarks are carried through a save, never edited.
   assert.doesNotMatch(src, /internalRemarks: next/);

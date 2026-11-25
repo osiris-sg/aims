@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 
 const src = readFileSync(new URL("../containers/DocumentTemplates/components/ServerDocumentPreview.tsx", import.meta.url), "utf8");
 const css = /export const WCT_BROWSER_PRINT_CSS = `([^`]*)`/.exec(src)?.[1] ?? "";
-const printFn = /export function printServerDocument\(w: Window\): void \{([\s\S]*?)\n\}/.exec(src)?.[1] ?? "";
+const printFn = /export function printServerDocument\([^)]*\): void \{([\s\S]*?)\n\}/.exec(src)?.[1] ?? "";
 const handle = /useImperativeHandle\(ref, \(\) => \(\{([\s\S]*?)\}\)\);/.exec(src)?.[1] ?? "";
 
 test("the browser-print CSS sets @page { size: A4; margin: 0 } inside @media print", () => {
@@ -37,7 +37,7 @@ test("the CSS is injected only around print, only for a WCT sheet, and removed a
   assert.match(printFn, /addEventListener\("afterprint", cleanup/);
   assert.match(printFn, /style\?\.remove\(\)/);
   // The preview's print() goes through it; the CSS is not part of the on-screen preview HTML.
-  assert.match(handle, /printServerDocument\(w\)/);
+  assert.match(handle, /printServerDocument\(w(?:, [A-Za-z]+)?\)/);
   assert.doesNotMatch(handle, /w\.print\(\)/);
   const preview = /const PREVIEW_CSS = `([^`]*)`/.exec(src)?.[1] ?? "";
   assert.doesNotMatch(preview, /@page/);
