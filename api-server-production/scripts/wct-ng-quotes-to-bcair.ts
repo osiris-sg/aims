@@ -51,6 +51,10 @@ const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.sl
 const APPLY = process.argv.includes('--apply');
 // Owner, 2026-11-12: move the held ones too (their real-amount WCT invoices stay in WCT; no GL change).
 const INCLUDE_HELD = process.argv.includes('--include-held');
+// Elroy 26 Nov ("mirror the ERPs"): an "(NG)" invoice takes its whole order to BC Air, so its quotation moves too even
+// without the mark. --also-quotes=Q-014710,Q-... names them (the weekly catch-up prints the list: unmarked WCT (S)
+// quotations of the batch's "(NG)" invoices / DOs whose order has no real WCT (S) GST invoice; a mixed order stays).
+const ALSO_QUOTES = (arg('also-quotes') || '').split(',').map((s) => s.trim()).filter(Boolean);
 const OUT = arg('out') || path.join(process.cwd(), 'wct-ng-move-out');
 
 type Decision = { action: 'map'; bcCustomerId: string } | { action: 'create' };
@@ -137,9 +141,12 @@ const csv = (rows: Array<Record<string, unknown>>) => {
     // ------------------------------------------------------------ 1. the quotes
     const quotes = await q(
       `select id, name, status, "listIssueDate", "documentTemplateId", "listCustomerId", config
-       from "Document" where "organizationId" = $1 and type = 'QUOTATION' and ${NG} order by name`,
-      [WCT],
+       from "Document" where "organizationId" = $1 and type = 'QUOTATION' and (${NG} or name = any($2::text[])) order by name`,
+      [WCT, ALSO_QUOTES],
     );
+    const alsoMissing = ALSO_QUOTES.filter((n) => !quotes.some((x: any) => x.name === n));
+    if (alsoMissing.length) throw new Error(`--also-quotes names quotations not in WCT (S): ${alsoMissing.join(', ')}`);
+    if (ALSO_QUOTES.length) console.log(`--also-quotes (unmarked, moved with their "(NG)" invoice's order): ${ALSO_QUOTES.join(', ')}`);
 
     // ------------------------------------------------------------ 2. holds
     const ngInvoices = await q(

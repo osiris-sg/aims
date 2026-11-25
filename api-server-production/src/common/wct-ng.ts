@@ -65,15 +65,14 @@ export function ngActionOf(cls: NgClass, opts: NgActionOpts = {}): NgAction {
 }
 
 /**
- * Where a NEW old-ERP document lands (weekly catch-up): 'skip' = a $1 "(NG)" placeholder invoice, never imported;
- * 'ng' = the non-GST company (BC Air); 'main' = the importing company (WCT (S)). The mark is read from the subject
- * and the reference (the ERP repeats the subject there), like the quotation rule.
+ * Where a NEW old-ERP document lands (weekly catch-up): 'ng' = the non-GST company (BC Air); 'main' = the importing
+ * company (WCT (S)). The mark is read from the subject and the reference (the ERP repeats the subject there), like the
+ * quotation rule. Elroy 26 Nov (final, "mirror the ERPs"): every "(NG)" invoice goes to BC Air whatever the amount,
+ * $0 and $1 placeholders included (it replaces the 25 Nov "never import $1 placeholders" rule). The catch-up imports
+ * them, then scripts/wct-ng-bcair.ts --batch --mirror moves them (a $1 one is marked "placeholder, not counted").
  */
-export function ngImportPlacement(row: { kind: 'QUOTATION' | 'INVOICE' | 'DELIVERY_ORDER' | string; subject?: unknown; reference?: unknown; total?: unknown }): 'skip' | 'ng' | 'main' {
-  const marked = hasNgMark(row.subject, row.reference);
-  if (!marked) return 'main';
-  if (String(row.kind).toUpperCase() === 'INVOICE' && isNgPlaceholderTotal(row.total)) return 'skip';
-  return 'ng';
+export function ngImportPlacement(row: { kind: 'QUOTATION' | 'INVOICE' | 'DELIVERY_ORDER' | string; subject?: unknown; reference?: unknown; total?: unknown }): 'ng' | 'main' {
+  return hasNgMark(row.subject, row.reference) ? 'ng' : 'main';
 }
 
 // ── Chart of accounts: WCT (S) account -> BC Air account ─────────────────────

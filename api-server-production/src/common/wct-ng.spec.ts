@@ -53,9 +53,9 @@ describe('wct-ng: the $1 placeholder rule', () => {
 });
 
 describe('wct-ng: where a new ERP document lands (weekly catch-up)', () => {
-  it('never imports a $1 "(NG)" placeholder invoice', () => {
-    expect(ngImportPlacement({ kind: 'INVOICE', subject: '(NG) A', total: '1.00' })).toBe('skip');
-    expect(ngImportPlacement({ kind: 'INVOICE', subject: 'A', reference: '(NG) A', total: '1.07' })).toBe('skip');
+  it('imports every "(NG)" invoice for the non-GST company, $1 placeholders included (Elroy 26 Nov: mirror the ERPs)', () => {
+    expect(ngImportPlacement({ kind: 'INVOICE', subject: '(NG) A', total: '1.00' })).toBe('ng');
+    expect(ngImportPlacement({ kind: 'INVOICE', subject: 'A', reference: '(NG) A', total: '1.07' })).toBe('ng');
   });
   it('puts other "(NG)" documents in the non-GST company', () => {
     expect(ngImportPlacement({ kind: 'INVOICE', subject: '(NG) A', total: '0.00' })).toBe('ng');

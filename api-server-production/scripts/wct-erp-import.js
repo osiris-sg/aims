@@ -53,8 +53,8 @@ const LOG = path.resolve(__dirname, `wct-erp-import.${BATCH}.log.json`);
 // --quote-scope (2026-11-19, Elroy): ERP Draft quotations imported too (their status refreshes in the weekly catch-up).
 const QUOTE_SCOPE = new Set(opt('--quote-scope', 'Accepted,Declined,Sent').split(',').map((x) => x.trim()).filter(Boolean));
 const INVOICE_SCOPE = new Set(['Paid', 'Overdue', 'Receivable', 'Partial']);
-// $1 "(NG)" placeholder invoices are never imported (owner + finance 2026-11-25; src/common/wct-ng.ts), so a re-run of
-// an old batch cannot bring back the ones scripts/wct-ng-bcair.ts removed.
+// "(NG)" invoices of any amount are imported (Elroy 26 Nov: mirror the ERPs; src/common/wct-ng.ts) and then moved to
+// BC Air by scripts/wct-ng-bcair.ts --batch --mirror (the 25 Nov "never import $1 placeholders" rule is gone).
 require('ts-node').register({ transpileOnly: true, compilerOptions: { module: 'commonjs' } });
 const { ngImportPlacement } = require('../src/common/wct-ng');
 // Decided with the owner (2026-11-05).
@@ -182,9 +182,9 @@ async function main() {
   }
   for (const v of lines.values()) v.sort((a, b) => num(a.line_no) - num(b.line_no));
   const quotes = quotesAll.filter((r) => QUOTE_SCOPE.has(r.status)).sort((a, b) => num(a.erp_id) - num(b.erp_id));
-  const ngPlaceholders = invoicesAll.filter((r) => INVOICE_SCOPE.has(r.status) && ngImportPlacement({ kind: 'INVOICE', subject: r.subject, reference: r.reference_no, total: r.total }) === 'skip');
+  const ngInvoices = invoicesAll.filter((r) => INVOICE_SCOPE.has(r.status) && ngImportPlacement({ kind: 'INVOICE', subject: r.subject, reference: r.reference_no, total: r.total }) === 'ng');
   const invoices = invoicesAll
-    .filter((r) => INVOICE_SCOPE.has(r.status) && ngImportPlacement({ kind: 'INVOICE', subject: r.subject, reference: r.reference_no, total: r.total }) !== 'skip')
+    .filter((r) => INVOICE_SCOPE.has(r.status))
     .sort((a, b) => num(a.erp_id) - num(b.erp_id));
 
   // ── Customers ─────────────────────────────────────────────────────────────
@@ -392,7 +392,7 @@ async function main() {
   const count = (f) => plan.reduce((m, d) => { const k = f(d); m[k] = (m[k] || 0) + 1; return m; }, {});
   const sum = (f, pred = () => true) => R2(plan.filter(pred).reduce((s, d) => s + f(d), 0));
   console.log(`\n=== WCT ERP import · batch ${BATCH} · ${log.mode}${LIMIT !== Infinity ? ` · limit ${LIMIT}` : ''} ===`);
-  console.log(`in scope: ${quotes.length} quotes, ${invoices.length} invoices · already imported (skipped): ${skipped.already} · internal test customer (skipped): ${skipped.internal} · "(NG)" $1 placeholder invoices (never imported): ${ngPlaceholders.length}`);
+  console.log(`in scope: ${quotes.length} quotes, ${invoices.length} invoices · already imported (skipped): ${skipped.already} · internal test customer (skipped): ${skipped.internal} · "(NG)" invoices (imported here, then moved to BC Air by wct-ng-bcair.ts --batch --mirror): ${ngInvoices.length}`);
   console.log(`to insert: ${plan.length} documents`, JSON.stringify(count((d) => `${d.type} ${d.erpStatus} → ${d.status}`)));
   console.log(`quotes total ${sum((d) => d.total, (d) => d.type === 'QUOTATION')} · invoices total ${sum((d) => d.total, (d) => d.type === 'INVOICE')} · owed on open invoices ${sum((d) => d.owed || 0, (d) => d.type === 'INVOICE')} over ${plan.filter((d) => d.type === 'INVOICE' && d.owed > 0.005).length} invoices`);
   console.log('by year (docs):', JSON.stringify(count((d) => `${d.year} ${d.type === 'INVOICE' ? 'I' : 'Q'}`)));
