@@ -15,7 +15,10 @@
  */
 import 'dotenv/config';
 import { randomUUID } from 'crypto';
-import { Client } from 'pg';
+import { Client, defaults as pgDefaults } from 'pg';
+
+// Prisma timestamps are UTC without a zone: send Dates as UTC (node-pg would send Singapore time).
+(pgDefaults as any).parseInputDatesAsUTC = true;
 
 const ORGS: Record<string, string> = {
   '5c700000-0000-4000-8000-5c7000000001': 'WCT (S)',

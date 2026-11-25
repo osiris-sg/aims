@@ -29,7 +29,11 @@ import { createHash, randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { Client } from 'pg';
+import { Client, defaults as pgDefaults } from 'pg';
+
+// Prisma's DateTime columns are timestamps WITHOUT time zone holding UTC. node-pg sends a JS Date in this machine's
+// zone (Singapore), which Postgres keeps as is: every time came out 8 h late (first apply, 25 Nov 2026). Send UTC.
+(pgDefaults as any).parseInputDatesAsUTC = true;
 import { IcsEvent, addDays, classify, customerIndex, leaveParts, matchCustomer, parseIcs, quotationNumbers, splitCrew, splitJob, stripDayCounter, takeMarks } from './gcal/gcal-title';
 import { occurrences, parseRule, ruleText } from '../src/dashboard/recurrence';
 
@@ -39,10 +43,14 @@ const argv = process.argv.slice(2);
 const apply = argv.includes('--apply');
 const confirmProd = argv.includes('--confirm-prod');
 const deleteMissing = argv.includes('--delete-missing');
+/** One-time (25 Nov 2026): the first apply stamped created / updated times 8 h late; put them back. */
+const fixCreatedTimes = argv.includes('--fix-created-times');
 const configPath = argv.includes('--config') ? argv[argv.indexOf('--config') + 1] : path.join(__dirname, 'gcal', 'wct-gcal-calendars.json');
 const home = (p: string) => p.replace(/^~(?=\/)/, os.homedir());
 const FAR = '2100-12-31';
 /** Owner's per-event personal rule: no "Name @ Address" and a tuition / revision / birthday / family word. */
+/** Bumped when the way records are written changes, so a re-run rewrites them all (v2: UTC times, leave titles). */
+const WRITE_VERSION = 'v2';
 const PERSONAL = /\b(tuition|revision|revise|birthday|bday|family)\b|🎂/i;
 
 type Cal = { name: string; file: string; include: boolean; personal?: boolean; why?: string; salesperson?: string | null; ptwApplicant?: string | null };
@@ -168,7 +176,7 @@ function userByName(n: { byName: Map<string, string>; alias: Map<string, string>
         customer: cm?.customer ? { id: cm.customer.id, name: cm.customer.name, kind: cm.kind } : null,
         crew: kind === 'job' ? splitCrew(parts.team, workers, teams) : null, quotes, order: order ?? null, staff, pattern: parts.pattern,
       };
-      r.hash = hashOf([r.kind, r.title, r.startDate, r.endDate, r.startTime, r.endTime, r.allDay, r.description, r.customer?.id, r.order?.id, r.crew, r.staff, spOf.get(cal.name)?.id, e.props['X-AIMS-HASH'] ?? e.lastModified]);
+      r.hash = hashOf([WRITE_VERSION, r.kind, r.title, r.startDate, r.endDate, r.startTime, r.endTime, r.allDay, r.description, r.customer?.id, r.order?.id, r.crew, r.staff, spOf.get(cal.name)?.id, e.props['X-AIMS-HASH'] ?? e.lastModified]);
       return r;
     };
 
@@ -311,6 +319,20 @@ function userByName(n: { byName: Map<string, string>; alias: Map<string, string>
       console.log(`  [${r.calendar}] ${r.startDate} "${r.title.slice(0, 110)}"\n     > ${r.kind}${r.kind === 'job' ? `: customer ${r.customer ? `${r.customer.name} (${r.customer.kind})` : `none, shop "${r.name}"`} | address ${r.address || '-'} | job ${r.jobTitle || '-'} | teams ${r.crew?.teams.map((t) => t.name).join(', ') || '-'} | workers ${r.crew?.workers.map((w) => w.name).join(', ') || '-'} | typed ${r.crew?.typed.join(', ') || '-'} | remarks ${r.remarks.join(' / ') || '-'} | marks ${r.marks.join(' ') || '-'} | order ${r.order?.orderNumber ?? '-'}` : r.staff ? `: staff ${r.staff.name}${r.staff.id ? '' : ' (not an AIMS worker)'}` : ''} | salesperson ${spOf.get(r.calendar)?.name ?? '-'}`);
     for (const g of plan.gone.slice(0, 20)) console.log(`  gone: ${g.entity} ${g.entityId} (${g.key})`);
 
+    // Rows of this import (and of the clear) stamped in the future by the first apply: shifted back 8 h.
+    const FIX = [
+      [`"Delivery"`, `id::text in (select v."entityId" from "CustomFieldValue" v join "CustomField" f on f.id = v."customFieldId" where f."organizationId" = $1 and f."fieldName" = '${FIELD}')`, ['createdAt', 'updatedAt', 'startedAt']],
+      [`"CalendarNote"`, `"organizationId" = $1 and "createdByName" = 'Google Calendar import'`, ['createdAt', 'updatedAt']],
+      [`"CustomFieldValue"`, `"customFieldId" in (select id from "CustomField" where "organizationId" = $1)`, ['createdAt', 'updatedAt']],
+      [`"CustomField"`, `"organizationId" = $1 and "fieldName" in ('${FIELD}', 'job_calendar_style')`, ['createdAt', 'updatedAt']],
+      [`"ActionLog"`, `"organizationId" in (select "organizationId" from "UserOrganization" limit 0) or ("actorId" in ('system:wct-gcal-import', 'system:wct-gcal-clear') and "organizationId" like '5c700000-0000-4000-8000-5c700000000%' and $1::text is not null)`, ['createdAt']],
+    ] as Array<[string, string, string[]]>;
+    if (fixCreatedTimes) {
+      for (const [t, where, cols] of FIX) {
+        const n = (await q(`select count(*)::int n from ${t} where (${where}) and "${cols[0]}" > (now() at time zone 'utc') + interval '1 hour'`, [ORG]))[0].n;
+        console.log(`Fix created times: ${t} ${n} row(s) stamped in the future (-8 h)`);
+      }
+    }
     if (!apply) {
       await c.query('ROLLBACK');
       console.log('Dry run: nothing written. --apply --confirm-prod to write.');
@@ -391,7 +413,9 @@ function userByName(n: { byName: Map<string, string>; alias: Map<string, string>
       return id;
     };
     const writeNote = async (r: Rec, id: string | null) => {
-      const fields = [stripDayCounter(r.title).slice(0, 300), noteType(r), r.staff?.id ?? null, r.staff?.name ?? null, r.startDate, r.endDate, r.allDay, r.allDay ? null : r.startTime, r.allDay ? null : r.endTime, [...r.remarks, r.description].filter(Boolean).join('\n').slice(0, 2000) || null];
+      // A leave note's title without the 📅 Google put in front (AIMS draws its own 📅 on leave).
+      const title = r.kind === 'leave' ? stripDayCounter(r.title).replace(/^\s*📅\s*/u, '').replace(/^[-\s]+/, '').trim() || 'Leave' : stripDayCounter(r.title);
+      const fields = [title.slice(0, 300), noteType(r), r.staff?.id ?? null, r.staff?.name ?? null, r.startDate, r.endDate, r.allDay, r.allDay ? null : r.startTime, r.allDay ? null : r.endTime, [...r.remarks, r.description].filter(Boolean).join('\n').slice(0, 2000) || null];
       if (!id) {
         id = randomUUID();
         await c.query(
@@ -479,6 +503,12 @@ function userByName(n: { byName: Map<string, string>; alias: Map<string, string>
         if (ok) await actionLog(g.entity === 'Delivery' ? 'deliveries' : 'calendar-notes', g.entityId, 'DELETE', null, `Google event gone (${g.key})`);
         log.push({ op: ok ? 'delete' : 'kept-busy', id: g.entityId, key: g.key });
       }
+    if (fixCreatedTimes)
+      for (const [t, where, cols] of FIX)
+        for (const col of cols) {
+          const r = await c.query(`update ${t} set "${col}" = "${col}" - interval '8 hours' where (${where}) and "${col}" > (now() at time zone 'utc') + interval '1 hour'`, [ORG]);
+          log.push({ op: 'fix-time', table: t, column: col, rows: r.rowCount });
+        }
     await c.query('COMMIT');
     committed = true;
     const logDir = path.join(os.homedir(), 'Desktop', 'aims-agents', 'logs', 'wct');
