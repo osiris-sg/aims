@@ -31,6 +31,10 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { mergeDoParts } = require('./wct-erp-dos');
+// "(NG)" rules shared with scripts/wct-ng-bcair.ts (src/common/wct-ng.ts; owner + finance 25 Nov: all NG documents to BC Air).
+require('ts-node').register({ transpileOnly: true, compilerOptions: { module: 'commonjs' } });
+const { ngImportPlacement } = require('../src/common/wct-ng');
+const ngPlace = (r) => ngImportPlacement({ kind: r.quotation_no ? 'QUOTATION' : 'INVOICE', subject: r.subject, reference: r.reference_no, total: r.total });
 
 const ORG = { WCT: '5c700000-0000-4000-8000-5c7000000001', RACKING: '5c700000-0000-4000-8000-5c7000000002', BCAIR: '5c700000-0000-4000-8000-5c7000000004' };
 const ORG_NAME = { [ORG.WCT]: 'WCT (S)', [ORG.RACKING]: 'Racking', [ORG.BCAIR]: 'BC Air' };
@@ -253,9 +257,13 @@ function mergeParts() {
   const newQ = qDet.filter((r) => !haveQ.has(r.erp_id));
   const newI = iDet.filter((r) => !haveI.has(r.erp_id));
   const inQ = newQ.filter((r) => QUOTE_SCOPE.has(r.status));
-  const inI = newI.filter((r) => INVOICE_SCOPE.has(r.status));
+  // $1 "(NG)" placeholder invoices are never imported (owner + finance 25 Nov; the real bill is BC Air's).
+  const ngSkipped = newI.filter((r) => INVOICE_SCOPE.has(r.status) && ngPlace(r) === 'skip');
+  const inI = newI.filter((r) => INVOICE_SCOPE.has(r.status) && ngPlace(r) !== 'skip');
   say(`Pulled: ${newQ.length} quotations (${fmt(countBy(newQ, (r) => r.status))}), ${newI.length} invoices (${fmt(countBy(newI, (r) => r.status))}).`);
   say(`In scope (quotations Accepted/Declined/Sent/Draft, invoices Paid/Overdue/Receivable/Partial): ${inQ.length} quotations, ${inI.length} invoices. Certified / Cancelled are not imported.`);
+  say(`"(NG)" $1 placeholder invoices, never imported: ${ngSkipped.length}${ngSkipped.length ? ' (' + ngSkipped.map((r) => `${r.invoice_no} $${money(num(r.total))}`).join(', ') + ')' : ''}`);
+  writeCsv(path.join(OUT, 'ng-placeholders-not-imported.csv'), ['invoice_no', 'date', 'status', 'customer', 'subject', 'total'], ngSkipped);
   // Pull checks: detail total vs list total, lines vs subtotal.
   const pullIssues = [];
   for (const r of [...newQ, ...newI]) {
@@ -290,7 +298,8 @@ function mergeParts() {
       const k = normName(name);
       const near = wctCust.filter((x) => { const m = normName(x.name); return m && k && (m === k || (Math.min(m.length, k.length) >= 6 && (m.includes(k) || k.includes(m)))); });
       const docsOf = [...inQ, ...inI].filter((r) => r.customer === name);
-      const ngOnly = docsOf.every((r) => r.quotation_no && /\(NG\)/i.test(`${r.subject} ${r.reference_no}`));
+      // Only on "(NG)" documents (quotations and, since 25 Nov, invoices): the customer belongs in BC Air.
+      const ngOnly = docsOf.every((r) => ngPlace(r) === 'ng');
       toCreateCust.push({ erp_customer: name, near: near.map((x) => `${x.customerCode} ${x.name}`).join(' | '), docs: docsOf.map((r) => r.quotation_no || r.invoice_no).join(' '), ng_only: ngOnly ? 'yes' : '' });
     }
   }
@@ -299,7 +308,7 @@ function mergeParts() {
   // the temporary WCT (S) rows are deleted afterwards (wct-erp-catchup-apply.js step "ng-customers").
   toCreateCust.sort((a, b) => (a.ng_only ? 1 : 0) - (b.ng_only ? 1 : 0));
   const bcNames = new Map(bcCust.map((b) => [normName(b.name), b]));
-  say(`New customers: ${toCreateCust.filter((x) => !x.ng_only).length} in WCT (S) (code by the app rule) · ${toCreateCust.filter((x) => x.ng_only).length} only on "(NG)" quotations -> BC Air (${toCreateCust.filter((x) => x.ng_only && bcNames.has(normName(x.erp_customer))).length} already exist there by name, the rest created by the move; the temporary WCT (S) rows are removed after the move) · near names: ${toCreateCust.filter((x) => x.near).length}`);
+  say(`New customers: ${toCreateCust.filter((x) => !x.ng_only).length} in WCT (S) (code by the app rule) · ${toCreateCust.filter((x) => x.ng_only).length} only on "(NG)" documents -> BC Air (${toCreateCust.filter((x) => x.ng_only && bcNames.has(normName(x.erp_customer))).length} already exist there by name, the rest created by the move; the temporary WCT (S) rows are removed after the move) · near names: ${toCreateCust.filter((x) => x.near).length}`);
   for (const x of toCreateCust) say(`  ${x.ng_only ? `BC AIR ${bcNames.has(normName(x.erp_customer)) ? `existing ${bcNames.get(normName(x.erp_customer)).customerCode}` : 'new'}` : 'WCT (S) new'} "${x.erp_customer}" (${x.docs})${x.near ? ` · near in WCT (S): ${x.near}` : ''}`);
   writeCsv(path.join(OUT, 'customers-to-create.csv'), ['erp_customer', 'docs', 'ng_only', 'near'], toCreateCust);
   say(`Customers: ${[...new Set([...inQ, ...inI].map((r) => r.customer))].length} on new documents · in the first import's map ${[...new Set([...inQ, ...inI].map((r) => r.customer))].filter((n) => map.has(n)).length} · new exact name matches ${addMap.length} · to create ${toCreateCust.length} · several WCT (S) customers with the name (decision) ${needDecision.length}`);
@@ -362,8 +371,8 @@ function mergeParts() {
     ngCust[r.customer] = hits.length === 1 ? `BC Air ${hits[0].customerCode} ${hits[0].name}` : hits.length ? `DECISION: ${hits.length} BC Air customers with this name` : 'new BC Air customer (app code rule)';
   }
   for (const [k, v] of Object.entries(ngCust)) say(`  ${k} -> ${v}`);
-  const ngInv = iOk.filter((r) => /\(NG\)/i.test(`${r.subject} ${r.reference_no}`));
-  say(`"(NG)" invoices stay in WCT (S) as before: ${ngInv.length} (${fmt(countBy(ngInv, (r) => (num(r.total) <= 1 ? '$0-$1 placeholder' : 'real amount')))})`);
+  const ngInv = iOk.filter((r) => ngPlace(r) === 'ng');
+  say(`"(NG)" invoices -> BC Air (imported, then moved by wct-ng-bcair.ts --batch, APPLY step 2b; numbers kept): ${ngInv.length}${ngInv.length ? ' (' + ngInv.map((r) => `${r.invoice_no} $${money(num(r.total))}`).join(', ') + ')' : ''}`);
 
   // The importer's own dry run (read-only) on exactly these files.
   say('\n-- wct-erp-import.js dry run on the new documents --');
@@ -462,7 +471,7 @@ function mergeParts() {
   const sample = (type) => wctErp.find((d) => d.type === type);
   const extra = [];
   for (const r of qOk) extra.push({ id: `planned-quotation-${r.erp_id}`, organizationId: /\(NG\)/i.test(`${r.subject} ${r.reference_no}`) ? ORG.BCAIR : ORG.WCT, type: 'QUOTATION', name: `Q${r.quotation_no}`, status: 'confirmed', config: { date: r.date, customerId: (map.get(r.customer) || addMap.find((m) => m.erp_customer === r.customer) || {}).aims_customer_id || null, customerName: r.customer, subject: r.subject, totalWithTax: num(r.total), items: [], erpImport: { source: 'wct-erp', erpId: r.erp_id, originalNumber: r.quotation_no, status: r.status, contractNo: r.contract_no || null } } });
-  for (const r of iOk) extra.push({ id: `planned-invoice-${r.erp_id}`, organizationId: ORG.WCT, type: 'INVOICE', name: r.invoice_no, status: r.status === 'Paid' ? 'paid' : 'pending_payment', config: { date: r.date, customerId: (map.get(r.customer) || addMap.find((m) => m.erp_customer === r.customer) || {}).aims_customer_id || null, customerName: r.customer, subject: r.subject, totalWithTax: num(r.total), outstandingBalance: Math.max(0, num(r.balance_due)), paidToDate: R2(num(r.total) - Math.max(0, num(r.balance_due))), items: lq.length ? li.filter((l) => l.erp_id === r.erp_id && /refer\w*\s+to/i.test(l.description)).map((l) => ({ description: l.description })) : [], erpImport: { source: 'wct-erp', erpId: r.erp_id, originalNumber: r.invoice_no, status: r.status, contractNo: r.contract_no || null, balanceAtImport: Math.max(0, num(r.balance_due)) } } });
+  for (const r of iOk) extra.push({ id: `planned-invoice-${r.erp_id}`, organizationId: ngPlace(r) === 'ng' ? ORG.BCAIR : ORG.WCT, type: 'INVOICE', name: r.invoice_no, status: r.status === 'Paid' ? 'paid' : 'pending_payment', config: { date: r.date, customerId: (map.get(r.customer) || addMap.find((m) => m.erp_customer === r.customer) || {}).aims_customer_id || null, customerName: r.customer, subject: r.subject, totalWithTax: num(r.total), outstandingBalance: Math.max(0, num(r.balance_due)), paidToDate: R2(num(r.total) - Math.max(0, num(r.balance_due))), items: lq.length ? li.filter((l) => l.erp_id === r.erp_id && /refer\w*\s+to/i.test(l.description)).map((l) => ({ description: l.description })) : [], erpImport: { source: 'wct-erp', erpId: r.erp_id, originalNumber: r.invoice_no, status: r.status, contractNo: r.contract_no || null, balanceAtImport: Math.max(0, num(r.balance_due)) } } });
   const stored = new Map(docs.map((d) => [d.id, d]));
   for (const u of updates.filter((x) => x.type === 'INVOICE')) {
     const full = (await q(`select id::text id, "organizationId"::text "organizationId", type, name, status::text status, "createdAt", (config - 'items' - 'termsAndConditions') config from "Document" where id = $1`, [u.id]))[0];
@@ -499,6 +508,7 @@ function mergeParts() {
   say('\nAPPLY order (owner go; each has a dry run without --apply):');
   say(`  1. DBURL=<prod> node scripts/wct-erp-import.js --dir ${path.join(OUT, 'import')} --batch wct-erp-catchup-${path.basename(OUT)} --quote-scope ${[...QUOTE_SCOPE].join(',')} --create-customers ${path.join(OUT, 'import', 'create-customers.csv')} --apply`);
   say(`  2. DBURL=<prod> npx ts-node --transpile-only scripts/wct-ng-quotes-to-bcair.ts --include-held [--decisions=<json>] --out=${path.join(OUT, 'ng-move-apply')} --apply --confirm-prod   ("(NG)" quotations, Drafts included, to BC Air)`);
+  say(`  2b. TZ=UTC npx ts-node --transpile-only scripts/wct-ng-bcair.ts --batch wct-erp-catchup-${path.basename(OUT)} --apply --confirm-prod   ("(NG)" invoices of this batch to BC Air; dry run without --apply first)`);
   say(`  3. node scripts/wct-erp-catchup-apply.js --env prod --pull ${OUT} --step refresh --apply --confirm-prod   (then --step ng-customers)`);
   say(`  4. npx ts-node --transpile-only scripts/wct-imported-orders.ts --env prod --erp-links ${path.join(OUT, 'quotation-links-merged.csv')} --wct-credit-notes ${path.join(OUT, 'credit-notes-merged.csv')} --org ${ORG.WCT} --org ${ORG.BCAIR} --out ${path.join(OUT, 'orders-apply')} --apply --deployed`);
   say(`  5. node scripts/wct-erp-dos.js --env prod --from ${OUT} --apply --confirm-prod   (DOs link to the orders, so they go last; a DO of a quotation with no order yet gets a DO-only order)`);
