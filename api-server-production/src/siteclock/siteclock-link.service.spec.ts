@@ -286,6 +286,83 @@ describe('SiteClockLinkService', () => {
     expect(w.linkOf(run.id)).toMatchObject({ syncState: 'SYNCED', lastPushedStatus: 'COMPLETED' });
   });
 
+  describe('crew sync (enableSiteClockCrewSync)', () => {
+    // A manual-flow org (as WCT (S)): Team A = Ali (w1) + Ben (w2); Cal was added by hand and is not in SiteClock.
+    const crewWorld = (flags: Row) => {
+      const w = world();
+      w.prisma.organizationUIConfig.rows[0].features = { enableSiteClockLink: true, enableManualOrderFlow: true, enableWctOrders: true, enableSiteClockDeliveries: true, ...flags };
+      const ali = { id: 'A', organizationId: WCT, name: 'Ali', siteclockId: 'w1', active: true };
+      const ben = { id: 'B', organizationId: WCT, name: 'Ben', siteclockId: 'w2', active: true };
+      const cal = { id: 'C', organizationId: WCT, name: 'Cal', siteclockId: null, active: true };
+      const team = { id: 'T', organizationId: WCT, name: 'A', siteclockId: 't1', active: true, members: [{ worker: ben }, { worker: ali }] };
+      w.prisma.worker = table([ali, ben, cal]);
+      w.prisma.workerTeam = table([team]);
+      const picks: Row = {};
+      w.svc.crewPicksOf = async (_org, id) => picks[id] ?? [];
+      return { ...w, picks, team, ali, ben };
+    };
+    const TEAM = { kind: 'team', id: 'T', name: 'A' };
+    const CAL = { kind: 'worker', id: 'C', name: 'Cal' };
+
+    it('a manual-flow org without the flag still syncs nothing', async () => {
+      const w = crewWorld({});
+      const run = w.addRun();
+      w.picks[run.id] = [TEAM];
+      await w.svc.onScheduleSaved(WCT, run.id, { workerId: 'w1', workerName: 'Ali' });
+      await w.svc.touch(WCT, run.id);
+      await w.settle();
+      expect(w.prisma.deliverySiteClockJob.rows).toHaveLength(0);
+      expect(w.sc.calls).toEqual([]);
+      expect(await w.svc.formConfig(WCT)).toEqual({ enabled: false });
+    });
+
+    it('with the flag: the job goes to the whole crew, the team is named, a pick not in SiteClock stays in the notes', async () => {
+      const w = crewWorld({ enableSiteClockCrewSync: true });
+      const run = w.addRun();
+      w.picks[run.id] = [TEAM, CAL];
+      await w.svc.onScheduleSaved(WCT, run.id, { workerId: null, durationMin: 90 }); // the form has no SiteClock worker picker here
+      await w.settle();
+      const job = w.sc.jobs.get(`aims-delivery:${run.id}`)!;
+      expect(job).toMatchObject({ workerId: 'w1', crewWorkerIds: ['w2'], teamIds: ['t1'], status: 'SCHEDULED', endAt: '2026-11-03T11:30:00+08:00' });
+      expect(job.notes).toContain('Also on this job: Cal');
+      expect(job.notes).not.toContain('Ben');
+      expect(job.deliveryEnabled).toBeUndefined(); // delivery orders stay in AIMS
+      expect(w.linkOf(run.id)).toMatchObject({ syncState: 'SYNCED', workerId: 'w1', workerName: 'Ali', durationMin: 90 });
+      expect(await w.svc.formConfig(WCT)).toEqual({ enabled: true, defaultDurationMin: 60, crewSync: true });
+      const log = w.logs.at(-1)![3].details;
+      expect(log).toMatchObject({ crew: ['Ali', 'Ben'], notInSiteClock: ['Cal'] });
+    });
+
+    it('a crew saved later makes the job; a changed team re-sends it; no crew left cancels it', async () => {
+      const w = crewWorld({ enableSiteClockCrewSync: true });
+      const run = w.addRun();
+      await w.svc.onScheduleSaved(WCT, run.id, { workerId: null });
+      await w.settle();
+      expect(w.sc.jobs.size).toBe(0); // nobody picked, nothing to send
+      w.picks[run.id] = [TEAM];
+      await w.svc.touch(WCT, run.id); // setJobStyle saved the crew
+      await w.settle();
+      const ref = `aims-delivery:${run.id}`;
+      expect(w.sc.jobs.get(ref)).toMatchObject({ workerId: 'w1', crewWorkerIds: ['w2'] });
+
+      const before = w.sc.calls.length;
+      await w.svc.touch(WCT, run.id);
+      await w.settle();
+      expect(w.sc.calls.length).toBe(before); // same crew: no SiteClock call
+
+      w.team.members = [{ worker: w.ben }]; // Ali leaves Team A in AIMS
+      await w.svc.touch(WCT, run.id);
+      await w.settle();
+      expect(w.sc.jobs.get(ref)).toMatchObject({ workerId: 'w2', crewWorkerIds: [], status: 'SCHEDULED' });
+      expect(w.linkOf(run.id)).toMatchObject({ workerId: 'w2', workerName: 'Ben' });
+
+      w.picks[run.id] = [];
+      await w.svc.touch(WCT, run.id);
+      await w.settle();
+      expect(w.sc.jobs.get(ref)).toMatchObject({ status: 'CANCELLED', cancelReason: 'Worker removed in AIMS' });
+    });
+  });
+
   it('a draft gets no job until it is promoted', async () => {
     const w = world();
     const run = w.addRun({ isDraft: true, scheduledFor: null });

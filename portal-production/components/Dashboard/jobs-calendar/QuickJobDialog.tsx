@@ -393,6 +393,10 @@ export default function QuickJobDialog({
                 />
               )}
             />
+          ) : workers.crewSync ? (
+            <Typography variant="body2" color="text.secondary">
+              The teams and workers picked under Team / crew get this job in their SiteClock app.
+            </Typography>
           ) : (
             <Stack direction="row" spacing={0.5} alignItems="center">
               <Typography variant="body2" color="text.secondary">

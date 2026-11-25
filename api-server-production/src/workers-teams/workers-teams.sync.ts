@@ -28,6 +28,26 @@ export interface ScWorker {
   phone?: string | null;
   teamIds?: string[];
 }
+/** A worker a linked SiteClock company shares with this one (GET /v1/workers?include=shared). */
+export interface ScSharedWorker {
+  id: string;
+  name: string;
+  companyName?: string | null;
+}
+
+/**
+ * Crew sync (enableSiteClockCrewSync, 2026-11-25): shared workers join the list as ordinary SiteClock workers, named
+ * "Ali (WCT Racking)" so the office can tell them apart in the crew picker. No phone, no login id (SiteClock gives
+ * neither for another company's people), no teams. Someone already in the list by id is left as they are.
+ */
+export function withSharedWorkers(workers: ScWorker[], shared: ScSharedWorker[]): ScWorker[] {
+  const have = new Set(workers.map((w) => w.id));
+  const extra = shared
+    .filter((s) => s && typeof s.id === 'string' && s.id && !have.has(s.id))
+    .map((s): ScWorker => ({ id: s.id, name: s.companyName ? `${s.name} (${s.companyName})` : s.name, role: 'WORKER', active: true, teamIds: [] }));
+  return [...workers, ...extra];
+}
+
 export interface ScTeam {
   id: string;
   name: string;

@@ -59,6 +59,12 @@ export interface PlanRun {
   extraNotes?: string[];
   /** SiteClock deliveries: flag on AND the job's worker is an AIMS member with a field role. */
   deliveryEnabled?: boolean;
+  /**
+   * Crew sync (enableSiteClockCrewSync, 2026-11-25): the rest of the crew as SiteClock worker ids (the lead is
+   * link.workerId) and the SiteClock ids of the teams picked. Absent for every other org: nothing is sent or hashed.
+   */
+  crewWorkerIds?: string[];
+  teamIds?: string[];
 }
 
 export interface PlanLink {
@@ -87,6 +93,9 @@ export interface JobFields {
   externalUrlLabel: string | null;
   /** Sent only when true, or as false to a job whose last push had it true. */
   deliveryEnabled?: boolean;
+  /** Crew sync orgs only: everyone else on the job, and the teams named on it (both always sent together). */
+  crewWorkerIds?: string[];
+  teamIds?: string[];
 }
 
 /** The wording SiteClock still takes after a job has started or finished. */
@@ -142,7 +151,12 @@ export function siteRefFor(organizationId: string, customerId: string | null, ad
 const sha16 = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex').slice(0, 16);
 /** Schedule half (who / where / when) + wording half (title, notes, link): a started job compares only the second. */
 // A timed job hashes exactly as before (no re-push of existing links); an all-day job hashes its day.
-const schedHash = (f: JobFields) => sha16(f.allDay ? [f.workerId, f.siteRef, 'all-day', f.date] : [f.workerId, f.siteRef, f.startAt, f.endAt]);
+// A job with a crew list (crew sync orgs) adds it to the same half; a job without one hashes exactly as before.
+const schedHash = (f: JobFields) =>
+  sha16([
+    ...(f.allDay ? [f.workerId, f.siteRef, 'all-day', f.date] : [f.workerId, f.siteRef, f.startAt, f.endAt]),
+    ...(f.crewWorkerIds ? ['crew', [...f.crewWorkerIds].sort(), [...(f.teamIds ?? [])].sort()] : []),
+  ]);
 const DELIVERY_MARK = '+D';
 const textHash = (f: JobText) => `${sha16([f.title, f.notes, f.externalUrl, f.externalUrlLabel])}${f.deliveryEnabled ? DELIVERY_MARK : ''}`;
 /** The last push to this job carried deliveryEnabled: true. */
@@ -231,6 +245,7 @@ export function planSync(run: PlanRun | null, link: PlanLink, deliveryId: string
     notes: jobNotes(r),
     externalUrl: doUrl,
     externalUrlLabel: doUrl ? DO_LINK_LABEL : null,
+    ...(r.crewWorkerIds ? { crewWorkerIds: r.crewWorkerIds.filter((id) => id !== link.workerId), teamIds: r.teamIds ?? [] } : {}),
   };
   // Delivery section: on → sent as true (and marked on the hash); off → sent as
   // false only to a job whose last push carried true.

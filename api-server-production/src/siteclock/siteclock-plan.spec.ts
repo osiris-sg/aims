@@ -305,4 +305,27 @@ describe('siteclock plan', () => {
   it('backs off 1, 2, 5, 15, 30 min then hourly', () => {
     expect([1, 2, 3, 4, 5, 6, 9].map((n) => backoffMs(n) / 60_000)).toEqual([1, 2, 5, 15, 30, 60, 60]);
   });
+  // Crew sync (enableSiteClockCrewSync): the crew rides on the job; every other org's jobs carry no crew fields.
+  describe('crew', () => {
+    it('no crew list: the fields carry none (other orgs send what they sent before)', () => {
+      const create = planSync(run(), link(), D).steps[1] as any;
+      expect('crewWorkerIds' in create.fields).toBe(false);
+      expect('teamIds' in create.fields).toBe(false);
+    });
+    it('a crew list is sent without the lead, with the teams; the same crew in another order is no change; a changed crew is a patch', () => {
+      const lead = link().workerId!;
+      const withCrew = run({ crewWorkerIds: [lead, 'wB', 'wC'], teamIds: ['t1'] });
+      const p = planSync(withCrew, link(), D);
+      const create = p.steps[1] as any;
+      expect(create.fields).toMatchObject({ workerId: lead, crewWorkerIds: ['wB', 'wC'], teamIds: ['t1'] });
+      const l = applied(link(), p);
+      expect(kinds(planSync(run({ crewWorkerIds: ['wC', lead, 'wB'], teamIds: ['t1'] }), l, D))).toEqual([]);
+      const changed = planSync(run({ crewWorkerIds: [lead, 'wB'], teamIds: ['t1'] }), l, D);
+      expect(kinds(changed)).toEqual(['patch']);
+      expect((changed.steps[0] as any).fields.crewWorkerIds).toEqual(['wB']);
+      // An org switched onto crew sync: its already-synced one-person job is re-sent once, with an empty crew.
+      const solo = applied(link(), planSync(run(), link(), D));
+      expect(kinds(planSync(run({ crewWorkerIds: [lead], teamIds: [] }), solo, D))).toEqual(['patch']);
+    });
+  });
 });

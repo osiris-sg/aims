@@ -1,4 +1,4 @@
-import { matchLogin, planSync, samePhone, type AimsTeam, type AimsWorker, type Candidate, type ScTeam, type ScWorker } from './workers-teams.sync';
+import { matchLogin, planSync, withSharedWorkers, samePhone, type AimsTeam, type AimsWorker, type Candidate, type ScTeam, type ScWorker } from './workers-teams.sync';
 
 // Workers & Teams (WCT 2026-11-20): the SiteClock -> AIMS sync plan.
 const sc = (id: string, name: string, over: Partial<ScWorker> = {}): ScWorker => ({ id, name, role: 'WORKER', active: true, clerkUserId: null, phone: null, teamIds: [], ...over });
@@ -117,5 +117,19 @@ describe('workers & teams sync plan', () => {
     expect(m).toEqual({ none: 'Its AIMS login is already linked to another worker' });
     // Two members with the same name: no guess.
     expect(matchLogin(sc('s1', 'Ali'), [cand('u1', 'Ali'), cand('u2', 'ali')], new Set())).toEqual({ none: 'No AIMS login matches' });
+  });
+  it('crew sync: shared workers of a linked company join the list named with their company; one already listed is left alone', () => {
+    const own: ScWorker[] = [{ id: 's1', name: 'Ali', role: 'WORKER', active: true, teamIds: ['t1'] }];
+    const out = withSharedWorkers(own, [
+      { id: 'r1', name: 'Eve', companyName: 'WCT Racking' },
+      { id: 's1', name: 'Ali', companyName: 'WCT Racking' },
+      { id: 'r2', name: 'Raj' },
+    ]);
+    expect(out).toEqual([
+      own[0],
+      { id: 'r1', name: 'Eve (WCT Racking)', role: 'WORKER', active: true, teamIds: [] },
+      { id: 'r2', name: 'Raj', role: 'WORKER', active: true, teamIds: [] },
+    ]);
+    expect(withSharedWorkers(own, [])).toEqual(own);
   });
 });

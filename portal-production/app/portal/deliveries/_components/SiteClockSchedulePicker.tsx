@@ -75,9 +75,11 @@ export default function SiteClockSchedulePicker({
         const cfg: any = await request({ path: "/deliveries/siteclock/config", method: "GET" }, {}, token);
         const c = cfg?.data ?? cfg;
         if (cancelled) return;
-        setEnabled(!!c?.enabled);
-        onEnabled(!!c?.enabled);
-        if (!c?.enabled) return;
+        // Crew sync orgs: the job's Team / crew picks are who gets it in SiteClock, so no single worker is picked here.
+        const on = !!c?.enabled && !c?.crewSync;
+        setEnabled(on);
+        onEnabled(on);
+        if (!on) return;
         setDefaultDuration(c.defaultDurationMin ?? 60);
         const res: any = await request({ path: "/deliveries/siteclock/workers", method: "GET" }, {}, token);
         const d = res?.data ?? res;

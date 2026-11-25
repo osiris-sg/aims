@@ -53,7 +53,7 @@ export interface WorkerOption {
  * orgId (group New job, 2026-11-22): the chosen company's workers instead of the current org's. */
 export function useSiteClockWorkers(open: boolean, orgId?: string | null) {
   const api = useCalendarApi();
-  const [state, setState] = useState<{ enabled: boolean; options: WorkerOption[]; loading: boolean; error: string }>({ enabled: false, options: [], loading: false, error: "" });
+  const [state, setState] = useState<{ enabled: boolean; crewSync?: boolean; options: WorkerOption[]; loading: boolean; error: string }>({ enabled: false, options: [], loading: false, error: "" });
   useEffect(() => {
     if (!open) return;
     let live = true;
@@ -62,6 +62,8 @@ export function useSiteClockWorkers(open: boolean, orgId?: string | null) {
       const cfg = await api<any>("GET", "/deliveries/siteclock/config", undefined, orgId);
       if (!live) return;
       if (!cfg.ok || !cfg.data?.enabled) return setState({ enabled: false, options: [], loading: false, error: "" });
+      // Crew sync orgs: no SiteClock worker picker; the job's Team / crew picks are who gets it in SiteClock.
+      if (cfg.data?.crewSync) return setState({ enabled: false, crewSync: true, options: [], loading: false, error: "" });
       const res = await api<any>("GET", "/deliveries/siteclock/workers", undefined, orgId);
       if (!live) return;
       if (!res.ok) return setState({ enabled: true, options: [], loading: false, error: res.message || "Couldn't load SiteClock workers" });

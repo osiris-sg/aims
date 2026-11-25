@@ -268,6 +268,11 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // field workers and crews (Worker / WorkerTeam / WorkerTeamMember), added by hand or synced from
   // SiteClock (read-only there; preview first, then apply). Nothing is hard-deleted. Default OFF.
   enableWorkersTeams: false,
+  // Crew sync (2026-11-25; WCT (S) and WCT Racking while their workers clock in SiteClock): the teams and
+  // workers picked on a job go to SiteClock as the job's crew (every one of them sees it in the SiteClock app),
+  // and jobs sync even under the manual order flow. Needs enableSiteClockLink + an enabled connection and
+  // enableWorkersTeams. Delivery orders stay in AIMS. Default OFF: every other org syncs as before.
+  enableSiteClockCrewSync: false,
   // Field module (FIELD_PLAN.md, 2026-11-21): SiteClock's office side native in AIMS (src/field).
   // enableFieldModule turns the group on; each area has its own flag and is on only with both.
   // Off = no nav, every /field route 404s, no cron work. fieldEngineLive is the extra switch the

@@ -13,14 +13,23 @@ import { runNoun } from '../deliveries/job-wording';
 import { crewOf, siteclockExtraNotes } from '../deliveries/quick-jobs';
 import { SITECLOCK_DELIVERIES_FLAG } from '../common/org-features';
 import { resolveSiteClockWorker } from './siteclock-worker';
+import { CrewPick, jobStyleValues } from '../deliveries/job-style';
+import { crewSiteClockIds, CrewForSiteClock } from './siteclock-crew';
 
 /** PTW + the other workers, as extra note lines (absent when there are none, so other jobs hash as before). */
-function extraNotesOf(r: any): { extraNotes?: string[] } {
-  const lines = siteclockExtraNotes(r.ptwStatus, r.ptwRemark, crewOf(r.crewWorkers));
+function extraNotesOf(r: any, crew?: CrewForSiteClock | null): { extraNotes?: string[] } {
+  // Crew sync orgs: the crew goes to SiteClock as people, so the line names only the picks that could not be sent.
+  const lines = siteclockExtraNotes(r.ptwStatus, r.ptwRemark, crew ? crew.unsent.map((name, i) => ({ id: `unsent-${i}`, name })) : crewOf(r.crewWorkers));
   return lines.length ? { extraNotes: lines } : {};
 }
 
 export const SITECLOCK_LINK_FLAG = 'enableSiteClockLink';
+/**
+ * Crew sync (2026-11-25; WCT (S) and WCT Racking while their workers clock in SiteClock): the teams and workers
+ * picked on a job (Workers & Teams) go to SiteClock as the job's crew, and the job syncs even under the manual
+ * order flow. Off for every other org: their jobs are planned, hashed and sent exactly as before.
+ */
+export const SITECLOCK_CREW_SYNC_FLAG = 'enableSiteClockCrewSync';
 const ALERT_AFTER = 3; // failures in a row before the office bell rings
 const FLAG_TTL_MS = 60_000;
 const WORKERS_TTL_MS = 5 * 60_000;
@@ -75,7 +84,7 @@ function runStatusAsJob(run: { status: string; isDraft: boolean; scheduledFor: D
 @Injectable()
 export class SiteClockLinkService {
   private readonly logger = new Logger(SiteClockLinkService.name);
-  private linkedOrgs: { at: number; ids: Set<string> } | null = null;
+  private linkedOrgs: { at: number; ids: Set<string>; crew: Set<string> } | null = null;
   private workersCache = new Map<string, { at: number; data: any }>();
   private inFlight = new Set<string>();
   private sweeping = false;
@@ -97,16 +106,67 @@ export class SiteClockLinkService {
     if (this.linkedOrgs && Date.now() - this.linkedOrgs.at < FLAG_TTL_MS) return this.linkedOrgs.ids;
     const conns = await this.prisma.siteClockConnection.findMany({ where: { enabled: true }, select: { organizationId: true } });
     const ids = new Set<string>();
+    const crew = new Set<string>();
     for (const c of conns) {
       const ui = await this.prisma.organizationUIConfig.findUnique({ where: { organizationId: c.organizationId }, select: { features: true } });
       const f = (ui?.features as any) || {};
       // Manual order flow (enableManualOrderFlow + enableWctOrders): the office
       // runs jobs in AIMS, so nothing syncs to SiteClock even with the link on.
       const manualFlow = f.enableManualOrderFlow === true && f.enableWctOrders === true;
-      if (f[SITECLOCK_LINK_FLAG] === true && !manualFlow) ids.add(c.organizationId);
+      // Crew sync: the org's workers are in SiteClock, so its jobs go there under the manual flow too.
+      const crewSync = f[SITECLOCK_CREW_SYNC_FLAG] === true;
+      if (f[SITECLOCK_LINK_FLAG] === true && (!manualFlow || crewSync)) {
+        ids.add(c.organizationId);
+        if (crewSync) crew.add(c.organizationId);
+      }
     }
-    this.linkedOrgs = { at: Date.now(), ids };
+    this.linkedOrgs = { at: Date.now(), ids, crew };
     return ids;
+  }
+
+  /** Linked AND on crew sync (same one-minute cache as isLinked). */
+  async crewSync(organizationId: string): Promise<boolean> {
+    try {
+      await this.linkedOrgIds();
+      return !!this.linkedOrgs?.crew.has(organizationId);
+    } catch (e: any) {
+      this.logger.warn(`crew-sync lookup failed: ${e?.message}`);
+      return false;
+    }
+  }
+
+  /** The teams / workers picked on a job (its calendar style meta). Tests swap this for a list. */
+  crewPicksOf: (organizationId: string, deliveryId: string) => Promise<CrewPick[]> = async (organizationId, deliveryId) =>
+    (await jobStyleValues(this.prisma, organizationId, [deliveryId])).get(deliveryId)?.crew ?? [];
+
+  /** The job's picked teams / workers as SiteClock ids (Workers & Teams), plus any extra SiteClock workers stored on the job. */
+  private async crewFor(organizationId: string, deliveryId: string): Promise<CrewForSiteClock> {
+    return runAsOrg(organizationId, async () => {
+      const [picks, run] = await Promise.all([
+        this.crewPicksOf(organizationId, deliveryId),
+        this.prisma.delivery.findFirst({ where: { id: deliveryId, organizationId }, select: { crewWorkers: true } }),
+      ]);
+      return crewSiteClockIds(this.prisma, organizationId, picks, crewOf((run as any)?.crewWorkers));
+    });
+  }
+
+  /**
+   * Crew sync: the link row follows the crew. The lead stays while still on the job, else the first of the crew;
+   * a job that gets its first crew gets its link here (no SiteClock worker is picked on the form in these orgs).
+   */
+  private async followCrew(organizationId: string, deliveryId: string, crew?: CrewForSiteClock): Promise<void> {
+    const c = crew ?? (await this.crewFor(organizationId, deliveryId));
+    const link = await this.prisma.deliverySiteClockJob.findUnique({ where: { deliveryId } });
+    const lead = link?.workerId && c.ids.includes(link.workerId) ? link.workerId : (c.ids[0] ?? null);
+    if (!link) {
+      if (!lead) return;
+      const conn = await this.connection(organizationId);
+      await this.prisma.deliverySiteClockJob.create({
+        data: { organizationId, deliveryId, workerId: lead, workerName: c.names.get(lead) ?? null, durationMin: clampDuration(conn?.defaultDurationMin ?? 60), externalRef: externalRefFor(deliveryId, 1) },
+      });
+    } else if (lead !== link.workerId) {
+      await this.prisma.deliverySiteClockJob.update({ where: { id: link.id }, data: { workerId: lead, workerName: lead ? (c.names.get(lead) ?? null) : null } });
+    }
   }
 
   async isLinked(organizationId: string): Promise<boolean> {
@@ -136,6 +196,12 @@ export class SiteClockLinkService {
   async onScheduleSaved(organizationId: string, deliveryId: string, input?: SiteClockScheduleInput): Promise<void> {
     try {
       if (!(await this.isLinked(organizationId))) return;
+      // Crew sync: the crew decides who is on the job, never the form's single SiteClock worker (only the duration is taken).
+      const crewSync = await this.crewSync(organizationId);
+      if (crewSync) {
+        await this.followCrew(organizationId, deliveryId);
+        input = input?.durationMin !== undefined ? { durationMin: input.durationMin } : undefined;
+      }
       const sent = !!input && (input.workerId !== undefined || input.durationMin !== undefined || input.workerName !== undefined);
       let link = await this.prisma.deliverySiteClockJob.findUnique({ where: { deliveryId } });
       if (sent) {
@@ -166,6 +232,7 @@ export class SiteClockLinkService {
   async touch(organizationId: string, deliveryId: string): Promise<void> {
     try {
       if (!(await this.isLinked(organizationId))) return;
+      if (await this.crewSync(organizationId)) await this.followCrew(organizationId, deliveryId);
       const link = await this.prisma.deliverySiteClockJob.findUnique({ where: { deliveryId } });
       if (!link) return;
       await this.kick(link.id);
@@ -181,7 +248,7 @@ export class SiteClockLinkService {
 
   // ── sync ─────────────────────────────────────────────────────────────────
 
-  private async loadRun(organizationId: string, deliveryId: string, mintLink = true): Promise<PlanRun | null> {
+  private async loadRun(organizationId: string, deliveryId: string, mintLink = true, crew: CrewForSiteClock | null = null): Promise<PlanRun | null> {
     const run = await runAsOrg(organizationId, () =>
       this.prisma.delivery.findFirst({
         where: { id: deliveryId, organizationId },
@@ -234,7 +301,8 @@ export class SiteClockLinkService {
       doNumber: doc?.name ?? null,
       doUrl: doc ? await this.doLink(organizationId, doc.id, mintLink) : null,
       orderNumber: r.order?.orderNumber ?? null,
-      ...extraNotesOf(r),
+      ...extraNotesOf(r, crew),
+      ...(crew ? { crewWorkerIds: crew.ids, teamIds: crew.teamIds } : {}),
     };
   }
 
@@ -346,8 +414,15 @@ export class SiteClockLinkService {
       return this.fail(link, e?.message || 'SiteClock key could not be read', false);
     }
 
-    const run = await this.loadRun(org, link.deliveryId);
-    if (run) run.deliveryEnabled = await this.deliveryEnabledFor(org, link.workerId);
+    // Crew sync: read the crew now (a team's members may have changed since the job was saved) and let the link follow it.
+    const crew = (await this.crewSync(org)) ? await this.crewFor(org, link.deliveryId) : null;
+    if (crew) {
+      await this.followCrew(org, link.deliveryId, crew);
+      link = ((await this.prisma.deliverySiteClockJob.findUnique({ where: { id: linkId } })) as LinkRow | null) ?? link;
+    }
+    const run = await this.loadRun(org, link.deliveryId, true, crew);
+    // Crew sync orgs keep delivery orders in AIMS: the worker sees the job and clocks at it, no Delivery section.
+    if (run) run.deliveryEnabled = crew ? false : await this.deliveryEnabledFor(org, link.workerId);
     const doNumber = run?.doNumber ?? null;
     const done: string[] = [];
     // A step can teach us SiteClock's real state (e.g. the job was already
@@ -364,7 +439,7 @@ export class SiteClockLinkService {
         });
         await this.prisma.siteClockConnection.update({ where: { id: conn.id }, data: { lastOkAt: new Date(), lastError: null } }).catch(() => undefined);
         if (done.length) {
-          this.actionLog?.system('siteclock-sync', 'SYNC', 'deliveries', { organizationId: org, resourceId: link.deliveryId, details: { steps: done, status: link.lastPushedStatus } });
+          this.actionLog?.system('siteclock-sync', 'SYNC', 'deliveries', { organizationId: org, resourceId: link.deliveryId, details: { steps: done, status: link.lastPushedStatus, ...(crew ? { crew: crew.ids.map((id) => crew.names.get(id) ?? id), notInSiteClock: crew.unsent } : {}) } });
         }
         return { ok: true };
       }
@@ -614,7 +689,8 @@ export class SiteClockLinkService {
   async formConfig(organizationId: string) {
     if (!(await this.isLinked(organizationId))) return { enabled: false };
     const conn = await this.connection(organizationId);
-    return { enabled: true, defaultDurationMin: conn?.defaultDurationMin ?? 60 };
+    // crewSync: the form shows no SiteClock worker picker; the job's teams / workers are who it goes to.
+    return { enabled: true, defaultDurationMin: conn?.defaultDurationMin ?? 60, ...((await this.crewSync(organizationId)) ? { crewSync: true } : {}) };
   }
 
   /** SiteClock workers grouped by team, cached ~5 min per org. The key never leaves the server. */

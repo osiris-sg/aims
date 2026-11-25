@@ -5,9 +5,11 @@ import { fieldAreaOn } from '../field/common/field-flags';
 import { open } from '../common/secret-box';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { SiteClockApiError, SiteClockClient } from '../siteclock/siteclock.client';
-import { Candidate, planSync, ScTeam, ScWorker, SyncPlan } from './workers-teams.sync';
+import { Candidate, planSync, ScTeam, ScWorker, SyncPlan, withSharedWorkers } from './workers-teams.sync';
 
 export const WORKERS_TEAMS_FLAG = 'enableWorkersTeams';
+/** Same flag as siteclock-link.service (kept here so this module does not load that service). */
+const CREW_SYNC_FLAG = 'enableSiteClockCrewSync';
 
 const text = (v: unknown, max: number): string | null => {
   const s = String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -150,7 +152,24 @@ export class WorkersTeamsService {
   async setWorkerActive(organizationId: string, id: string, active: boolean) {
     await this.assertOn(organizationId);
     const w = await this.worker(organizationId, id);
-    return this.db.worker.update({ where: { id: w.id }, data: { active } });
+    const out = await this.db.worker.update({ where: { id: w.id }, data: { active } });
+    await this.resendCrewJobs(organizationId);
+    return out;
+  }
+
+  /**
+   * Crew sync orgs (enableSiteClockCrewSync): who is in a team, or active, decides who gets a job in SiteClock, so a
+   * change here marks the org's still-scheduled SiteClock jobs to be checked again (the link service's minute sweep
+   * re-reads each crew; a job whose crew did not change makes no SiteClock call). Every other org: nothing happens.
+   * Never fails the save that called it.
+   */
+  private async resendCrewJobs(organizationId: string): Promise<void> {
+    try {
+      if (!(await isOrgFeatureEnabled(this.prisma, organizationId, CREW_SYNC_FLAG))) return;
+      await this.db.deliverySiteClockJob.updateMany({ where: { organizationId, lastPushedStatus: 'SCHEDULED' }, data: { syncState: 'PENDING', nextAttemptAt: new Date() } });
+    } catch (e: any) {
+      this.logger.warn(`resendCrewJobs ${organizationId}: ${e?.message}`);
+    }
   }
 
   // ── Teams ───────────────────────────────────────────────────────────────────
@@ -182,7 +201,9 @@ export class WorkersTeamsService {
   async setTeamActive(organizationId: string, id: string, active: boolean) {
     await this.assertOn(organizationId);
     const t = await this.team(organizationId, id);
-    return this.db.workerTeam.update({ where: { id: t.id }, data: { active } });
+    const out = await this.db.workerTeam.update({ where: { id: t.id }, data: { active } });
+    await this.resendCrewJobs(organizationId);
+    return out;
   }
 
   async addMember(organizationId: string, teamId: string, workerId: unknown) {
@@ -192,7 +213,9 @@ export class WorkersTeamsService {
     const w = await this.worker(organizationId, String(workerId ?? ''));
     const existing = await this.db.workerTeamMember.findFirst({ where: { teamId: t.id, workerId: w.id } });
     if (existing) return existing;
-    return this.db.workerTeamMember.create({ data: { organizationId, teamId: t.id, workerId: w.id, source: 'manual' } });
+    const made = await this.db.workerTeamMember.create({ data: { organizationId, teamId: t.id, workerId: w.id, source: 'manual' } });
+    await this.resendCrewJobs(organizationId);
+    return made;
   }
 
   async removeMember(organizationId: string, teamId: string, workerId: string) {
@@ -200,6 +223,7 @@ export class WorkersTeamsService {
     await this.assertNotFieldManaged(organizationId);
     const t = await this.team(organizationId, teamId);
     const r = await this.db.workerTeamMember.deleteMany({ where: { organizationId, teamId: t.id, workerId } });
+    if (r.count) await this.resendCrewJobs(organizationId);
     return { removed: r.count };
   }
 
@@ -252,6 +276,11 @@ export class WorkersTeamsService {
       if (!(e instanceof SiteClockApiError) || e.status !== 403) throw this.siteclockError(e);
       phones = false;
       workers = (await c.allWorkers().catch((x) => Promise.reject(this.siteclockError(x)))).workers as ScWorker[];
+    }
+    // Crew sync orgs: the workers a linked SiteClock company shares come in too, named with their company,
+    // so they can be picked on a job. Every other org: the call is not made.
+    if (await isOrgFeatureEnabled(this.prisma, organizationId, CREW_SYNC_FLAG)) {
+      workers = withSharedWorkers(workers, await c.sharedWorkers().catch((x) => Promise.reject(this.siteclockError(x))));
     }
     const teams: ScTeam[] = (await c.teams().catch((x) => Promise.reject(this.siteclockError(x)))).teams;
     const [aimsWorkers, aimsTeams, members] = await Promise.all([
@@ -332,6 +361,7 @@ export class WorkersTeamsService {
       },
       { timeout: 60_000 },
     );
+    await this.resendCrewJobs(organizationId);
     return { applied: true, ...plan };
   }
 }

@@ -41,6 +41,8 @@ interface OrganizationFeatures {
   enableCalendarStyle?: boolean;
   /** Workers & Teams (WCT 2026-11-20): Settings > Workers & Teams, synced from SiteClock. */
   enableWorkersTeams?: boolean;
+  /** Crew sync: a job's picked teams / workers get it in SiteClock (server-side; the forms read /deliveries/siteclock/config). */
+  enableSiteClockCrewSync?: boolean;
   /** Field module (FIELD_PLAN.md, 2026-11-21): SiteClock's office side; group flag + one flag per area. */
   enableFieldModule?: boolean;
   enableFieldPeople?: boolean;
@@ -359,6 +361,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   calendarHqView: false,
   enableCalendarStyle: false,
   enableWorkersTeams: false,
+  enableSiteClockCrewSync: false,
   // Field module (2026-11-21): all off; an area is on only with enableFieldModule AND its own flag.
   enableFieldModule: false,
   enableFieldPeople: false,

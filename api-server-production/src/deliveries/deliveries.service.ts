@@ -1499,7 +1499,10 @@ export class DeliveriesService {
     if (!hasJobStylePatch(patch)) throw new BadRequestException('Nothing to save');
     // Round 39 B4: picked teams / workers, checked against the org's Workers & Teams (names re-read).
     if (patch.crew) patch = { ...patch, crew: await resolveCrew(this.prisma, organizationId, patch.crew) };
-    return { id, ...(await this.listedApplicantView(organizationId, (await this.saveStyleStamped(organizationId, id, patch, run.ptwStatus)) ?? EMPTY_JOB_STYLE)) };
+    const saved = (await this.saveStyleStamped(organizationId, id, patch, run.ptwStatus)) ?? EMPTY_JOB_STYLE;
+    // SiteClock link: a changed crew is a changed job there (crew sync orgs; nothing happens for the others).
+    if (patch.crew) await this.siteclock?.touch(organizationId, id);
+    return { id, ...(await this.listedApplicantView(organizationId, saved)) };
   }
 
   /**

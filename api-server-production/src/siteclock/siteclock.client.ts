@@ -138,10 +138,15 @@ export class SiteClockClient {
       `/v1/workers?active=all${opts.phone ? '&include=phone' : ''}`,
     );
   }
+  /** Crew sync: the workers linked SiteClock companies share with this one (none from a SiteClock without the feature). */
+  async sharedWorkers(): Promise<Array<{ id: string; name: string; companyName?: string | null }>> {
+    const r = await this.call<{ shared?: Array<{ id: string; name: string; companyName?: string | null }> }>('GET', '/v1/workers?include=shared');
+    return Array.isArray(r.shared) ? r.shared : [];
+  }
   putSite(ref: string, body: { name: string; address: string }) {
     return this.call<{ site: { id: string; externalRef: string } }>('PUT', `/v1/sites/by-ref/${this.ref(ref)}`, body);
   }
-  createJob(body: { externalRef: string; workerId: string; siteRef: string; startAt?: string; endAt?: string; allDay?: true; date?: string; title: string; notes: string | null; externalUrl?: string | null; externalUrlLabel?: string | null }) {
+  createJob(body: { externalRef: string; workerId: string; siteRef: string; startAt?: string; endAt?: string; allDay?: true; date?: string; title: string; notes: string | null; externalUrl?: string | null; externalUrlLabel?: string | null; crewWorkerIds?: string[]; teamIds?: string[] }) {
     return this.call<{ job: SiteClockJob; duplicate?: boolean }>('POST', '/v1/jobs', body);
   }
   patchJob(ref: string, body: Record<string, unknown>) {
