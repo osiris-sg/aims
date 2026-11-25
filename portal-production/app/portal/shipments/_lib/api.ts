@@ -940,6 +940,8 @@ export type ClientProductInput = {
   grade?: string | null; form?: ProductForm | null; diameterMm?: number | null; lengthMm?: number | null; sizeText?: string | null;
   standard?: string | null; chemistry?: ChemLimit[]; tolerances?: string | null; piecesPerBundle?: number | null; bundleWeightKg?: number | null;
   monthlyQtyMt?: number | null; priceBasis?: string | null; notes?: string | null;
+  /** Round BZ: FIXED_ALL_IN = one fixed unit price per MT incl. transport + import clearance (Sankyo); empty = formula. */
+  priceMode?: "FORMULA" | "FIXED_ALL_IN" | null; fixedUnitPrice?: number | null; fixedCurrency?: string | null;
   /** Round BF: how it prints on the 出庫・納入依頼書 (JA lines, EN lines, size). */
   docNameJa?: string | null; docNameEn?: string | null; docSize?: string | null;
   /** Round BJ: customs HS code ("7601.20"). */
@@ -1771,7 +1773,7 @@ export type LotPostingStatus = "ready" | "waiting" | "rule needed" | "missing da
 export interface LotPreviewLine { account: string; side: "Dr" | "Cr"; usd: number | null; sgd: number | null; label: string; note?: string; problem?: "rule needed" | "missing" }
 export interface LotPreviewPosting { key: string; frs: string; title: string; kind: "Bill" | "Sales invoice" | "Manual journal"; contact: string | null; trigger: string; triggerState: "done" | "not yet" | "rule needed"; date: string | null; status: LotPostingStatus; lines: LotPreviewLine[]; notes: string[] }
 export interface LotPreviewCheck { key: "cogs" | "prepayments" | "advance" | "pnl"; label: string; ok: boolean | null; detail: string; waitingOn: string[] }
-export interface LotPreview { orderRef: string; pattern: "SUS" | "KATO" | "HOEI" | null; deliveryMonth: string | null; rateMonth: string | null; usdRate: number | null; postings: LotPreviewPosting[]; checks: LotPreviewCheck[]; missing: string[]; rulesNeeded: string[]; accounts: Record<string, string>; customer: string | null; rateEnteredBy: string | null; invoice1: LotInvoice1 | null; invoice1InAims: boolean }
+export interface LotPreview { orderRef: string; pattern: "SUS" | "KATO" | "HOEI" | null; notInFrs?: string | null; deliveryMonth: string | null; rateMonth: string | null; usdRate: number | null; postings: LotPreviewPosting[]; checks: LotPreviewCheck[]; missing: string[]; rulesNeeded: string[]; accounts: Record<string, string>; customer: string | null; rateEnteredBy: string | null; invoice1: LotInvoice1 | null; invoice1InAims: boolean }
 /** Round BW: the SUS advance invoice = Invoice #1 (USD) — from AIMS, or typed by ADH Admin. */
 export interface LotInvoice1 { principal: number; tax: number; number: string | null; source: "aims" | "typed"; by?: string | null }
 

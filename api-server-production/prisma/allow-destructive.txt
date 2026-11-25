@@ -33,4 +33,6 @@
 # Remove entries once they have been deployed — the build log lists entries it did not use.
 # A pre-deploy Neon branch is taken before any non-empty push when NEON_API_KEY is set.
 #
-# (no entries)
+# Round BZ (25 Nov 2026): Shipment weights 3 → 4 decimals (B/L precision, 50.0395 MT). Widening only, no data lost.
+ALTER_COLUMN_TYPE Shipment.netWeightMt
+ALTER_COLUMN_TYPE Shipment.grossWeightMt

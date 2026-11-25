@@ -105,6 +105,7 @@ export class LotAccountingService {
       where: { id: orderId, organizationId },
       include: {
         customer: { select: { id: true, name: true } },
+        supplier: { select: { name: true } },
         supplierOrder: { select: { piAmount: true, depositPct: true, depositAmount: true, _count: { select: { customerOrders: true } } } },
         shipments: { where: { status: { not: 'CANCELLED' } }, orderBy: { seqNo: 'asc' }, select: { id: true, seqNo: true, netWeightMt: true, ciAmount: true, costs: true, deliveryMonth: true } },
       },
@@ -165,6 +166,7 @@ export class LotAccountingService {
     const input: LotInput = {
       orderRef: `#${order.orderNo}`,
       customerName: order.customer?.name ?? null,
+      supplierName: order.supplier?.name ?? null,
       pattern,
       deliveryMonth,
       usdRate: fx ? Number(fx.rate) : null,

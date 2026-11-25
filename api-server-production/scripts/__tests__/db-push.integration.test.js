@@ -120,6 +120,36 @@ test('legacy mode: additive pushes, destructive blocks (DB untouched), allowlist
   }
 });
 
+test('allowlisted type change on a column WITH data (Decimal(14,3) → (14,4)) pushes with --accept-data-loss; unlisted blocks', { skip, timeout: 120000 }, async () => {
+  // Round BZ (25 Nov 2026): Prisma refused the allowlisted Shipment weight widening on Render ("Use the --accept-data-loss flag").
+  await sql(BASE, 'drop schema if exists pushguard_legacy cascade; create schema pushguard_legacy');
+  const p = project();
+  const env = { DATABASE_URL: withSchema('pushguard_legacy') };
+  const V1 = `${DS}\nmodel Ship {\n  id  String   @id\n  net Decimal? @db.Decimal(14, 3)\n}\n`;
+  try {
+    p.write('prisma/allow-destructive.txt', '# none\n');
+    p.write('prisma/schema.prisma', V1);
+    let r = p.push(env);
+    assert.equal(r.code, 0, r.out);
+    await sql(BASE, `insert into pushguard_legacy."Ship" (id, net) values ('a', 50.04), ('b', 50.062)`);
+    p.write('prisma/schema.prisma', V1.replace('Decimal(14, 3)', 'Decimal(14, 4)'));
+    r = p.push(env);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /ALTER_COLUMN_TYPE Ship\.net/);
+    p.write('prisma/allow-destructive.txt', 'ALTER_COLUMN_TYPE Ship.net\n');
+    r = p.push(env);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /pushing with --accept-data-loss/);
+    const rows = await sql(BASE, `select id, net::text as net from pushguard_legacy."Ship" order by id`);
+    assert.deepEqual(rows.map((x) => x.net), ['50.0400', '50.0620']);
+    await sql(BASE, `update pushguard_legacy."Ship" set net = 50.0395 where id = 'a'`);
+    assert.equal((await sql(BASE, `select net::text as net from pushguard_legacy."Ship" where id = 'a'`))[0].net, '50.0395');
+  } finally {
+    p.cleanup();
+    await sql(BASE, 'drop schema if exists pushguard_legacy cascade');
+  }
+});
+
 test('diff error (unreachable DB): fails, pushes nothing, leaks no URL or password', { skip, timeout: 60000 }, async () => {
   const p = project();
   try {

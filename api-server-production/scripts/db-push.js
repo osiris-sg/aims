@@ -17,7 +17,8 @@
  *      All targets are checked first; if any one is blocked, NO schema is pushed.
  *   2. If any target has changes: a Neon branch snapshot (scripts/lib/neon-branch.js) is taken
  *      before the first push. NEON_API_KEY unset → warning; set but failing → build fails.
- *   Never passes --accept-data-loss (only the hand-run guard can, see db-push-manual.js).
+ *   Passes --accept-data-loss only for a target whose destructive statements are ALL allowlisted (none blocked);
+ *   otherwise only the hand-run guard can (see db-push-manual.js).
  *
  * Exports main() for scripts/db-push-manual.js (db:push:prod / :staging) and the tests.
  */
@@ -204,8 +205,14 @@ async function main(opts = {}) {
     }
   }
 
-  const extra = opts.acceptDataLoss ? ['--accept-data-loss'] : [];
-  for (const t of targets) {
+  for (const [i, t] of targets.entries()) {
+    // A target whose every destructive statement is named in prisma/allow-destructive.txt (none blocked) is pushed
+    // with --accept-data-loss: the allowlist IS the approval. Without it Prisma refuses even an allowed change
+    // (round BZ, 25 Nov 2026: Decimal(14,3) → (14,4) failed the Render build "Use the --accept-data-loss flag").
+    const r = results[i];
+    const allowlisted = !!(r && r.ok && r.allowed.length && !r.blocked.length);
+    if (allowlisted && !opts.acceptDataLoss) io.log(`ℹ ${t.label}: every destructive statement is allowlisted — pushing with --accept-data-loss`);
+    const extra = opts.acceptDataLoss || allowlisted ? ['--accept-data-loss'] : [];
     const args = ['db', 'push', '--schema', t.file, ...extra];
     if (t.perOrg) { args.splice(2, 0, '--skip-generate'); io.log(`\n▶ ${t.label}`); }
     if (!runScrubbed(args, { ...env, DATABASE_URL: t.url }, secretsOf(t.url), io)) return 1;

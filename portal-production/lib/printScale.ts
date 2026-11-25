@@ -73,6 +73,45 @@ export function computeFitScale(contentMm: number, bandMm = A4_BAND_MM_6MM_MARGI
   return Math.max(PRINT_SCALE_FLOOR, needed);
 }
 
+/**
+ * FLOW LAYOUT (Biofuel DO, 2026-11-25, DO202611114). A sheet marked
+ * `data-do-layout="biofuel"` carries proof photos on its item rows and a
+ * Timeline, so it is often far taller than one page. Shrinking it to the 0.7
+ * floor printed it at 130mm wide in the top-left corner and it STILL ran onto
+ * a second page: the worst of both. For this layout the sheet is only shrunk
+ * mildly (down to 0.9, centred) when that is enough for one page; anything
+ * taller prints at full width across pages, rows and the Timeline unsplit.
+ * Every other sheet keeps the original rule (floor 0.7, top-left).
+ */
+export const FLOW_LAYOUT_SELECTOR = '[data-do-layout="biofuel"]';
+export interface FitPolicy {
+  floor: number;
+  flowWhenOverflow: boolean;
+  origin: "top left" | "top center";
+}
+export const DEFAULT_FIT_POLICY: FitPolicy = { floor: PRINT_SCALE_FLOOR, flowWhenOverflow: false, origin: "top left" };
+export const FLOW_FIT_POLICY: FitPolicy = { floor: 0.9, flowWhenOverflow: true, origin: "top center" };
+
+/** The policy for a sheet: the flow layout when the sheet (or a descendant) is marked, else the default. */
+export function fitPolicyFor(sheet: Element | null | undefined): FitPolicy {
+  try {
+    if (sheet && (sheet.matches?.(FLOW_LAYOUT_SELECTOR) || sheet.querySelector?.(FLOW_LAYOUT_SELECTOR))) return FLOW_FIT_POLICY;
+  } catch {
+    /* not an element */
+  }
+  return DEFAULT_FIT_POLICY;
+}
+
+/** Scale for `contentMm` under a policy. 1 = leave it alone (fits, or flows across pages). */
+export function planFitScale(contentMm: number, bandMm = A4_BAND_MM_6MM_MARGIN, policy: FitPolicy = DEFAULT_FIT_POLICY): number {
+  if (!Number.isFinite(contentMm) || contentMm <= 0) return 1;
+  if (!Number.isFinite(bandMm) || bandMm <= 0) return 1;
+  if (contentMm <= bandMm) return 1;
+  const needed = Math.floor((bandMm / contentMm) * 1000) / 1000;
+  if (needed < policy.floor) return policy.flowWhenOverflow ? 1 : policy.floor;
+  return needed;
+}
+
 /** True when the content is SO tall that even the floor cannot contain it. */
 export function willStillOverflow(contentMm: number, bandMm = A4_BAND_MM_6MM_MARGIN): boolean {
   return contentMm > 0 && contentMm * PRINT_SCALE_FLOOR > bandMm;
@@ -97,7 +136,7 @@ export const PRINT_FIT_CLASS = "aims-print-fit";
  * Emits NOTHING at scale 1, so a document that already fits carries no extra
  * rules and is byte-for-byte what it was.
  */
-export function fitToPageCss(selector: string, scale: number, naturalMm: number): string {
+export function fitToPageCss(selector: string, scale: number, naturalMm: number, origin: FitPolicy["origin"] = "top left"): string {
   if (!(scale < 1) || !(naturalMm > 0)) return "";
   const scaledMm = +(naturalMm * scale).toFixed(2);
   return `
@@ -108,7 +147,7 @@ export function fitToPageCss(selector: string, scale: number, naturalMm: number)
     }
     .${PRINT_FIT_CLASS} ${selector} {
       transform: scale(${scale}) !important;
-      transform-origin: top left !important;
+      transform-origin: ${origin} !important;
     }
   }`;
 }
@@ -272,7 +311,8 @@ export async function installPrintFit(
 </head><body>${sheet.outerHTML}</body></html>`;
 
     const naturalMm = await measurePrintHeightMm(probeHtml, selector);
-    const scale = computeFitScale(naturalMm, bandMm);
+    const policy = fitPolicyFor(sheet);
+    const scale = planFitScale(naturalMm, bandMm, policy);
     if (scale >= 1) return remove;
 
     if (willStillOverflow(naturalMm, bandMm)) {
@@ -289,7 +329,7 @@ export async function installPrintFit(
 
     const tag = document.createElement("style");
     tag.id = FIT_STYLE_ID;
-    tag.textContent = fitToPageCss(selector, scale, naturalMm);
+    tag.textContent = fitToPageCss(selector, scale, naturalMm, policy.origin);
     document.head.appendChild(tag);
     return () => {
       container?.classList.remove(PRINT_FIT_CLASS);

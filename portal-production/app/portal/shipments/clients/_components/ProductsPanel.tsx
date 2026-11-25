@@ -8,8 +8,9 @@ import React, { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import {
   Autocomplete, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Menu, MenuItem, Paper,
-  Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography,
+  Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography,
 } from "@mui/material";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
@@ -22,7 +23,7 @@ import { ConfirmHide, FileChip, PhotoThumb, PhotoUploader, SpecUploader, useRefr
 const GRADES = ["6063", "6005", "6061", "P1020", "P0507", "1070", "HSB"];
 const PRICE_BASES = ["LME + premium", "MJP + premium", "upcharge"];
 /** Product fields with a label (a seeded row's toConfirm names these). */
-const FIELD_KEYS = new Set(["grade", "form", "size", "diameterMm", "lengthMm", "sizeText", "standard", "chemistry", "tolerances", "piecesPerBundle", "bundleWeightKg", "monthlyQtyMt", "priceBasis", "notes", "docNameJa", "docNameEn", "docSize", "hsCode"]);
+const FIELD_KEYS = new Set(["grade", "form", "size", "diameterMm", "lengthMm", "sizeText", "standard", "chemistry", "tolerances", "piecesPerBundle", "bundleWeightKg", "monthlyQtyMt", "priceBasis", "priceMode", "fixedUnitPrice", "notes", "docNameJa", "docNameEn", "docSize", "hsCode"]);
 
 /** The product form's label ("billet", "remelt ingot"…) in the portal language. */
 export function useFormLabel() {
@@ -34,6 +35,7 @@ type ChemRow = { element: string; min: string; max: string };
 type Draft = {
   grade: string; form: ProductForm | ""; diameterMm: string; lengthMm: string; sizeText: string; standard: string; chemistry: ChemRow[];
   tolerances: string; piecesPerBundle: string; bundleWeightKg: string; monthlyQtyMt: string; priceBasis: string; notes: string;
+  priceMode: "FORMULA" | "FIXED_ALL_IN"; fixedUnitPrice: string; fixedCurrency: string;
   docNameJa: string; docNameEn: string; docSize: string; hsCode: string;
 };
 const s = (v: unknown) => (v === null || v === undefined ? "" : String(v));
@@ -42,6 +44,7 @@ const toDraft = (p?: ClientProductView | null): Draft => ({
   chemistry: (p?.chemistry ?? []).map((c) => ({ element: c.element, min: s(c.min), max: s(c.max) })),
   tolerances: s(p?.tolerances), piecesPerBundle: s(p?.piecesPerBundle), bundleWeightKg: s(p?.bundleWeightKg), monthlyQtyMt: s(p?.monthlyQtyMt),
   priceBasis: s(p?.priceBasis), notes: s(p?.notes),
+  priceMode: p?.priceMode === "FIXED_ALL_IN" ? "FIXED_ALL_IN" : "FORMULA", fixedUnitPrice: s(p?.fixedUnitPrice), fixedCurrency: p?.fixedCurrency || "USD",
   docNameJa: s(p?.docNameJa), docNameEn: s(p?.docNameEn), docSize: s(p?.docSize), hsCode: s(p?.hsCode),
 });
 const n = (v: string) => (v.trim() === "" ? null : Number(v.replace(/,/g, "")));
@@ -51,6 +54,7 @@ const toInput = (d: Draft): ClientProductInput => ({
   chemistry: d.chemistry.filter((c) => c.element.trim()).map((c): ChemLimit => ({ element: c.element.trim(), min: n(c.min), max: n(c.max) })),
   tolerances: txt(d.tolerances), piecesPerBundle: n(d.piecesPerBundle), bundleWeightKg: n(d.bundleWeightKg), monthlyQtyMt: n(d.monthlyQtyMt),
   priceBasis: txt(d.priceBasis), notes: txt(d.notes),
+  priceMode: d.priceMode, fixedUnitPrice: d.priceMode === "FIXED_ALL_IN" ? n(d.fixedUnitPrice) : null, fixedCurrency: d.priceMode === "FIXED_ALL_IN" ? d.fixedCurrency.trim().toUpperCase() || "USD" : null,
   docNameJa: txt(d.docNameJa), docNameEn: txt(d.docNameEn), docSize: txt(d.docSize), hsCode: txt(d.hsCode),
 });
 
@@ -68,7 +72,8 @@ function ProductDialog({ open, onClose, kind, id, product }: { open: boolean; on
   }, [open, product]);
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((p) => ({ ...p, [k]: v }));
   const setChem = (i: number, k: keyof ChemRow, v: string) => setD((p) => ({ ...p, chemistry: p.chemistry.map((c, j) => (j === i ? { ...c, [k]: v } : c)) }));
-  const bad = [d.diameterMm, d.lengthMm, d.piecesPerBundle, d.bundleWeightKg, d.monthlyQtyMt, ...d.chemistry.flatMap((c) => [c.min, c.max])].some((v) => v.trim() !== "" && !Number.isFinite(Number(v.replace(/,/g, ""))));
+  const badFixed = d.priceMode === "FIXED_ALL_IN" && !(Number(d.fixedUnitPrice.replace(/,/g, "")) > 0);
+  const bad = badFixed || [d.diameterMm, d.lengthMm, d.piecesPerBundle, d.bundleWeightKg, d.monthlyQtyMt, ...d.chemistry.flatMap((c) => [c.min, c.max])].some((v) => v.trim() !== "" && !Number.isFinite(Number(v.replace(/,/g, ""))));
   const empty = !d.grade.trim() && !d.form && !d.sizeText.trim() && !(d.diameterMm.trim() && d.lengthMm.trim()) && !d.notes.trim();
   const save = async () => {
     setBusy(true);
@@ -157,6 +162,22 @@ function ProductDialog({ open, onClose, kind, id, product }: { open: boolean; on
             <TextField size="small" label={t("fields.bundleWeightKg")} value={d.bundleWeightKg} onChange={(e) => set("bundleWeightKg", e.target.value)} inputMode="decimal" sx={{ flex: 1 }} />
             <TextField size="small" label={t("fields.monthlyQtyMt")} value={d.monthlyQtyMt} onChange={(e) => set("monthlyQtyMt", e.target.value)} inputMode="decimal" sx={{ flex: 1 }} />
           </Stack>
+          {/* Round BZ: a fixed all-in unit price (Sankyo Tateyama) prices the SG→JP invoice instead of LME + MJP + premium. */}
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ sm: "center" }} data-tour="client-product-price-mode">
+            <TextField select size="small" label={t("fields.priceMode")} value={d.priceMode} onChange={(e) => set("priceMode", e.target.value as Draft["priceMode"])} sx={{ minWidth: 240 }}>
+              <MenuItem value="FORMULA">{t("priceModes.FORMULA")}</MenuItem>
+              <MenuItem value="FIXED_ALL_IN">{t("priceModes.FIXED_ALL_IN")}</MenuItem>
+            </TextField>
+            {d.priceMode === "FIXED_ALL_IN" && (
+              <>
+                <TextField size="small" label={t("fields.fixedUnitPrice")} value={d.fixedUnitPrice} onChange={(e) => set("fixedUnitPrice", e.target.value)} inputMode="decimal" error={badFixed} sx={{ flex: 1 }} />
+                <TextField size="small" label={t("fields.fixedCurrency")} value={d.fixedCurrency} onChange={(e) => set("fixedCurrency", e.target.value)} sx={{ width: 110 }} />
+              </>
+            )}
+            <Tooltip title={t("fields.priceModeInfo")}>
+              <InfoOutlinedIcon fontSize="small" color="action" />
+            </Tooltip>
+          </Stack>
           <Autocomplete freeSolo options={PRICE_BASES} value={d.priceBasis} onInputChange={(_, v) => set("priceBasis", v)} renderInput={(p) => <TextField {...p} size="small" label={t("fields.priceBasis")} />} />
           <TextField size="small" multiline minRows={2} label={t("fields.notes")} value={d.notes} onChange={(e) => set("notes", e.target.value)} />
           {/* Round BF: how the product prints on the 出庫・納入依頼書 (one line each, never broken inside a word). */}
@@ -232,6 +253,7 @@ function ProductCard({ kind, id, p, onMenu }: { kind: ClientKind; id: string; p:
         {row("piecesPerBundle", p.piecesPerBundle === null || p.piecesPerBundle === undefined ? null : t3(p.piecesPerBundle))}
         {row("bundleWeightKg", p.bundleWeightKg === null || p.bundleWeightKg === undefined ? null : `${t3(p.bundleWeightKg)} kg`)}
         {row("monthlyQtyMt", p.monthlyQtyMt === null || p.monthlyQtyMt === undefined ? null : `${t3(p.monthlyQtyMt)} t`)}
+        {row("priceMode", p.priceMode === "FIXED_ALL_IN" && p.fixedUnitPrice ? t("products.fixedPrice", { price: Number(p.fixedUnitPrice).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }), currency: p.fixedCurrency || "USD" }) : null)}
         {row("priceBasis", p.priceBasis)}
         {row("notes", p.notes)}
         {row("docName", docLines({ docNameJa: s(p.docNameJa), docNameEn: s(p.docNameEn), docSize: s(p.docSize) }).join(" / ") || null)}

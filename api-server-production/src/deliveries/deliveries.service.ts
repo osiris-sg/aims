@@ -65,6 +65,7 @@ import { isCalendarAddEnabled, parseLinkKind, parsePtwRemark, parsePtwStatus, pa
 import { isOpenQuotation, matchIds, quotationIndex } from './quotation-search-index';
 import { QUOTATION_DOC_TYPES, isOpenDo, isUuid, jobRowsFromDo, likePattern, pickDoForJob, quotationCustomerIdOf, quotationCustomerNameOf, quotationSiteOf, quotationStatusLabel, quotationSubjectOf, searchLimit } from './quick-job-quotation';
 import { REAL_DO_ON_SCHEDULE_FLAG, cancelledDoConfig, isIssuedOnSchedule } from './do-number';
+import { applyTypedLineLinking } from './typed-line-product';
 import { SCHEDULE_WIZARD_FLAG, SCHEDULE_SOURCE_REQUIRED, normalizeScheduleSource, scheduleSourceMissing } from './schedule-source';
 import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/siteclock-link.service';
 import { applyOrderToDoConfig, isWctOrdersEnabled, refreshOrderStatus, refreshOrderStatusForRun } from '../orders/wct-orders';
@@ -656,6 +657,8 @@ export class DeliveriesService {
     if (scheduleSourceMissing({ isDraft, wizardOrg, source: scheduleSource })) {
       throw new BadRequestException(SCHEDULE_SOURCE_REQUIRED);
     }
+    // Stepped schedule: a typed line that IS a catalog product is linked to it (#122).
+    dto.items = (await applyTypedLineLinking(this.prisma, organizationId, dto.items, { wizardOrg, strict: !isDraft })) as any;
     // WCT orders: "Add job" on an order schedules another job of that order.
     const order = dto.orderId ? await this.orderForNewJob(dto.orderId, organizationId) : null;
     // Custom job fields: a bad value is refused BEFORE anything is created.
@@ -2635,6 +2638,8 @@ export class DeliveriesService {
     if (scheduleSourceMissing({ isDraft: willBeDraft, wizardOrg, source: scheduleSource, existing: run.scheduleSource })) {
       throw new BadRequestException(SCHEDULE_SOURCE_REQUIRED);
     }
+    // Stepped schedule: a typed line that IS a catalog product is linked to it (#122).
+    dto.items = (await applyTypedLineLinking(this.prisma, organizationId, dto.items, { wizardOrg, strict: !willBeDraft })) as any;
     const project = dto.projectId
       ? await this.prisma.project.findFirst({
           where: { id: dto.projectId, organizationId },

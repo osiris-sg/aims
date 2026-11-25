@@ -40,7 +40,11 @@
     "docSize": "出庫・納入依頼書: サイズ",
     "docName": "出庫・納入依頼書での表記",
     "hsCode": "HSコード",
-    "hsCodeHelp": "B/L・CIに記載がない時に使用"
+    "hsCodeHelp": "B/L・CIに記載がない時に使用",
+    "priceMode": "価格方式",
+    "priceModeInfo": "フォーミュラ：LME + MJP + プレミアム + アップチャージ（SUS）または別建ての費用行（加藤）。固定単価（オールイン）：輸送・輸入通関込みのMT当たり単価。SG→JPインボイスはこの単価を使い、LME / MJP / プレミアムは表示しません。",
+    "fixedUnitPrice": "MT当たり単価（オールイン）",
+    "fixedCurrency": "通貨"
   },
   "chem": {
     "element": "元素",
@@ -69,7 +73,8 @@
     "badNumber": "サイズ・結束・数量・化学成分の欄には数値のみ入力してください。",
     "unnamed": "製品",
     "toConfirm": "要確認: {field}",
-    "source": "出典: {source}"
+    "source": "出典: {source}",
+    "fixedPrice": "{price} {currency}/MT・オールイン（輸送・輸入通関込み）"
   },
   "files": {
     "specSheets": "仕様書",
@@ -113,5 +118,9 @@
     "uploadPdf": "契約書PDFをアップロード",
     "uploaded": "契約書PDFをアップロードしました",
     "uploadFailed": "契約書PDFをアップロードできませんでした"
+  },
+  "priceModes": {
+    "FORMULA": "フォーミュラ（LME + MJP + プレミアム）",
+    "FIXED_ALL_IN": "固定単価（オールイン）"
   }
 }

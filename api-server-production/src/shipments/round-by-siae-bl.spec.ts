@@ -14,7 +14,7 @@ describe('round BY — SIAE (PT Sri Indah) B/L on #24', () => {
       etd: '2026-11-11',
       portOfLoading: 'BATAM, INDONESIA',
       portOfDischarge: 'NAGOYA, JAPAN',
-      netWeightMt: 50.04,
+      netWeightMt: 50.0395, // round BZ: the B/L's 50,039.5 KGS at its own precision (was 50.04)
       grossWeightMt: 50.062,
       totalBundles: 45,
       totalPieces: 8375,

@@ -12,7 +12,7 @@
 // Documents created before these layouts keep their original forms below.
 
 import React from "react";
-import { Box, Button, Checkbox, Grid2, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from "@mui/material";
+import { Box, Button, Checkbox, Chip, Grid2, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from "@mui/material";
 import { useQueryClient } from "@tanstack/react-query";
 import { useShipmentsApi } from "@/app/portal/shipments/_lib/api";
 import { toast } from "@/app/portal/shipments/_lib/toast";
@@ -136,7 +136,8 @@ export function SiDocForm(props: DocFormProps<any, any>) {
 }
 
 /** Unit price: LME + QMJP + premium + upcharge once LME is filled, else as typed (mirrors the API). */
-const itemPrice = (i: any) => (i.lme != null && i.lme !== "" ? roundTo((Number(i.lme) || 0) + (Number(i.qmjp) || 0) + (Number(i.premium) || 0) + (Number(i.upcharge) || 0), 4) : toNum(i.unitPrice));
+const isFixed = (i: any) => i?.priceMode === "FIXED_ALL_IN";
+const itemPrice = (i: any) => (isFixed(i) ? toNum(i.unitPrice) : i.lme != null && i.lme !== "" ? roundTo((Number(i.lme) || 0) + (Number(i.qmjp) || 0) + (Number(i.premium) || 0) + (Number(i.upcharge) || 0), 4) : toNum(i.unitPrice));
 const itemAmount = (i: any) => {
   const p = itemPrice(i);
   const q = toNum(i.quantity);
@@ -214,18 +215,37 @@ function SgjpAdhForm({ header: h, rows, disabled, setHeader, setRows }: DocFormP
                 <Grid2 size={{ xs: 12, sm: 6 }}>{itf(i, "goods", "Description")}</Grid2>
                 <Grid2 size={{ xs: 6, sm: 3 }}>{itf(i, "hsCode", "HS code")}</Grid2>
                 <Grid2 size={{ xs: 6, sm: 3 }}>{itf(i, "terms", "Terms (after HS)")}</Grid2>
-                <Grid2 size={12}>
-                  <Typography variant="caption" color="text.secondary">
-                    Unit price US$/MT = LME + QMJP + billet premium + upcharge (customer price, shipment month) — fill LME, or type the unit price
-                  </Typography>
-                </Grid2>
-                <Grid2 size={{ xs: 6, sm: 2.4 }}>{inf(i, "lme", "LME")}</Grid2>
-                <Grid2 size={{ xs: 6, sm: 2.4 }}>{inf(i, "qmjp", "QMJP")}</Grid2>
-                <Grid2 size={{ xs: 6, sm: 2.4 }}>{inf(i, "premium", "Billet premium")}</Grid2>
-                <Grid2 size={{ xs: 6, sm: 2.4 }}>{inf(i, "upcharge", "Upcharge")}</Grid2>
-                <Grid2 size={{ xs: 12, sm: 2.4 }}>
-                  {it.lme != null && it.lme !== "" ? <TextField size="small" fullWidth label="Unit price" value={usd(itemPrice(it))} disabled inputProps={{ style: { textAlign: "right" } }} /> : inf(i, "unitPrice", "Unit price")}
-                </Grid2>
+                {isFixed(it) ? (
+                  // Round BZ: the customer's fixed all-in price (Clients › Products) — no LME / QMJP / premium / upcharge.
+                  <>
+                    <Grid2 size={{ xs: 12, sm: 4 }}>{inf(i, "unitPrice", `Unit price ${h.currency || "USD"}/MT (fixed, all-in)`)}</Grid2>
+                    <Grid2 size={{ xs: 12, sm: 8 }} sx={{ display: "flex", alignItems: "center" }}>
+                      <Tooltip title="From the customer's product (Clients › Products › Pricing): one price per MT including transport and import clearance. Switch to the formula only if this lot is priced differently.">
+                        <Chip size="small" color="info" variant="outlined" label="Fixed unit price (all-in)" data-tour="sgjp-fixed-price" />
+                      </Tooltip>
+                      {!disabled && (
+                        <Button size="small" sx={{ ml: 1 }} onClick={() => setItem(i, { priceMode: null })}>
+                          Use the formula
+                        </Button>
+                      )}
+                    </Grid2>
+                  </>
+                ) : (
+                  <>
+                    <Grid2 size={12}>
+                      <Typography variant="caption" color="text.secondary">
+                        Unit price US$/MT = LME + QMJP + billet premium + upcharge (customer price, shipment month) — fill LME, or type the unit price
+                      </Typography>
+                    </Grid2>
+                    <Grid2 size={{ xs: 6, sm: 2.4 }}>{inf(i, "lme", "LME")}</Grid2>
+                    <Grid2 size={{ xs: 6, sm: 2.4 }}>{inf(i, "qmjp", "QMJP")}</Grid2>
+                    <Grid2 size={{ xs: 6, sm: 2.4 }}>{inf(i, "premium", "Billet premium")}</Grid2>
+                    <Grid2 size={{ xs: 6, sm: 2.4 }}>{inf(i, "upcharge", "Upcharge")}</Grid2>
+                    <Grid2 size={{ xs: 12, sm: 2.4 }}>
+                      {it.lme != null && it.lme !== "" ? <TextField size="small" fullWidth label="Unit price" value={usd(itemPrice(it))} disabled inputProps={{ style: { textAlign: "right" } }} /> : inf(i, "unitPrice", "Unit price")}
+                    </Grid2>
+                  </>
+                )}
                 <Grid2 size={{ xs: 6, sm: 2 }}>{inf(i, "quantity", "Quantity MT")}</Grid2>
                 <Grid2 size={{ xs: 6, sm: 2 }}>{inf(i, "bundles", "Bundles")}</Grid2>
                 <Grid2 size={{ xs: 6, sm: 2 }}>{inf(i, "pieces", "Pieces")}</Grid2>

@@ -565,8 +565,8 @@ export default function ShipmentFormDialog({
               </Typography>
             </Divider>
           </Grid2>
-          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("netWeightMt", t("netWeight"), { type: "number", inputProps: { min: 0, step: "0.001" }, error: badDecimal(form.netWeightMt) })}</Grid2>
-          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("grossWeightMt", t("grossWeight"), { type: "number", inputProps: { min: 0, step: "0.001" }, error: badDecimal(form.grossWeightMt) })}</Grid2>
+          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("netWeightMt", t("netWeight"), { type: "number", inputProps: { min: 0, step: "any" }, error: badDecimal(form.netWeightMt) })}</Grid2>
+          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("grossWeightMt", t("grossWeight"), { type: "number", inputProps: { min: 0, step: "any" }, error: badDecimal(form.grossWeightMt) })}</Grid2>
           <Grid2 size={{ xs: 6, sm: 3 }}>{tf("totalBundles", t("bundles"), { type: "number", inputProps: { min: 0, step: 1 }, error: badInt(form.totalBundles) })}</Grid2>
           <Grid2 size={{ xs: 6, sm: 3 }}>{tf("totalPieces", t("pieces"), { type: "number", inputProps: { min: 0, step: 1 }, error: badInt(form.totalPieces) })}</Grid2>
           <Grid2 size={{ xs: 6, sm: 3 }}>{tf("containerCount", t("containers"), { type: "number", inputProps: { min: 0, step: 1 }, error: badInt(form.containerCount) })}</Grid2>
