@@ -1,94 +1,85 @@
 "use client";
 
-import React from "react";
-import MainCard from "@/components/MainCard";
-import { Box, Typography, Button, Grid, Card, CardContent, CardActions } from "@mui/material";
-import AssessmentIcon from "@mui/icons-material/Assessment";
-import ConstructionIcon from "@mui/icons-material/Construction";
-import TrendingUpIcon from "@mui/icons-material/TrendingUp";
-import InventoryIcon from "@mui/icons-material/Inventory";
-import HistoryIcon from "@mui/icons-material/History";
+// Inventory → Reports (guru 2026-11-25): the legacy system's "Inventory Report" menu,
+// its ten reports in its own order and its own wording. Each card opens
+// /portal/inventory/reports/<slug>, which runs it (see [report]/page.tsx).
+//
+// Same screen as Reports (/portal/reports) — guru 2026-11-25, "design the same ui as
+// sales reports screen": h4 title over a one-line lead, then cards three across with a
+// big centred icon, the report's name under it and what it answers under that, lifting
+// on hover. Icon colours are theme tokens, so they hold up in dark mode (the Reports
+// page's raw hexes do not).
 
-const reportTypes = [
-  {
-    title: "Stock Summary",
-    description: "Overview of current stock levels across all products",
-    icon: InventoryIcon,
-  },
-  {
-    title: "Stock Movement",
-    description: "Track stock ins and outs over a period",
-    icon: TrendingUpIcon,
-  },
-  {
-    title: "Stock Valuation",
-    description: "Value of inventory based on cost and quantity",
-    icon: AssessmentIcon,
-  },
-  {
-    title: "Transaction History",
-    description: "Detailed log of all inventory transactions",
-    icon: HistoryIcon,
-  },
-];
+import React from "react";
+import { useRouter } from "next/navigation";
+import { Box, Card, CardActionArea, CardContent, Grid, Typography } from "@mui/material";
+import AssessmentIcon from "@mui/icons-material/Assessment";
+import PendingActionsIcon from "@mui/icons-material/PendingActions";
+import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
+import SummarizeIcon from "@mui/icons-material/Summarize";
+import FactCheckIcon from "@mui/icons-material/FactCheck";
+import CategoryIcon from "@mui/icons-material/Category";
+import SwapVertIcon from "@mui/icons-material/SwapVert";
+import ChecklistIcon from "@mui/icons-material/Checklist";
+import SellIcon from "@mui/icons-material/Sell";
+import NotificationsActiveIcon from "@mui/icons-material/NotificationsActive";
+import { REPORTS } from "@/helpers/inventoryReports";
+
+const ART: Record<string, { icon: React.ElementType; color: string }> = {
+  "stock-status": { icon: AssessmentIcon, color: "primary.main" },
+  "unconfirmed-transactions": { icon: PendingActionsIcon, color: "warning.main" },
+  "purchase-order-listing": { icon: ShoppingCartIcon, color: "info.main" },
+  "purchase-summary-by-supplier": { icon: SummarizeIcon, color: "info.main" },
+  "stock-analysis-by-supplier": { icon: FactCheckIcon, color: "secondary.main" },
+  "stock-analysis-by-category": { icon: CategoryIcon, color: "secondary.main" },
+  "stock-movement": { icon: SwapVertIcon, color: "success.main" },
+  "stock-take-listing": { icon: ChecklistIcon, color: "success.main" },
+  "last-buy-price": { icon: SellIcon, color: "primary.main" },
+  "reorder-level": { icon: NotificationsActiveIcon, color: "error.main" },
+};
 
 export default function InventoryReportsPage() {
+  const router = useRouter();
   return (
-    <MainCard>
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" gutterBottom>
-          Inventory Reports
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Generate and view various inventory reports to gain insights into your stock management.
-        </Typography>
-      </Box>
-
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 4, color: "warning.main" }}>
-        <ConstructionIcon />
-        <Typography variant="body2" color="warning.main">
-          Reports feature is coming soon
-        </Typography>
-      </Box>
+    <Box>
+      <Typography variant="h4" sx={{ mb: 1, fontWeight: "bold" }}>
+        Inventory Reports
+      </Typography>
+      <Typography variant="body1" color="textSecondary" sx={{ mb: 4 }}>
+        Select a report to view your stock position and purchasing history
+      </Typography>
 
       <Grid container spacing={3}>
-        {reportTypes.map((report) => {
-          const IconComponent = report.icon;
+        {REPORTS.map((report) => {
+          const art = ART[report.slug];
+          const Icon = art.icon;
           return (
-            <Grid item xs={12} sm={6} md={3} key={report.title}>
-              <Card sx={{ height: "100%", display: "flex", flexDirection: "column", opacity: 0.7 }}>
-                <CardContent sx={{ flexGrow: 1 }}>
-                  <Box
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      width: 56,
-                      height: 56,
-                      borderRadius: 2,
-                      bgcolor: "primary.light",
-                      mb: 2,
-                    }}
-                  >
-                    <IconComponent sx={{ fontSize: 28, color: "primary.main" }} />
-                  </Box>
-                  <Typography variant="h6" gutterBottom>
-                    {report.title}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {report.description}
-                  </Typography>
-                </CardContent>
-                <CardActions>
-                  <Button size="small" disabled>
-                    Generate Report
-                  </Button>
-                </CardActions>
+            <Grid item xs={12} sm={6} md={4} key={report.slug}>
+              <Card
+                sx={{
+                  height: "100%",
+                  transition: "transform 0.2s, box-shadow 0.2s",
+                  "&:hover": { transform: "translateY(-4px)", boxShadow: 4 },
+                }}
+              >
+                <CardActionArea onClick={() => router.push(`/portal/inventory/reports/${report.slug}`)} sx={{ height: "100%" }}>
+                  <CardContent>
+                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", color: art.color, mb: 2 }}>
+                      <Icon sx={{ fontSize: 48 }} />
+                    </Box>
+                    <Typography variant="h6" sx={{ fontWeight: "bold", mb: 1, textAlign: "center" }}>
+                      {report.title}
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary" sx={{ textAlign: "center" }}>
+                      {report.description}
+                    </Typography>
+                  </CardContent>
+                </CardActionArea>
               </Card>
             </Grid>
           );
         })}
       </Grid>
-    </MainCard>
+    </Box>
   );
 }
