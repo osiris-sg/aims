@@ -8588,7 +8588,12 @@ export default function TabbedDocumentCreator({
                           // container (fixed-layout columns are unusable squeezed
                           // into 390px). Desktop keeps overflow visible so row
                           // popovers/autocomplete aren't clipped.
-                          overflow: { xs: "auto", md: "visible" },
+                          // Receiving mode (PO Receive) adds two more columns; the
+                          // grid then keeps a working Description column (see the
+                          // Table minWidth) and scrolls sideways if the window is
+                          // narrower than that, instead of squeezing Description to
+                          // a sliver (guru 2026-11-26).
+                          overflow: { xs: "auto", md: isReceiving ? "auto" : "visible" },
                           // Xero-style bordered grid container
                           border: `1px solid ${TABLE_GRID_COLOR}`,
                           borderRadius: 1,
@@ -8597,7 +8602,7 @@ export default function TabbedDocumentCreator({
                         <Table
                           sx={{
                             tableLayout: 'fixed',
-                            minWidth: { xs: 720, md: 0 },
+                            minWidth: { xs: 720, md: isReceiving ? 1240 : 0 },
                             // No up/down spinner on any number box in the grid (guru
                             // 2026-11-25): the arrows ate the digits' space and nobody
                             // steps a price by 1. Typing and arrow keys still work.
@@ -8778,10 +8783,10 @@ export default function TabbedDocumentCreator({
                             {/* Received Qty and Outstanding Qty columns for Purchase Orders/Returns in receiving mode */}
                             {isPurchaseDocument && isReceiving && (
                               <>
-                                <TableCell align="center" sx={{ width: "10%", bgcolor: "info.light" }}>
+                                <TableCell align="center" sx={{ width: "96px", bgcolor: "info.light" }}>
                                   Received Qty
                                 </TableCell>
-                                <TableCell align="center" sx={{ width: "10%", bgcolor: "warning.light" }}>
+                                <TableCell align="center" sx={{ width: "96px", bgcolor: "warning.light" }}>
                                   Outstanding Qty
                                 </TableCell>
                               </>
