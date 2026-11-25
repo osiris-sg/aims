@@ -4,6 +4,8 @@
 //  - the report number as people read it (SR202611-0001, else the old #n);
 //  - the report page's Order / DO / Job pills.
 
+import { flowDoRowWord } from "./wctStatusFlow";
+
 /** A DO the order page offers for a service report. */
 export interface OrderReportDo {
   id: string;
@@ -14,7 +16,8 @@ export interface OrderReportDo {
 
 /**
  * The order's DOs, once each: the DOs made on the order, its jobs' DOs, its linked DOs. Cancelled ones left out.
- * `draft`: not completed, not awaiting the customer's signature, and no scheduled job.
+ * `draft`: the same word as the order page and the DO list (wctStatusFlow flowDoRowWord, 2026-11-25): made by the system
+ * and nobody has saved, confirmed or sent it for signature yet.
  */
 export function orderReportDos(o: any): OrderReportDo[] {
   const out: OrderReportDo[] = [];
@@ -26,8 +29,7 @@ export function orderReportDos(o: any): OrderReportDo[] {
   };
   for (const d of o?.deliveryOrders ?? []) {
     if (d?.cancelled === true || d?.status === "cancelled") continue;
-    const scheduled = (d.jobs ?? []).some((j: any) => j?.isDraft === false && j?.status !== "cancelled");
-    add(d.id, d.name, !d.completed && !d.awaitingSignature && !scheduled);
+    add(d.id, d.name, flowDoRowWord(d) === "Draft");
   }
   for (const j of o?.jobs ?? []) {
     if (j?.status === "cancelled" || !j?.deliveryOrder) continue;

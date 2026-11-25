@@ -356,7 +356,7 @@ export default function MaintenanceReportDetailPage() {
           {!isUploaded && !report.paymentRequired && report.status === "completed" && !(report.serviceData as any)?.emailSentAt && (
             <Chip
               icon={<EmailIcon />}
-              label={(report.serviceData as any)?.clientEmail ? "Email not sent yet" : "Not emailed — no customer email on the report"}
+              label={(report.serviceData as any)?.clientEmail ? "Email not sent yet" : "Not emailed: no customer email on the report"}
               variant="outlined"
             />
           )}

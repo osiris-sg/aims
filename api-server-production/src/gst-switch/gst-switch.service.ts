@@ -16,6 +16,7 @@
  *   4. order status refresh, document history and Activity Log rows in both companies.
  * Journals are never moved or deleted; the DB guard triggers stay as they are.
  */
+import { srNumberOf } from '../maintenance-reports/sr-number';
 import { invoiceSplitOf, retaxedSplitTotals } from '../documents/invoice-split';
 import { stampDocumentMoney } from '../common/document-money';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
@@ -234,7 +235,7 @@ export class GstSwitchService {
       // UAT 25 Nov: the DOs' sign-off / start records are MaintenanceServiceReport rows too; name them as such.
       ...unit.reports.map((r: any) => {
         const label = reportRowLabel(r.kind);
-        return { id: r.id, kind: label, name: r.reportNumber ? `#${String(r.reportNumber).padStart(6, '0')}` : label, status: null, action: 'move' };
+        return { id: r.id, kind: label, name: srNumberOf(r.serviceData) ?? (r.reportNumber ? `#${String(r.reportNumber).padStart(6, '0')}` : label), status: null, action: 'move' };
       }),
     ];
     const creditNotes = plan.credit.map((d) => ({ invoiceId: d.id, invoice: d.name, amount: owedOf(d.config), already: !!d.config?.gstMove?.creditNote?.id }));

@@ -5,7 +5,7 @@ import { officeEmailPrefill, orderReportDos, prePickedDoId, reportDoLabel, repor
 
 const done = { id: "d1", name: "DO202611-0007", completed: true, awaitingSignature: false, jobs: [] };
 const draft = { id: "d2", name: "DO202611-0008", completed: false, awaitingSignature: false, jobs: [] };
-const scheduled = { id: "d3", name: "DO202611-0009", completed: false, awaitingSignature: false, jobs: [{ isDraft: false, status: "scheduled" }] };
+const scheduled = { id: "d3", name: "DO202611-0009", status: "unconfirmed", saved: true, completed: false, awaitingSignature: false, jobs: [{ isDraft: false, status: "scheduled" }] };
 
 test("the order's DOs: made on the order, its jobs' DOs, linked DOs, once each; drafts marked", () => {
   const o = {
@@ -76,4 +76,13 @@ test("doc chain: the order's service reports get their own section (only when th
   assert.deepEqual(s.at(-1), { key: "report", label: "Service reports", items: [{ id: "r1", name: "SR202611-0001", href: "/portal/maintenance-reports/r1" }, { id: "r2", name: "Draft", href: "/portal/maintenance-reports/r2" }] });
   assert.equal(chainSections({ ...base, reports: [] }).some((x) => x.key === "report"), false);
   assert.equal(chainSections(base).some((x) => x.key === "report"), false);
+});
+
+test("re-test 2026-11-25: a DO a person saved reads Pending on the order page, so it is not a draft here and is pre-picked", () => {
+  const dos = orderReportDos({ deliveryOrders: [{ id: "d9", name: "DO202611056", status: "unconfirmed", saved: true, completed: false, awaitingSignature: false, jobs: [] }] });
+  assert.equal(dos[0].draft, false);
+  assert.equal(reportDoLabel(dos[0]), "DO202611056");
+  assert.equal(prePickedDoId(dos), "d9");
+  const sys = orderReportDos({ deliveryOrders: [{ id: "d8", name: "DO202611057", status: "unconfirmed", completed: false, jobs: [] }] });
+  assert.equal(prePickedDoId(sys), null);
 });
