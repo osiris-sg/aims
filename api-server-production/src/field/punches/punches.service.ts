@@ -3,10 +3,11 @@
  * (flagged, marked, face-log, approve, reject), src/modules/sites/sites.router.ts (present, pulse) and the
  * engine (engine.ts). Office side only: punches come from the worker app (SiteClock today, the AIMS app later).
  */
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
 import { PrismaService } from '../../common/prisma.service';
+import { S3Service } from '../../common/services/s3.service';
 import { FieldCtx, mayReview, reviewScope } from '../common/field-context.service';
 import { haversineM } from '../common/geo';
 import { localDate, localTimeToUtc } from '../common/time';
@@ -18,7 +19,7 @@ export const LOCATION_FLAGS: ReadonlySet<string> = new Set(['OUTSIDE_FENCE', 'PO
 
 @Injectable()
 export class FieldPunchesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, @Optional() private readonly s3?: S3Service) {}
   private get db(): any {
     return this.prisma as any;
   }
@@ -138,13 +139,15 @@ export class FieldPunchesService {
     return new FieldEngine(this.db).rejectPunch(p.id, { id: ctx.userId, name: ctx.userName }, note);
   }
 
-  /** The selfie: only once the files are copied from SiteClock (imported rows keep a "siteclock:" path until then). */
+  /** The selfie: a short-lived link. Imported rows keep a "siteclock:" path until the files are copied from SiteClock. */
   async photo(ctx: FieldCtx, id: string) {
     const p = await this.db.fieldPunch.findFirst({ where: { id, organizationId: ctx.organizationId } });
     if (!p || !mayReview(ctx, 'punches', p.siteId, p.workerId)) throw new NotFoundException('Not found');
     if (!p.photoKey) throw new NotFoundException('No photo');
     if (String(p.photoKey).startsWith('siteclock:')) throw new NotFoundException('This photo is still in SiteClock and has not been copied yet');
-    throw new ForbiddenException('Photos taken in AIMS come with the AIMS phone app');
+    if (!this.s3) throw new NotFoundException('Photo missing');
+    // Taken in the AIMS phone app: a link that works for five minutes.
+    return { url: await this.s3.getSignedUrl(p.photoKey, 300) };
   }
 
   /** Who is on site now (OPEN entries) per site, and a site's pulse (people with clock-in GPS and inside the fence). */

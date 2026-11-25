@@ -21,6 +21,15 @@ export default function FieldClockInsPage() {
   return <FieldGate area="punches" title="Clock-ins">{(me) => <ClockIns me={me} />}</FieldGate>;
 }
 
+/** The selfie taken with a flagged clock-in (AIMS phone app): the reviewer checks it is the worker. */
+function Selfie({ id, get }: { id: string; get: <T>(path: string) => Promise<T> }) {
+  const q = useQuery({ queryKey: ["field-punch-photo", id], queryFn: () => get<{ url: string }>(`/field/punches/${id}/photo`), staleTime: 4 * 60_000, retry: false });
+  if (q.isLoading) return <Typography color="text.secondary">Loading the selfie…</Typography>;
+  if (!q.data?.url) return <Typography color="text.secondary">The selfie could not be loaded.</Typography>;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <Box component="img" src={q.data.url} alt="Selfie taken with this clock-in" sx={{ width: "100%", maxWidth: 280, borderRadius: 2, alignSelf: "center" }} />;
+}
+
 function ClockIns({ me }: { me: FieldMe }) {
   const { get, send } = useFieldApi();
   const qc = useQueryClient();
@@ -119,6 +128,7 @@ function ClockIns({ me }: { me: FieldMe }) {
               </Typography>
               {review.p.workerNote && <Alert severity="info">{review.p.workerNote}</Alert>}
               {review.p.hasPhoto && !review.p.photoCopied && <Typography color="text.secondary">The selfie is still in SiteClock.</Typography>}
+              {review.p.hasPhoto && review.p.photoCopied && <Selfie id={review.p.id} get={get} />}
               <TextField type="datetime-local" label="Time of this clock-in or out" InputLabelProps={{ shrink: true }} value={review.punchAt} onChange={(e) => setReview({ ...review, punchAt: e.target.value })} />
               {review.p.needsClockIn && (
                 <TextField type="datetime-local" label="They started at" InputLabelProps={{ shrink: true }} value={review.clockInAt} onChange={(e) => setReview({ ...review, clockInAt: e.target.value })} />

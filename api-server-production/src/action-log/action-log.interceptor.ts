@@ -41,10 +41,13 @@ const SKIP_PATHS = [
   '/thumb',
   // Bills-group intake POSTs: PayablesService writes its own meaningful system row per batch.
   '/whatsapp/group-ingest',
+  // AIMS phone app (HR worker side): the push token refresh on every app start is not an action.
+  '/field/app/auth/fcm-token',
 ];
 
 // Background GETs fired on page load / tab focus, not user intent.
 const SKIP_GET_PATHS = [
+  '/field/app/', // the phone app re-reads its own screens on every open and resume; its writes (clock in/out, leave, terms) log
   '/search', // global top-nav search fires per keystroke
   '/configuration',
   '/organizations/user',
@@ -75,6 +78,8 @@ const VIEW_POST_RE =
  *  a day or week of jobs copied, several timesheets approved at once, a job's QR code renewed. */
 const FIELD_VERB_ACTIONS: Record<string, string> = {
   restore: 'RESTORE', record: 'CREATE', notify: 'SEND', 'copy-day': 'DUPLICATE', 'copy-week': 'DUPLICATE', 'approve-bulk': 'APPROVE', qr: 'UPDATE',
+  // The phone app (/field/app): terms accepted, a missed day asked for.
+  accept: 'CONFIRM', 'missed-request': 'SUBMIT',
 };
 
 const VERB_ACTIONS: Record<string, string> = {

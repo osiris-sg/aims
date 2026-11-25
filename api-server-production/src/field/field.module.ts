@@ -20,16 +20,21 @@ import { FieldContextService } from './common/field-context.service';
 import { FieldMeController } from './common/field-me.controller';
 import { FieldPeopleController } from './people/people.controller';
 import { FieldPeopleService } from './people/people.service';
+import { S3Service } from '../common/services/s3.service';
+import { FieldAppGuard } from './app/app-context';
+import { FieldAppController, FieldAppVersionController } from './app/app.controller';
+import { FieldAppService } from './app/app.service';
 
 /**
  * Field module (FIELD_PLAN.md): SiteClock's office side, native in AIMS. Every route is behind
- * enableFieldModule + its area flag (FieldAreaGuard; all default off).
+ * enableFieldModule + its area flag (FieldAreaGuard; all default off). app/: the worker side the AIMS
+ * phone app calls (/field/app/*, FieldAppGuard: module on + the login is a worker; clocking needs fieldEngineLive).
  */
 @Module({
   // DeliveriesModule: copy day / week creates calendar quick jobs through the calendar's own path.
   imports: [forwardRef(() => DeliveriesModule)],
-  controllers: [FieldMeController, FieldPeopleController, FieldJobsController, FieldPunchesController, FieldTimesheetsController, FieldLeaveController, FieldPayrollController, FieldReportsController],
-  providers: [PrismaService, FieldContextService, FieldAreaGuard, FieldPeopleService, FieldJobsService, FieldSchedulesService, FieldPunchesService, FieldAutoCloseCron, FieldTimesheetsService, FieldLeaveService, FieldPayrollService, FieldReportsService],
+  controllers: [FieldAppVersionController, FieldAppController, FieldMeController, FieldPeopleController, FieldJobsController, FieldPunchesController, FieldTimesheetsController, FieldLeaveController, FieldPayrollController, FieldReportsController],
+  providers: [PrismaService, S3Service, FieldContextService, FieldAreaGuard, FieldAppGuard, FieldAppService, FieldPeopleService, FieldJobsService, FieldSchedulesService, FieldPunchesService, FieldAutoCloseCron, FieldTimesheetsService, FieldLeaveService, FieldPayrollService, FieldReportsService],
   exports: [FieldContextService, FieldPeopleService],
 })
 export class FieldModule {}
