@@ -24,6 +24,8 @@ export interface CalendarNoteView {
   createdBy?: { id: string; name: string | null } | null;
   /** Technician Site Visit only (calendar-note-types.ts TsvDetails); absent on every other note. */
   details?: TsvDetails;
+  /** Repeating notes (WCT group, 2026-11-25): the series line; the id of an occurrence is "<noteId>~<yyyyMMdd>". */
+  repeat?: { seriesId: string; date: string; rrule: string; text: string; anchorDate: string; exception?: true };
 }
 
 const SELECT = { id: true, title: true, type: true, staffId: true, staffName: true, startDate: true, endDate: true, allDay: true, startTime: true, endTime: true, remark: true, details: true };

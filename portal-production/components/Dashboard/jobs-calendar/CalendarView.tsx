@@ -534,6 +534,7 @@ export default function CalendarView({
             </Typography>
             {noteView.note.orgName && <Row label="Organisation">{noteView.note.orgName}</Row>}
             <Row label="When">{noteWhen(noteView.note)}</Row>
+            {noteView.note.repeat && <Row label="Repeats">{noteView.note.repeat.text}</Row>}
             <Row label="Type">{noteType(noteView.note.type).label}</Row>
             {noteView.note.staffName && <Row label="Staff">{noteView.note.staffName}</Row>}
             {noteView.note.remark && <Row label="Remark">{noteView.note.remark}</Row>}

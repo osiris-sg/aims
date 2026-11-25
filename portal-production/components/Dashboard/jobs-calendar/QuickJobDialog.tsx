@@ -21,6 +21,7 @@ import JobStyleFields from "./JobStyleFields";
 import JobEditDetails, { type JobEditRun } from "./JobEditDetails";
 import { applyQuotationPick, doOptionLabel, needsDoPick, quotationLabel, quotationRow, quotationSearchPath, type QuotationDetail, type QuotationOption } from "@/helpers/quickJobQuotation";
 import DateInput from "@/components/DateInput";
+import RepeatField, { repeatRuleToSave, repeatValueOf, type RepeatValue } from "./RepeatField";
 
 const DURATIONS = [30, 60, 90, 120, 180, 240, 480];
 const durLabel = (m: number) => (m % 60 === 0 ? `${m / 60} h` : m > 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
@@ -54,6 +55,7 @@ export default function QuickJobDialog({
   createdBy = null,
   onComplete,
   onRunChanged,
+  repeat = null,
 }: {
   open: boolean;
   onClose: () => void;
@@ -77,6 +79,8 @@ export default function QuickJobDialog({
   onComplete?: () => void;
   /** Edit: the job changed outside the form (location, verification): reload it. */
   onRunChanged?: () => void;
+  /** Repeating jobs (WCT group, 2026-11-25), Edit only: the series being edited ("All events" of its template). */
+  repeat?: { seriesId: string; rrule: string } | null;
 }) {
   const baseApi = useCalendarApi();
   const phone = useMediaQuery((t: any) => t.breakpoints.down("sm"));
@@ -107,6 +111,12 @@ export default function QuickJobDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Repeat (WCT group): a new job, or the series of a repeating job opened as "All events".
+  const [repeatValue, setRepeatValue] = useState<RepeatValue>(() => repeatValueOf(null, ""));
+  useEffect(() => {
+    if (open) setRepeatValue(repeatValueOf(edit ? repeat?.rrule ?? null : null, edit ? sgtParts(edit.scheduledFor).date : slot?.date ?? ""));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, edit?.id, repeat?.seriesId]);
   const quotationOn = withQuotation && !edit;
   const [quotation, setQuotation] = useState<QuotationDetail | null>(null);
   const [quotationBusy, setQuotationBusy] = useState(false);
@@ -234,6 +244,16 @@ export default function QuickJobDialog({
     setSaving(false);
     if (!res.ok) return setError(res.message || "Couldn't save the job");
     const saved = res.data;
+    // Repeat: a new job becomes a series' template; a series edited as "All events" takes its new rule.
+    const rule = repeatRuleToSave(repeatValue, form.date);
+    if (!edit && rule && saved?.id) {
+      const r = await api("POST", "/dashboard/jobs-calendar/series", { kind: "JOB", recordId: saved.id, rrule: rule });
+      if (!r.ok) setError(r.message || "The job was saved but could not be made to repeat");
+    } else if (edit && repeat && repeatValue.changed) {
+      // "Does not repeat" on a series: only its first occurrence stays.
+      const r = await api("PATCH", `/dashboard/jobs-calendar/series/${repeat.seriesId}`, { rrule: rule ?? "FREQ=DAILY;COUNT=1" });
+      if (!r.ok) return setError(r.message || "Couldn't save how it repeats");
+    }
     onSaved(edit?.id ?? saved?.id ?? "", edit ? undefined : { orderNumber: saved?.orderNumber ?? null, doName: saved?.doName ?? null, quotationName: quotation?.name ?? null, orgName: orgFor ? companyName(orgFor) : null });
   };
 
@@ -247,7 +267,8 @@ export default function QuickJobDialog({
   const remove = async () => {
     if (!edit) return;
     setSaving(true);
-    const res = await api("DELETE", `/deliveries/${edit.id}`);
+    // A repeating job opened as "All events" (or "This and following"): the whole series goes.
+    const res = repeat ? await api("DELETE", `/dashboard/jobs-calendar/series/${repeat.seriesId}`) : await api("DELETE", `/deliveries/${edit.id}`);
     setSaving(false);
     if (!res.ok) return setError(res.message || "Couldn't delete the job");
     onDeleted?.();
@@ -344,6 +365,7 @@ export default function QuickJobDialog({
               sx={{ flexShrink: 0, mr: 0, whiteSpace: "nowrap" }}
             />
           </Stack>
+          {wctForm && (!edit || repeat) && <RepeatField date={form.date} value={repeatValue} onChange={setRepeatValue} />}
           {workers.enabled ? (
             <Autocomplete
               multiple

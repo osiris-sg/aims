@@ -4,11 +4,13 @@ import { JobsCalendarService } from './jobs-calendar.service';
 import { CalendarNotesService } from './calendar-notes.service';
 import { CalendarStyleService } from './calendar-style.service';
 import { RoleHomeService } from './role-home.service';
+import { CalendarSeriesService } from './calendar-series.service';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Request } from 'express';
 import { actorOf } from '../auth/admin-scope';
+import { AltPermissions, JOB_UPDATE_ALT } from '../auth/decorators/alt-permissions.decorator';
 
 // Extend Request type to include userOrganization
 interface RequestWithOrganization extends Request {
@@ -30,6 +32,7 @@ export class DashboardController {
     private readonly calendarNotes: CalendarNotesService,
     private readonly roleHome: RoleHomeService,
     private readonly calendarStyle: CalendarStyleService,
+    private readonly calendarSeries: CalendarSeriesService,
   ) {}
 
   @Get('overview')
@@ -208,6 +211,79 @@ export class DashboardController {
   @ApiOperation({ summary: 'Jobs calendar: delete a note' })
   async deleteCalendarNote(@Req() req: RequestWithOrganization, @Param('id') id: string) {
     return await this.calendarNotes.remove(this.orgOf(req), id);
+  }
+
+  // Repeating jobs and notes (WCT group, 2026-11-25, calendar-series.service.ts): Google Calendar's "Repeat".
+
+  @Post('jobs-calendar/series')
+  @Permissions('documents:create-basic')
+  @AltPermissions(JOB_UPDATE_ALT)
+  @ApiOperation({ summary: 'Jobs calendar: make a job or note repeat (RRULE)' })
+  async createCalendarSeries(@Req() req: RequestWithOrganization, @Body() body: any) {
+    return await this.calendarSeries.create(this.orgOf(req), req.user?.id ?? null, body);
+  }
+
+  @Get('jobs-calendar/series/of/:recordId')
+  @Permissions('dashboard:read')
+  @ApiOperation({ summary: 'Jobs calendar: the repeating series of a job / note / occurrence (null = none)' })
+  async calendarSeriesOf(@Req() req: RequestWithOrganization, @Param('recordId') recordId: string) {
+    return { series: await this.calendarSeries.forRecord(this.orgOf(req), recordId) };
+  }
+
+  @Patch('jobs-calendar/series/:id')
+  @Permissions('documents:create-basic')
+  @AltPermissions(JOB_UPDATE_ALT)
+  @ApiOperation({ summary: 'Jobs calendar: change how a series repeats (all events)' })
+  async updateCalendarSeries(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() body: any) {
+    return await this.calendarSeries.updateRule(this.orgOf(req), id, body);
+  }
+
+  @Post('jobs-calendar/series/:id/materialize')
+  @Permissions('documents:create-basic')
+  @AltPermissions(JOB_UPDATE_ALT)
+  @ApiOperation({ summary: 'Jobs calendar: one occurrence as its own job / note' })
+  async materializeCalendarSeries(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() body: any) {
+    return await this.calendarSeries.materialize(this.orgOf(req), id, body);
+  }
+
+  @Post('jobs-calendar/occurrences/:occurrenceId/materialize')
+  @Permissions('documents:create-basic')
+  @AltPermissions(JOB_UPDATE_ALT)
+  @ApiOperation({ summary: 'Jobs calendar: an occurrence ("<templateId>~<yyyyMMdd>") as its own job / note' })
+  async materializeCalendarOccurrence(@Req() req: RequestWithOrganization, @Param('occurrenceId') occurrenceId: string) {
+    return await this.calendarSeries.materializeOccurrence(this.orgOf(req), occurrenceId);
+  }
+
+  @Post('jobs-calendar/series/:id/split')
+  @Permissions('documents:create-basic')
+  @AltPermissions(JOB_UPDATE_ALT)
+  @ApiOperation({ summary: 'Jobs calendar: this and following events become a new series' })
+  async splitCalendarSeries(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() body: any) {
+    return await this.calendarSeries.split(this.orgOf(req), id, body);
+  }
+
+  @Post('jobs-calendar/series/:id/skip')
+  @Permissions('documents:create-basic')
+  @AltPermissions(JOB_UPDATE_ALT)
+  @ApiOperation({ summary: 'Jobs calendar: delete one occurrence (EXDATE)' })
+  async skipCalendarSeries(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() body: any) {
+    return await this.calendarSeries.skip(this.orgOf(req), id, body);
+  }
+
+  @Post('jobs-calendar/series/:id/end')
+  @Permissions('documents:create-basic')
+  @AltPermissions(JOB_UPDATE_ALT)
+  @ApiOperation({ summary: 'Jobs calendar: delete this and following occurrences' })
+  async endCalendarSeries(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() body: any) {
+    return await this.calendarSeries.end(this.orgOf(req), id, body);
+  }
+
+  @Delete('jobs-calendar/series/:id')
+  @Permissions('documents:create-basic')
+  @AltPermissions(JOB_UPDATE_ALT)
+  @ApiOperation({ summary: 'Jobs calendar: delete a whole series' })
+  async deleteCalendarSeries(@Req() req: RequestWithOrganization, @Param('id') id: string) {
+    return await this.calendarSeries.remove(this.orgOf(req), id);
   }
 
   // Calendar style (enableCalendarStyle, WCT group): people colours (Settings) and the job forms' pickers.

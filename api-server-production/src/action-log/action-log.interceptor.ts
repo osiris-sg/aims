@@ -115,6 +115,9 @@ const VERB_ACTIONS: Record<string, string> = {
   'mark-complete': 'COMPLETE', 'invoice-remaining': 'CREATE', // reopen: mapped below (REOPEN)
   // Jobs calendar panel (WCT group, 2026-11-20): Cancel job, its Undo, Postpone / Reschedule.
   'calendar-cancel': 'CANCEL', 'calendar-uncancel': 'UNDO', reschedule: 'RESCHEDULE',
+  // Repeating jobs / notes (WCT group, 2026-11-25): one occurrence made its own job, "this and following" split,
+  // one occurrence deleted (EXDATE), the series ended from a day.
+  materialize: 'CREATE', split: 'SPLIT', // skip (SKIP) and end (END) are mapped below.
   // Round 19: "Link existing document" / "Unlink" on an imported order (POST /orders/:id/link-document | unlink-document).
   'link-document': 'LINK', 'unlink-document': 'UNLINK',
   // Round AK: Settings → Shipping → LME "Fetch now".

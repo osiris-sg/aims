@@ -334,6 +334,7 @@ export default function StyledJobPanel({
       )}
       <Divider sx={{ my: 1.5 }} />
       <Row label="When">{timeWindow(e)}</Row>
+      {e.repeat && <Row label="Repeats">{e.repeat.text}</Row>}
       {e.address && <Row label="Address">{e.address}</Row>}
       <Row label="Team / crew">
         {editable && crewOn ? (

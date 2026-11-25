@@ -14,6 +14,9 @@ export interface CalendarCrew {
 
 export interface CalendarEvent {
   id: string;
+  /** Repeating jobs (WCT group, 2026-11-25): the series line ("Weekly on Wed, never ends"); occurrence = not a job yet. */
+  repeat?: { seriesId: string; date: string; rrule: string; text: string; anchorDate: string; exception?: true };
+  occurrence?: true;
   /** Technician Site Visit (a note drawn as a job, 2026-11-24): opens the Note dialog. */
   noteId?: string;
   noteKind?: "technician_site_visit";

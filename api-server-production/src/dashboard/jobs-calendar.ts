@@ -110,6 +110,9 @@ export interface CalendarCrew {
 
 export interface CalendarEvent {
   id: string;
+  /** Repeating jobs (WCT group, 2026-11-25): the series line ("Weekly on Wed, never ends"); occurrence = not a job yet. */
+  repeat?: { seriesId: string; date: string; rrule: string; text: string; anchorDate: string; exception?: true };
+  occurrence?: true;
   source: 'aims' | 'siteclock';
   kind: EventKind;
   title: string;

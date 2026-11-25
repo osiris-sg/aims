@@ -32,6 +32,8 @@ import { linkedToast } from "@/helpers/quickJobQuotation";
 import NoteDialog from "./jobs-calendar/NoteDialog";
 import CalendarSearch, { type CalendarSearchHit } from "./jobs-calendar/CalendarSearch";
 import JobEditHost, { type JobEditTarget } from "./jobs-calendar/JobEditHost";
+import { useRepeatScope } from "./jobs-calendar/RepeatField";
+import { occurrenceInPath, occurrenceOf } from "./jobs-calendar/repeat";
 import CalendarSkeleton, { FilterRowSkeleton, GridSkeleton } from "./jobs-calendar/CalendarSkeleton";
 import CalendarColoursDialog from "./jobs-calendar/CalendarColoursDialog";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
@@ -147,6 +149,14 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
       styledOn
         ? {
             call: async (method, path, body, orgId) => {
+              // Repeating jobs (2026-11-25): an action on one occurrence (PTW, COD, team, cancel, postpone...) makes
+              // that occurrence its own job first, then acts on it; the rest of the series is untouched.
+              const occ = method !== "GET" ? occurrenceInPath(path) : null;
+              if (occ) {
+                const m = await api<{ id: string }>("POST", `/dashboard/jobs-calendar/occurrences/${occ}/materialize`, undefined, orgId);
+                if (!m.ok || !m.data?.id) return { ok: false, data: null, message: m.message || "Couldn't open this occurrence" };
+                path = path.replace(occ, m.data.id);
+              }
               const r = await api(method, path, body, orgId);
               return { ok: r.ok, data: r.data, message: r.message };
             },
@@ -185,8 +195,17 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
   // All-day jobs (2026-11-10): a drag to another day saves at once; a refusal snaps it back.
   const onMove = useCallback(
     async (e: CalendarEvent, date: string) => {
-      const id = runIdOf(e.id);
+      let id = runIdOf(e.id);
       if (!id) throw new Error("Not an AIMS job");
+      // A repeating job's occurrence moves alone (Google's moved occurrence): it becomes its own job first.
+      if (occurrenceOf(id)) {
+        const m = await api<{ id: string }>("POST", `/dashboard/jobs-calendar/occurrences/${id}/materialize`);
+        if (!m.ok || !m.data?.id) {
+          toast.error(m.message || "Couldn't move the job");
+          throw new Error(m.message);
+        }
+        id = m.data.id;
+      }
       const r = await api("PATCH", `/deliveries/scheduled/${id}/day`, { date });
       if (!r.ok) {
         toast.error(r.message || "Couldn't move the job");
@@ -196,6 +215,35 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
       setReloadKey((k) => k + 1);
     },
     [api],
+  );
+  // Repeating jobs (2026-11-25): Edit asks "This event / This and following events / All events" (Google's question);
+  // Complete job always works on that occurrence alone (it becomes its own job, with its own proof and DOs).
+  const scopeAsk = useRepeatScope();
+  const openJob = useCallback(
+    async (e: CalendarEvent, mode: "edit" | "complete") => {
+      const orgId = e.foreign ? e.orgId ?? null : null;
+      const base = { mode, orgId, createdBy: e.createdBy?.name ?? null };
+      const occ = occurrenceOf(e.id);
+      const rep = (e as any).repeat as { seriesId: string; date: string; rrule: string } | undefined;
+      if (!occ || !rep) return setJobEdit({ id: e.id.slice(5), ...base });
+      const scope = mode === "complete" ? "this" : await scopeAsk.ask("Edit repeating job");
+      if (!scope) return;
+      if (scope === "this") {
+        const m = await api<{ id: string }>("POST", `/dashboard/jobs-calendar/occurrences/${e.id.slice(5)}/materialize`, undefined, orgId);
+        if (!m.ok || !m.data?.id) return void toast.error(m.message || "Couldn't open this occurrence");
+        reload();
+        return setJobEdit({ id: m.data.id, ...base });
+      }
+      if (scope === "following") {
+        const sp = await api<{ seriesId: string; templateId: string }>("POST", `/dashboard/jobs-calendar/series/${rep.seriesId}/split`, { date: occ.date }, orgId);
+        if (!sp.ok || !sp.data) return void toast.error(sp.message || "Couldn't split the series");
+        reload();
+        return setJobEdit({ id: sp.data.templateId, ...base, mode: "edit", repeat: { seriesId: sp.data.seriesId, rrule: rep.rrule } });
+      }
+      setJobEdit({ id: occ.templateId, ...base, mode: "edit", repeat: { seriesId: rep.seriesId, rrule: rep.rrule } });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [api, reload],
   );
   if (featuresLoading) return <CalendarSkeleton fullHeight={fullHeight} />;
   return (
@@ -215,8 +263,8 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
         newButton={!!isGroupCalendarEnabled}
         searchJobs={isGroupCalendarEnabled ? searchJobs : undefined}
         linkFocus={linkFocus}
-        onEditJob={canAdd ? (e) => setJobEdit({ id: e.id.slice(5), mode: "edit", orgId: e.foreign ? e.orgId ?? null : null, createdBy: e.createdBy?.name ?? null }) : undefined}
-        onCompleteJob={canAdd ? (e) => setJobEdit({ id: e.id.slice(5), mode: "complete", orgId: e.foreign ? e.orgId ?? null : null, createdBy: e.createdBy?.name ?? null }) : undefined}
+        onEditJob={canAdd ? (e) => void openJob(e, "edit") : undefined}
+        onCompleteJob={canAdd ? (e) => void openJob(e, "complete") : undefined}
         onAdd={(kind, slot) => setAdding({ kind, slot })}
         onNoteClick={setEditNote}
         onMove={onMove}
@@ -226,6 +274,7 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
         loadHeader={loadHeader}
       />
       {canAdd && <JobEditHost target={jobEdit} onClose={() => setJobEdit(null)} onSaved={reload} />}
+      {scopeAsk.element}
       {canColours && <CalendarColoursDialog open={coloursOpen} onClose={() => setColoursOpen(false)} onSaved={reload} />}
       {canAdd && (
         <>

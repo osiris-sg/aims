@@ -17,6 +17,8 @@ export interface JobEditTarget {
   /** Another company's job (group calendar): its company id, so every call goes there. */
   orgId?: string | null;
   createdBy?: string | null;
+  /** Repeating jobs (2026-11-25): editing a series ("All events" / "This and following events" of its template). */
+  repeat?: { seriesId: string; rrule: string } | null;
 }
 
 /** GET /deliveries/:id → the form's edit values (same mapping the old job page used). */
@@ -88,6 +90,7 @@ export default function JobEditHost({ target, onClose, onSaved }: { target: JobE
           done();
         }}
         onDeleted={done}
+        repeat={target.repeat ?? null}
       />
       {mode === "complete" && (
         <OfficeCompleteJobDialog

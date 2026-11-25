@@ -14,6 +14,8 @@ import DateInput from "@/components/DateInput";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { closeAction, formDirty } from "@/helpers/calendarDiscard";
 import DiscardChangesDialog from "./DiscardChangesDialog";
+import RepeatField, { repeatRuleToSave, repeatValueOf, useRepeatScope, type RepeatValue } from "./RepeatField";
+import { occurrenceOf, shiftToAnchor } from "./repeat";
 
 export default function NoteDialog({
   open,
@@ -43,6 +45,10 @@ export default function NoteDialog({
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState("");
+  // Repeat (WCT group, 2026-11-25): a new note, or a repeating one (its rule; Google's "which events?" on save / delete).
+  const [repeatValue, setRepeatValue] = useState<RepeatValue>(() => repeatValueOf(null, ""));
+  const rep = note?.repeat && !note.repeat.exception ? note.repeat : null;
+  const scopeAsk = useRepeatScope();
 
   useEffect(() => {
     if (!open) return;
@@ -66,6 +72,7 @@ export default function NoteDialog({
         : blank(slot, styled);
     setForm(opened);
     setBaseline(opened);
+    setRepeatValue(repeatValueOf(note?.repeat && !note.repeat.exception ? note.repeat.rrule : null, opened.startDate));
   }, [open, note, slot, styled]);
 
   const set = (patch: Partial<NoteForm>) => setForm((f) => ({ ...f, ...patch }));
@@ -82,17 +89,76 @@ export default function NoteDialog({
   const save = async () => {
     const { body, error: bad } = noteBody(form);
     if (!body) return setError(bad || "Check the form");
+    const rule = repeatRuleToSave(repeatValue, form.startDate);
+    if (rep) return saveRepeating(body, rule);
     setBusy(true);
     const res = note ? await api("PATCH", `/dashboard/jobs-calendar/notes/${note.id}`, body) : await api("POST", "/dashboard/jobs-calendar/notes", body);
+    if (res.ok && !note && rule && (res.data as any)?.id) {
+      const r = await api("POST", "/dashboard/jobs-calendar/series", { kind: "NOTE", recordId: (res.data as any).id, rrule: rule });
+      if (!r.ok) {
+        setBusy(false);
+        return setError(r.message || "The note was saved but could not be made to repeat");
+      }
+    }
     setBusy(false);
     if (!res.ok) return setError(res.message || "Couldn't save the note");
     onSaved();
   };
 
+  /** A repeating note: This event (its own note), This and following (a new series from here), All events. */
+  const saveRepeating = async (body: any, rule: string | null) => {
+    if (!note || !rep) return;
+    const scope = await scopeAsk.ask("Edit repeating note");
+    if (!scope) return;
+    setBusy(true);
+    setError("");
+    const fail = (m: string) => {
+      setBusy(false);
+      setError(m);
+    };
+    let id = note.id;
+    let seriesId = rep.seriesId;
+    let patch = body;
+    const occ = occurrenceOf(note.id);
+    if (scope === "this") {
+      if (occ) {
+        const m = await api<{ id: string }>("POST", `/dashboard/jobs-calendar/occurrences/${note.id}/materialize`);
+        if (!m.ok || !m.data?.id) return fail(m.message || "Couldn't save the note");
+        id = m.data.id;
+      }
+    } else if (scope === "following") {
+      const sp = await api<{ seriesId: string; templateId: string }>("POST", `/dashboard/jobs-calendar/series/${rep.seriesId}/split`, { date: rep.date });
+      if (!sp.ok || !sp.data) return fail(sp.message || "Couldn't split the series");
+      id = sp.data.templateId;
+      seriesId = sp.data.seriesId;
+    } else {
+      id = occ?.templateId ?? note.id;
+      patch = { ...body, ...shiftToAnchor(body.startDate, body.endDate, rep.date, rep.anchorDate) };
+    }
+    const res = await api("PATCH", `/dashboard/jobs-calendar/notes/${id}`, patch);
+    if (!res.ok) return fail(res.message || "Couldn't save the note");
+    if (scope !== "this" && repeatValue.changed) {
+      const r = await api("PATCH", `/dashboard/jobs-calendar/series/${seriesId}`, { rrule: rule ?? "FREQ=DAILY;COUNT=1" });
+      if (!r.ok) return fail(r.message || "Couldn't save how it repeats");
+    }
+    setBusy(false);
+    onSaved();
+  };
+
   const remove = async () => {
     if (!note) return;
+    let path = `/dashboard/jobs-calendar/notes/${note.id}`;
+    let method = "DELETE";
+    let body: any;
+    if (rep) {
+      const scope = await scopeAsk.ask("Delete repeating note");
+      if (!scope) return;
+      method = scope === "all" ? "DELETE" : "POST";
+      path = scope === "this" ? `/dashboard/jobs-calendar/series/${rep.seriesId}/skip` : scope === "following" ? `/dashboard/jobs-calendar/series/${rep.seriesId}/end` : `/dashboard/jobs-calendar/series/${rep.seriesId}`;
+      body = scope === "all" ? undefined : { date: rep.date };
+    }
     setBusy(true);
-    const res = await api("DELETE", `/dashboard/jobs-calendar/notes/${note.id}`);
+    const res = await api(method, path, body);
     setBusy(false);
     if (!res.ok) return setError(res.message || "Couldn't delete the note");
     onSaved();
@@ -159,6 +225,7 @@ export default function NoteDialog({
               </>
             )}
           </Stack>
+          {styled && (!note || rep) && <RepeatField date={form.startDate} value={repeatValue} onChange={setRepeatValue} />}
           <TextField label="Remark" size="small" fullWidth multiline minRows={2} value={form.remark} onChange={(e) => set({ remark: e.target.value })} />
           {error && <Alert severity="error">{error}</Alert>}
         </Stack>
@@ -183,6 +250,7 @@ export default function NoteDialog({
         </Button>
       </DialogActions>
     </Dialog>
+    {scopeAsk.element}
     <DiscardChangesDialog
       open={askDiscard}
       onKeep={() => setAskDiscard(false)}

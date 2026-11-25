@@ -24,6 +24,14 @@ import { withSingapore } from '../common/sg-address';
 import { currentCrewNames } from '../workers-teams/crew';
 import { quotationSubjectOf } from '../deliveries/quick-job-quotation';
 import { isTsv, tsvEvent } from './calendar-note-types';
+import { CalendarSeriesService, RepeatView, occurrenceId, sgInstant } from './calendar-series.service';
+import { addDays, daysBetween } from './recurrence';
+
+/** A repeating job's occurrence id ("<templateId>~<yyyyMMdd>") -> the template's id; any other id unchanged. */
+const baseRunId = (id: string) => id.split('~')[0];
+const isVirtualId = (id: string) => id.includes('~');
+const SG_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: CALENDAR_TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+const SG_TIME = new Intl.DateTimeFormat('en-GB', { timeZone: CALENDAR_TZ, hour: '2-digit', minute: '2-digit', hour12: false });
 
 export const JOBS_CALENDAR_FLAG = 'enableJobsCalendar';
 /**
@@ -93,6 +101,7 @@ export class JobsCalendarService {
     @Optional() private readonly siteclock?: SiteClockLinkService,
     @Optional() private readonly notes?: CalendarNotesService,
     @Optional() private readonly style?: CalendarStyleService,
+    @Optional() private readonly series?: CalendarSeriesService,
   ) {}
 
   /** Group New job (WCT 2026-11-22): the companies a new job can go under (org-group.ts groupJobCompanies). */
@@ -251,11 +260,15 @@ export class JobsCalendarService {
     hideSc = false,
   ): Promise<JobsCalendarResponse> {
     // hideSiteClockJobs: the SiteClock feed waits for the links below and is skipped when no job in range was pushed there.
-    const [runs, scLoaded, notes] = await Promise.all([
+    const [runs, scLoaded, notesRead] = await Promise.all([
       this.runs(organizationId, from, to),
       hideSc ? Promise.resolve(null) : this.siteclockJobs(organizationId, from, to),
       this.notes ? this.notes.inRange(organizationId, from, to) : Promise.resolve(null),
     ]);
+    // Repeating jobs and notes (WCT group, 2026-11-25): the range's occurrences, drawn from their templates.
+    const rep = await this.repeats(organizationId, from, to, runs as any[], notesRead);
+    if (rep) (runs as any[]).push(...rep.runs);
+    const notes = rep && notesRead ? rep.notes : notesRead;
     // Calendar style: each run's PTW status as stored (the event's ptw is dropped below when calendar add is off).
     const ptwOf = new Map((runs as any[]).map((r) => [r.id as string, (r.ptw?.status ?? null) as string | null]));
     // Calendar add on (notes is not null): jobs show PTW and an "Untagged" mark when they have no order.
@@ -277,20 +290,21 @@ export class JobsCalendarService {
     let legend: ReturnType<typeof calendarLegend> | undefined;
     if (runs.length && (await isJobFieldsEnabled(this.prisma, organizationId))) {
       const defs = await jobFieldDefs(this.prisma, organizationId);
-      const values = await jobFieldValues(this.prisma, organizationId, runs.map((r) => r.id), defs);
+      const values = await jobFieldValues(this.prisma, organizationId, [...new Set(runs.map((r) => baseRunId(r.id)))], defs);
       for (const r of runs as any[]) {
-        const v = values.get(r.id) ?? {};
+        const v = values.get(baseRunId(r.id)) ?? {};
         r.badges = defs.map((f) => calendarBadge(f, v[f.id])).filter(Boolean);
       }
       legend = calendarLegend(defs);
       // Job category (WCT group; null elsewhere): each job's, blank = the default.
       const catDef = await jobCategoryDef(this.prisma, organizationId);
       if (catDef) {
-        const cats = await jobCategoryValues(this.prisma, organizationId, catDef, runs.map((r) => r.id));
-        for (const r of runs as any[]) r.category = cats.get(r.id) ?? catDef.defaultValue;
+        const cats = await jobCategoryValues(this.prisma, organizationId, catDef, [...new Set(runs.map((r) => baseRunId(r.id)))]);
+        for (const r of runs as any[]) r.category = cats.get(baseRunId(r.id)) ?? catDef.defaultValue;
       }
     }
     let events = buildCalendarEvents(runs, links, sc.jobs, { aimsOnly: hideSc });
+    if (rep) events = events.map((e) => withRepeat(e, rep.repeatOf, rep.durations));
     let shownNotes = notes;
     let stripes: Array<{ label: string; colour: string }> = [];
     if (style) {
@@ -300,10 +314,10 @@ export class JobsCalendarService {
       events = await this.styled(organizationId, events, runs as any[], ptwOf, quotationIds, colours);
       // Calendar people list: who added each note.
       if (notes?.length && this.notes) {
-        const by = await this.notes.creators(organizationId, notes.map((n) => n.id));
+        const by = await this.notes.creators(organizationId, [...new Set(notes.map((n: CalendarNoteView) => baseRunId(n.id)))] as string[]);
         const names = await this.style!.names(new Set(by.values()));
         shownNotes = notes.map((n) => {
-          const id = by.get(n.id) ?? null;
+          const id = by.get(baseRunId(n.id)) ?? null;
           return { ...n, createdBy: id ? { id, name: names.get(id)?.name ?? null } : null };
         });
       }
@@ -343,9 +357,10 @@ export class JobsCalendarService {
   ): Promise<CalendarEvent[]> {
     const ids = runs.map((r) => r.id);
     const qIds = [...new Set([...quotationIds.values()].filter((x): x is string => !!x))];
-    const [meta, doCounts, codes, quotes, aliases] = await Promise.all([
-      jobStyleValues(this.prisma, organizationId, ids),
-      this.runDoCounts(organizationId, runs as any[]),
+    const [metaBase, doCounts, codes, quotes, aliases] = await Promise.all([
+      jobStyleValues(this.prisma, organizationId, [...new Set(ids.map(baseRunId))]),
+      // A repeating job's occurrences have no DOs of their own (one made into its own job is a real run).
+      this.runDoCounts(organizationId, (runs as any[]).filter((r) => !isVirtualId(r.id))),
       this.style!.salesmanCodes(organizationId),
       qIds.length
         ? runAsOrg(organizationId, () => this.prisma.document.findMany({ where: { id: { in: qIds }, organizationId }, select: { id: true, status: true, config: true } }))
@@ -353,6 +368,7 @@ export class JobsCalendarService {
       // Imported quotations' free-text salesperson (WCT group): the org's alias map (src/sales-report).
       salespersonAliases(this.prisma, organizationId),
     ]);
+    const meta = { get: (id: string) => metaBase.get(baseRunId(id)), values: () => metaBase.values() };
     const codeOfQuote = new Map((quotes as any[]).map((q) => [q.id as string, quotationSalesmanCode(q.config)]));
     const quoteOf = new Map((quotes as any[]).map((q) => [q.id as string, q]));
     const salesOf = new Map<string, string | null>();
@@ -527,10 +543,89 @@ export class JobsCalendarService {
     return out;
   }
 
-  private async runs(organizationId: string, from: string, to: string) {
+  /**
+   * Repeating jobs and notes (WCT group, 2026-11-25; calendar-series.service.ts): each series' occurrences in
+   * from..to as runs / notes drawn from its template ("<templateId>~<yyyyMMdd>"), the templates themselves left out,
+   * and the series line ("Repeats: ...") for the occurrences and for those made into their own job / note.
+   * null = the org has no repeats (every other org: untouched).
+   */
+  private async repeats(organizationId: string, from: string, to: string, runs: any[], notes: CalendarNoteView[] | null) {
+    if (!this.series || !(await this.series.enabled(organizationId))) return null;
+    const [jobS, noteS] = await Promise.all([this.series.seriesOf(organizationId, 'JOB'), notes ? this.series.seriesOf(organizationId, 'NOTE') : Promise.resolve([])]);
+    if (!jobS.length && !noteS.length) return null;
+    const exc = await this.series.exceptionsOf(organizationId, [...jobS, ...noteS].map((s) => s.id));
+    const taken = new Map<string, Set<string>>();
+    const excByRecord = new Map<string, { seriesId: string; date: string }>();
+    for (const e of exc) {
+      (taken.get(e.seriesId) ?? taken.set(e.seriesId, new Set()).get(e.seriesId)!).add(e.originalDate);
+      if (e.recordId) excByRecord.set(e.recordId, { seriesId: e.seriesId, date: e.originalDate });
+    }
+    const repeatOf = new Map<string, RepeatView>();
+    const durations = new Map<string, number>();
+    const anchorOf = new Map<string, string>();
+    const outRuns: any[] = [];
+    const templates = await this.runs(organizationId, from, to, jobS.map((s) => s.templateId));
+    const tBy = new Map(templates.map((t: any) => [t.id as string, t]));
+    for (const s of jobS) {
+      const t: any = tBy.get(s.templateId);
+      if (!t?.scheduledFor) continue;
+      const date = SG_DAY.format(t.scheduledFor);
+      const time = t.scheduledAllDay ? null : SG_TIME.format(t.scheduledFor).replace(/^24/, '00');
+      anchorOf.set(s.id, date);
+      for (const d of this.series.expand(s, { date }, from, to, taken.get(s.id) ?? new Set())) {
+        const id = occurrenceId(t.id, d);
+        outRuns.push({ ...t, id, scheduledFor: sgInstant(d, time), deliveryOrder: null, verificationState: null });
+        repeatOf.set(id, this.series.view(s, date, d));
+        if (s.durationMin) durations.set(id, s.durationMin);
+      }
+    }
+    let outNotes = notes;
+    if (notes) {
+      const tIds = new Set(noteS.map((s) => s.templateId));
+      const tNotes: any[] = noteS.length
+        ? await runAsOrg(organizationId, () =>
+            this.prisma.calendarNote.findMany({
+              where: { organizationId, id: { in: [...tIds] } },
+              select: { id: true, title: true, type: true, staffId: true, staffName: true, startDate: true, endDate: true, allDay: true, startTime: true, endTime: true, remark: true, details: true } as any,
+            }),
+          )
+        : [];
+      const nBy = new Map(tNotes.map((n) => [n.id as string, n]));
+      outNotes = notes.filter((n) => !tIds.has(n.id));
+      for (const s of noteS) {
+        const n = nBy.get(s.templateId);
+        if (!n) continue;
+        const { details, ...rest } = n;
+        const span = Math.max(0, daysBetween(n.startDate, n.endDate));
+        anchorOf.set(s.id, n.startDate);
+        for (const d of this.series.expand(s, { date: n.startDate }, from, to, taken.get(s.id) ?? new Set(), span)) {
+          const view = this.series.view(s, n.startDate, d);
+          outNotes.push({ ...rest, ...(details ? { details } : {}), id: occurrenceId(n.id, d), startDate: d, endDate: addDays(d, span), repeat: view } as any);
+        }
+      }
+      outNotes.sort((a, b) => a.startDate.localeCompare(b.startDate) || a.title.localeCompare(b.title));
+    }
+    // Occurrences made into their own job / note: they still say which series they belong to.
+    const seriesBy = new Map([...jobS, ...noteS].map((s) => [s.id, s]));
+    const excView = (recordId: string) => {
+      const x = excByRecord.get(recordId);
+      const s = x ? seriesBy.get(x.seriesId) : null;
+      return x && s ? this.series!.view(s, anchorOf.get(s.id) ?? s.startDate, x.date, true) : null;
+    };
+    for (const r of runs) {
+      const v = excView(r.id);
+      if (v) repeatOf.set(r.id, v);
+    }
+    if (outNotes) outNotes = outNotes.map((n: any) => (n.repeat ? n : excView(n.id) ? { ...n, repeat: excView(n.id) } : n));
+    return { runs: outRuns, notes: outNotes ?? [], repeatOf, durations };
+  }
+
+  /** ids: the series templates (drafts) instead of the range's jobs. */
+  private async runs(organizationId: string, from: string, to: string, ids?: string[]) {
+    if (ids && !ids.length) return [];
     const rows: any[] = await runAsOrg(organizationId, () =>
       this.prisma.delivery.findMany({
-        where: { organizationId, isDraft: false, scheduledFor: rangeInstants(from, to) },
+        where: ids ? { organizationId, id: { in: ids } } : { organizationId, isDraft: false, scheduledFor: rangeInstants(from, to) },
         select: {
           id: true,
           deliveryNumber: true,
@@ -642,4 +737,18 @@ export class JobsCalendarService {
     }
     this.cache.set(key, { at: Date.now(), jobs });
   }
+}
+
+/**
+ * Repeating jobs: the series line on an occurrence and on a job made from one; an occurrence (not a job yet) has no
+ * job page to open, and keeps its series' length.
+ */
+function withRepeat(e: CalendarEvent, repeatOf: Map<string, RepeatView>, durations: Map<string, number>): CalendarEvent {
+  const runId = e.source === 'aims' && e.id.startsWith('aims:') ? e.id.slice(5) : null;
+  const v = runId ? repeatOf.get(runId) : null;
+  if (!v || !runId) return e;
+  if (!isVirtualId(runId)) return { ...e, repeat: v } as any;
+  const min = durations.get(runId);
+  const end = !e.allDay && min ? new Date(new Date(e.start).getTime() + min * 60_000).toISOString() : e.end;
+  return { ...e, end, repeat: v, occurrence: true, href: null, doHref: null, doNumber: null, doTag: null } as any;
 }

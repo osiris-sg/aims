@@ -62,6 +62,7 @@ export function hoverLines(e: CalendarEvent, time: string, applicant: string | n
     customerOf(e),
     plain(e.jobTitle),
     time,
+    e.repeat?.text ? `Repeats: ${e.repeat.text}` : "",
     postponedLabel(e),
     e.salesperson?.name ? `Salesperson: ${e.salesperson.name}` : "",
     e.createdBy?.name ? `Created by: ${e.createdBy.name}` : "",

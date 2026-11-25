@@ -4770,6 +4770,46 @@ model CalendarNote {
   @@index([organizationId, endDate])
 }
 
+/// Repeating jobs and notes on the jobs calendar (WCT group, 2026-11-25, Google Calendar style). The rule is kept the
+/// Google way: an RRULE (RFC 5545: FREQ, INTERVAL, BYDAY, BYMONTHDAY, BYSETPOS, BYMONTH, COUNT, UNTIL) from startDate
+/// (+ startTime; null = all day) in Asia/Singapore, plus exdates (skipped occurrences). The occurrences are expanded
+/// on the fly for the visible range (never stored). templateId = the job (a draft Delivery, hidden from every list)
+/// or the note (CalendarNote, hidden from the calendar) every occurrence is drawn from. Plain ids, no relations.
+model CalendarSeries {
+  id             String   @id @default(uuid())
+  organizationId String
+  kind           String // JOB | NOTE
+  templateId     String
+  rrule          String
+  startDate      String // yyyy-MM-dd (DTSTART)
+  startTime      String? // HH:mm; null = all day
+  durationMin    Int?
+  exdates        String[] @default([]) // yyyy-MM-dd
+  // Google Calendar import: { calendarId, calendarName, eventId, lastUpdated, hash }.
+  source         Json?
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId, kind])
+  @@index([templateId])
+}
+
+/// One occurrence of a CalendarSeries made into its own job / note (an edit, Complete job, DO, PTW, cancel, a moved
+/// occurrence): originalDate is the occurrence it replaces; recordId the Delivery / CalendarNote (null = removed).
+model CalendarSeriesException {
+  id             String   @id @default(uuid())
+  organizationId String
+  seriesId       String
+  originalDate   String // yyyy-MM-dd
+  recordId       String?
+  createdAt      DateTime @default(now())
+
+  @@unique([seriesId, originalDate])
+  @@index([organizationId])
+  @@index([recordId])
+}
+
 model DeliverySiteClockJob {
   id               String    @id @default(uuid())
   organizationId   String

@@ -71,6 +71,8 @@ export interface CalendarNote {
   remark: string | null;
   /** Technician Site Visit only. */
   details?: TsvDetails;
+  /** Repeating notes (WCT group, 2026-11-25): the series line; an occurrence's id is "<noteId>~<yyyyMMdd>". */
+  repeat?: { seriesId: string; date: string; rrule: string; text: string; anchorDate: string; exception?: true };
 }
 
 const addDay = (ymd: string, n: number) => new Date(Date.parse(`${ymd}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);

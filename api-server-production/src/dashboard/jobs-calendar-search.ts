@@ -8,6 +8,20 @@ import { withSingapore } from '../common/sg-address';
 import { runAsOrg } from '../common/tenancy/tenant-context';
 import { jobStyleValues } from '../deliveries/job-style';
 import { CALENDAR_TZ } from './jobs-calendar';
+import { addDays, lastOccurrence, occurrences } from './recurrence';
+
+/**
+ * Repeating jobs / notes (2026-11-25): a series' template is found like any job / note and shown on its next
+ * occurrence from today (else its last), with the occurrence id the calendar draws ("<id>~<yyyyMMdd>").
+ */
+export function seriesHitDate(rrule: string, anchor: string, exdates: string[], today: string): string | null {
+  try {
+    const next = occurrences(rrule, anchor, today < anchor ? anchor : today, addDays(today < anchor ? anchor : today, 800), exdates)[0];
+    return next ?? lastOccurrence(rrule, anchor);
+  } catch {
+    return null;
+  }
+}
 
 export const SEARCH_LIMIT = 20;
 const PER_ORG = 200;
@@ -71,7 +85,8 @@ export async function searchOrg(prisma: any, org: { id: string; name: string }, 
       LEFT JOIN "DeliverySiteClockJob" sc ON sc."deliveryId" = d.id::text
       LEFT JOIN LATERAL (SELECT string_agg(v.value::text, ' ') AS txt FROM "CustomFieldValue" v WHERE v."entityId" = d.id::text) f ON true
       LEFT JOIN LATERAL (SELECT string_agg(doc.name, ' ') AS names FROM "DeliveryItem" di JOIN "Document" doc ON doc.id = di."documentId" WHERE di."deliveryId" = d.id) dos ON true
-      WHERE d."organizationId" = ${org.id} AND d."isDraft" = false AND d."scheduledFor" IS NOT NULL
+      WHERE d."organizationId" = ${org.id} AND d."scheduledFor" IS NOT NULL
+        AND (d."isDraft" = false OR EXISTS (SELECT 1 FROM "CalendarSeries" cs WHERE cs."organizationId" = ${org.id} AND cs."templateId" = d.id::text))
         AND (
           ${num}::int = d."deliveryNumber"
           OR concat_ws(' ', c.name, d."siteAddress", d.notes, o."orderNumber", o."linkedDocuments"::text, q.name,
@@ -81,6 +96,14 @@ export async function searchOrg(prisma: any, org: { id: string; name: string }, 
       LIMIT ${PER_ORG}`,
   );
   const meta = await jobStyleValues(prisma, org.id, jobs.map((j) => j.id));
+  let series: any[] = [];
+  try {
+    series = (await runAsOrg(org.id, async () => ((prisma as any).calendarSeries ? (prisma as any).calendarSeries.findMany({ where: { organizationId: org.id } }) : []))) ?? [];
+  } catch {
+    series = [];
+  }
+  const seriesOf = new Map((series ?? []).map((x: any) => [String(x.templateId), x]));
+  const today = ymd(new Date());
   const notes: any[] = await runAsOrg(org.id, () =>
     prisma.$queryRaw`
       SELECT n.id, n.title, n."staffName" AS staff, n."startDate" AS start, n."endDate" AS "end", n."allDay" AS "allDay", n."startTime" AS "startTime"
@@ -92,10 +115,19 @@ export async function searchOrg(prisma: any, org: { id: string; name: string }, 
   );
   return [
     ...jobs.map((j) => {
-      const at = new Date(j.at);
+      let at = new Date(j.at);
+      const sr = seriesOf.get(String(j.id));
+      let id = `aims:${j.id}`;
+      if (sr) {
+        const day = seriesHitDate(sr.rrule, ymd(at), sr.exdates ?? [], today);
+        if (day) {
+          at = new Date(`${day}T${j.allDay ? '00:00' : new Intl.DateTimeFormat('en-GB', { timeZone: CALENDAR_TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at)}:00+08:00`);
+          id = `aims:${j.id}~${day.replace(/-/g, '')}`;
+        }
+      }
       return {
         kind: 'job' as const,
-        id: `aims:${j.id}`,
+        id,
         orgId: org.id,
         orgName: org.name,
         date: ymd(at),
@@ -106,21 +138,26 @@ export async function searchOrg(prisma: any, org: { id: string; name: string }, 
         address: j.address ? withSingapore(j.address) : null,
         icons: jobIcons(j, meta.get(j.id)),
         // Job title (2026-11-24) first; the style values (f.txt) already make it searchable.
-        label: [meta.get(j.id)?.jobTitle, `#${j.no}`, j.orderNumber].filter(Boolean).join(' · '),
+        label: [meta.get(j.id)?.jobTitle, sr ? 'Repeats' : `#${j.no}`, j.orderNumber].filter(Boolean).join(' · '),
       };
     }),
-    ...notes.map((n) => ({
-      kind: 'note' as const,
-      id: String(n.id),
-      orgId: org.id,
-      orgName: org.name,
-      date: String(n.start),
-      time: !n.allDay && n.startTime ? String(n.startTime) : null,
-      at: new Date(`${n.start}T${!n.allDay && n.startTime ? n.startTime : '00:00'}:00+08:00`).toISOString(),
-      customer: null,
-      address: null,
-      icons: '',
-      label: [n.title, n.staff].filter(Boolean).join(' · '),
-    })),
+    ...notes.map((n) => {
+      const sr = seriesOf.get(String(n.id));
+      const day = sr ? seriesHitDate(sr.rrule, String(n.start), sr.exdates ?? [], today) : null;
+      const start = day ?? String(n.start);
+      return {
+        kind: 'note' as const,
+        id: day ? `${n.id}~${day.replace(/-/g, '')}` : String(n.id),
+        orgId: org.id,
+        orgName: org.name,
+        date: start,
+        time: !n.allDay && n.startTime ? String(n.startTime) : null,
+        at: new Date(`${start}T${!n.allDay && n.startTime ? n.startTime : '00:00'}:00+08:00`).toISOString(),
+        customer: null,
+        address: null,
+        icons: '',
+        label: [n.title, n.staff, sr ? 'Repeats' : null].filter(Boolean).join(' · '),
+      };
+    }),
   ];
 }

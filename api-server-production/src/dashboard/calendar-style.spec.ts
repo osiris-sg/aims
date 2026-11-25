@@ -21,6 +21,7 @@ import {
 import { CalendarStyleService, isSalesMember } from './calendar-style.service';
 import { JobsCalendarService } from './jobs-calendar.service';
 import { CalendarNotesService } from './calendar-notes.service';
+import { CalendarSeriesService } from './calendar-series.service';
 import { jobStyleOf, parseJobStylePatch, stampJobCreator, withStampedApplicant, EMPTY_JOB_STYLE } from '../deliveries/job-style';
 import { AUTO_PALETTE, colourCircle, panelPeople, withPanelFills } from './calendar-style';
 import { DEFAULT_EXPORT_HEADER, cleanExportHeader, readExportHeader, writeExportHeader } from './calendar-export';
@@ -278,6 +279,10 @@ interface World {
   orderLinks?: Record<string, any>;
   /** Org Settings > Calendar colours (2026-11-25): PTW stripe colour per status, per org. */
   ptwColours?: Record<string, Record<string, string>>;
+  /** Repeating jobs / notes (2026-11-25): series, their exceptions, and the job templates (drafts) by id. */
+  series?: any[];
+  seriesExc?: any[];
+  templates?: any[];
 }
 
 function world(): World {
@@ -323,9 +328,17 @@ function fakePrisma(w: World) {
     organizationUIConfig: { findUnique: jest.fn(async ({ where }: any) => ({ features: w.features[where.organizationId] ?? {} })) },
     organization: { findUnique: jest.fn(async ({ where }: any) => ({ id: where.id, name: where.id })) },
     $queryRawUnsafe: jest.fn(async (_sql: string, id: string) => (w.children[id] ?? []).map((c) => ({ id: c, name: c }))),
-    delivery: { findMany: jest.fn(async ({ where }: any) => (w.runs[org(where)] ?? []).map((r) => ({ ...r }))) },
+    delivery: {
+      findMany: jest.fn(async ({ where }: any) =>
+        where.id?.in ? (w.templates ?? []).filter((t) => where.id.in.includes(t.id)).map((r) => ({ ...r })) : (w.runs[org(where)] ?? []).map((r) => ({ ...r })),
+      ),
+    },
+    calendarSeries: { findMany: jest.fn(async ({ where }: any) => (w.series ?? []).filter((x) => x.organizationId === where.organizationId && x.kind === where.kind)) },
+    calendarSeriesException: { findMany: jest.fn(async ({ where }: any) => (w.seriesExc ?? []).filter((x) => where.seriesId.in.includes(x.seriesId))) },
     deliveryItem: {
       findMany: jest.fn(async ({ where }: any) =>
+        // Postgres would refuse a non-uuid id here: an occurrence id must never reach this query.
+        where.deliveryId.in.some((id: string) => id.includes('~')) ? Promise.reject(new Error('occurrence id in a uuid column')) :
         where.deliveryId.in.includes('r-order')
           ? [{ deliveryId: 'r-order', documentId: 'do-1' }, { deliveryId: 'r-order', documentId: 'do-2' }, { deliveryId: 'r-order', documentId: 'do-3' }]
           : [],
@@ -383,7 +396,7 @@ const clerk = { toClerkUsers: jest.fn(async (ids: Iterable<string>) => new Map([
 
 function svc(w: World, withStyle = true) {
   const prisma = fakePrisma(w);
-  return new JobsCalendarService(prisma, { calendarJobs: async () => null } as any, new CalendarNotesService(prisma), withStyle ? new CalendarStyleService(prisma, clerk as any) : undefined);
+  return new JobsCalendarService(prisma, { calendarJobs: async () => null } as any, new CalendarNotesService(prisma), withStyle ? new CalendarStyleService(prisma, clerk as any) : undefined, new CalendarSeriesService(prisma));
 }
 
 const byId = (events: any[], id: string) => events.find((e) => e.id === `aims:${id}`);
@@ -934,5 +947,67 @@ describe('Org Settings > Calendar colours on the calendar (2026-11-25)', () => {
     const res = await svc(w).get(X, '2026-11-16', '2026-11-22', { userId: HH });
     expect(res.style).toBeUndefined();
     expect(res.events.every((e: any) => !e.style)).toBe(true);
+  });
+});
+
+describe('repeating jobs and notes (2026-11-25, Google Calendar style)', () => {
+  const TPL = 'tpl-weekly';
+  // Template: a draft job on Wed 4 Nov 2026 10:00 Singapore, salesperson Amy (its own style value), weekly on Wed.
+  const withSeries = (extra: Partial<World> = {}): World => {
+    const w = world();
+    w.templates = [baseRun(TPL, { scheduledFor: new Date('2026-11-04T02:00:00.000Z'), customer: { name: 'Weekly Shop' } })];
+    w.styleValues[TPL] = { salespersonId: AMY, salespersonName: 'Amy Yap', cod: true };
+    w.series = [{ id: 's1', organizationId: P, kind: 'JOB', templateId: TPL, rrule: 'FREQ=WEEKLY;BYDAY=WE', startDate: '2026-11-04', startTime: '10:00', durationMin: 90, exdates: [], source: null }];
+    w.seriesExc = [];
+    return { ...w, ...extra };
+  };
+  const occ = (res: any, date: string) => res.events.find((e: any) => e.id === `aims:${TPL}~${date}`);
+
+  it('an occurrence shows in range, drawn from its template, with the series line and no job page', async () => {
+    const res = await svc(withSeries()).get(P, '2026-11-16', '2026-11-22', { userId: HH });
+    const e = occ(res, '20261118');
+    expect(e).toMatchObject({ start: '2026-11-18T02:00:00.000Z', end: '2026-11-18T03:30:00.000Z', occurrence: true, href: null, chipLabel: 'Weekly Shop', cod: true });
+    expect(e.repeat).toMatchObject({ seriesId: 's1', date: '2026-11-18', text: 'Weekly on Wed, never ends' });
+    expect(e.salesperson).toEqual({ id: AMY, name: 'Amy Yap' });
+    // The template itself is never an event; every other job is unchanged.
+    expect(res.events.find((x: any) => x.id === `aims:${TPL}`)).toBeUndefined();
+    expect(byId(res.events, 'r-order')).toBeDefined();
+  });
+
+  it('never ends: a far range still gets its occurrences', async () => {
+    const res = await svc(withSeries()).get(P, '2029-01-01', '2029-01-07', { userId: HH });
+    expect(occ(res, '20290103')).toBeDefined();
+  });
+
+  it('EXDATE: a skipped occurrence is gone', async () => {
+    const w = withSeries();
+    w.series![0].exdates = ['2026-11-18'];
+    const res = await svc(w).get(P, '2026-11-16', '2026-11-22', { userId: HH });
+    expect(occ(res, '20261118')).toBeUndefined();
+  });
+
+  it('a moved single occurrence (RECURRENCE-ID): the job made from it shows on its new day, the original day is empty', async () => {
+    const w = withSeries();
+    w.runs[P].push(baseRun('r-moved', { scheduledFor: new Date('2026-11-19T06:00:00.000Z') }));
+    w.seriesExc = [{ seriesId: 's1', originalDate: '2026-11-18', recordId: 'r-moved' }];
+    const res = await svc(w).get(P, '2026-11-16', '2026-11-22', { userId: HH });
+    expect(occ(res, '20261118')).toBeUndefined();
+    expect(byId(res.events, 'r-moved').repeat).toMatchObject({ seriesId: 's1', date: '2026-11-18', exception: true });
+    // A real job: it keeps its page.
+    expect(byId(res.events, 'r-moved').href).toBe('/portal/deliveries/r-moved');
+  });
+
+  it('a repeating note: occurrences with the template span, the template note itself hidden', async () => {
+    const w = withSeries({ series: [] });
+    w.notes = { [P]: [{ id: 'n-tpl', title: 'Weekly blockage', type: 'BLOCKAGE', staffId: null, staffName: null, startDate: '2026-11-02', endDate: '2026-11-03', allDay: true, startTime: null, endTime: null, remark: null, details: null }] };
+    w.series = [{ id: 's2', organizationId: P, kind: 'NOTE', templateId: 'n-tpl', rrule: 'FREQ=WEEKLY;COUNT=3', startDate: '2026-11-02', startTime: null, durationMin: null, exdates: [], source: null }];
+    const res = await svc(w).get(P, '2026-11-16', '2026-11-22', { userId: HH });
+    const notes = (res.notes ?? []).map((n: any) => [n.id, n.startDate, n.endDate, n.repeat?.text]);
+    expect(notes).toEqual([['n-tpl~20261116', '2026-11-16', '2026-11-17', 'Weekly on Mon, 3 times']]);
+  });
+
+  it('an org with no series: the calendar is exactly as before', async () => {
+    const a = await svc(world()).get(P, '2026-11-16', '2026-11-22', { userId: HH });
+    expect(a.events.some((e: any) => e.repeat || e.occurrence)).toBe(false);
   });
 });
