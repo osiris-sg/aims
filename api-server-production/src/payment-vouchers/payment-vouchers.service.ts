@@ -646,6 +646,11 @@ export class PaymentVouchersService {
       return await this.saveComplete(organizationId, id, doc, cfg, dtoIn, actor);
     } catch (e) {
       if (!(e instanceof BadRequestException)) throw e;
+      // Already in the books: a re-save that fails a check is REFUSED, never unposted (guru 2026-11-25,
+      // receipt UOBOR2610-004: a later autosave silently voided the posting and the invoice went back to
+      // Awaiting Payment while the pill read "Saved"). Delete the voucher to take it out of the books.
+      const liveJe = await this.prisma.journalEntry.findFirst({ where: { organizationId, sourceDocumentId: id, status: { not: 'VOID' } }, select: { id: true } });
+      if (liveJe) throw new BadRequestException(`This voucher is posted; the change was not saved: ${e.message}`);
       return this.saveIncomplete(organizationId, id, cfg, dtoIn, e.message, actor);
     }
   }

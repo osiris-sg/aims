@@ -439,6 +439,16 @@ export class ReceiptsService {
       return await this.saveComplete(organizationId, id, doc, dto, actor);
     } catch (e) {
       if (!(e instanceof BadRequestException)) throw e;
+      // A receipt that is ALREADY in the books is never pulled out by a re-save that fails a
+      // check (guru 2026-11-25, UOBOR2610-004: a later autosave without the deposit-to bank
+      // silently voided the posting and dropped the payment rows, and the invoice went back
+      // to Awaiting Payment while the receipt still read "Saved"). The save is refused with
+      // the reason and the posted state stands; delete the receipt to take it out.
+      const live = await this.prisma.journalEntry.findFirst({
+        where: { organizationId, sourceDocumentId: id, type: 'PAYMENT', status: { not: 'VOID' } },
+        select: { id: true },
+      });
+      if (live) throw new BadRequestException(`${doc.name || 'This receipt'} is posted; the change was not saved: ${e.message}`);
       return this.saveIncomplete(organizationId, id, dto, e.message, actor);
     }
   }

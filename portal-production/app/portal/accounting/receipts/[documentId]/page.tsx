@@ -168,6 +168,11 @@ export default function OfficialReceiptPage() {
     // Posted = confirmed on a complete autosave (2026-11-18): refresh the status
     // pill in place (no re-mount — only the status key changes).
     if (saved?.status && saved.status !== existingData?.status) setExistingData((prev: any) => (prev ? { ...prev, status: saved.status } : prev));
+    // Out of the books or back in: the editor's "Not posted" chip follows every save (guru 2026-11-25,
+    // UOBOR2610-004 sat unposted for want of a deposit-to bank while the pill read "Saved").
+    if (saved && (saved.incompleteReason ?? null) !== (existingData?.incompleteReason ?? null)) {
+      setExistingData((prev: any) => (prev ? { ...prev, incompleteReason: saved.incompleteReason ?? null } : prev));
+    }
     return saved;
   };
 
