@@ -138,6 +138,10 @@ function userByName(n: { byName: Map<string, string>; alias: Map<string, string>
     const customers = await q(`select id::text id, name, "customerCode" from "Customer" where "organizationId" = $1`, [ORG]);
     const cIdx = customerIndex(customers);
     const workers = await q(`select id, name, "siteclockId" from "Worker" where "organizationId" = $1 and active`, [ORG]);
+    // Owner's crew aliases (config crewAliases): lower-case typed name -> AIMS worker name.
+    const crewAliases: Record<string, string> = Object.fromEntries(Object.entries((cfg as any).crewAliases ?? {}).map(([k, v]) => [k.toLowerCase(), String(v)]));
+    const aliasMissing = Object.entries(crewAliases).filter(([, v]) => !workers.some((w: any) => w.name.toLowerCase() === v.toLowerCase()));
+    if (aliasMissing.length) console.log(`Crew aliases with no active AIMS worker (kept as typed): ${aliasMissing.map(([k, v]) => `${k} > ${v}`).join(', ')}`);
     const teams = await q(`select id, name from "WorkerTeam" where "organizationId" = $1 and active`, [ORG]);
     const orders = new Map<string, any>((await q(`select o.id::text id, o."orderNumber", o."customerId"::text "customerId", cu.name "customerName" from "Order" o left join "Customer" cu on cu.id = o."customerId" where o."organizationId" = $1 and o."orderNumber" like 'ORD-Q-%'`, [ORG])).map((o) => [o.orderNumber, o]));
     const ptwRow = (await q(`select options from "CustomField" where "organizationId" = $1 and "entityType" = 'Delivery' and "fieldName" = 'ptw_applicants'`, [ORG]))[0];
@@ -174,7 +178,7 @@ function userByName(n: { byName: Map<string, string>; alias: Map<string, string>
         kind, title, startDate: d, endDate: end, allDay: e.allDay, startTime: e.startTime, endTime: e.endTime, description: e.description,
         marks, name: parts.name, address: parts.address || e.location, jobTitle: parts.jobTitle, team: parts.team, remarks: parts.remarks,
         customer: cm?.customer ? { id: cm.customer.id, name: cm.customer.name, kind: cm.kind } : null,
-        crew: kind === 'job' ? splitCrew(parts.team, workers, teams) : null, quotes, order: order ?? null, staff, pattern: parts.pattern,
+        crew: kind === 'job' ? splitCrew(parts.team, workers, teams, crewAliases) : null, quotes, order: order ?? null, staff, pattern: parts.pattern,
       };
       r.hash = hashOf([WRITE_VERSION, r.kind, r.title, r.startDate, r.endDate, r.startTime, r.endTime, r.allDay, r.description, r.customer?.id, r.order?.id, r.crew, r.staff, spOf.get(cal.name)?.id, e.props['X-AIMS-HASH'] ?? e.lastModified]);
       return r;

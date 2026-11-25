@@ -331,14 +331,24 @@ export function matchCustomer(index: Map<string, CustomerRow>, name: string): Cu
 export interface CrewSplit { teams: Array<{ id: string; name: string }>; workers: Array<{ id: string; name: string }>; typed: string[] }
 
 /** "Team S + Vignesh + Pandi & Lakshman" -> teams / workers found in AIMS, the rest as typed. */
-export function splitCrew(team: string, workers: Array<{ id: string; name: string }>, teams: Array<{ id: string; name: string }>): CrewSplit {
+export function splitCrew(
+  team: string,
+  workers: Array<{ id: string; name: string }>,
+  teams: Array<{ id: string; name: string }>,
+  // Owner's crew aliases (config crewAliases, 2026-11-25): "naga" -> "Nagaraja". An alias whose worker is not an active
+  // AIMS worker leaves the name as typed.
+  aliases: Record<string, string> = {},
+): CrewSplit {
   const out: CrewSplit = { teams: [], workers: [], typed: [] };
   const pieces = String(team || '').split(/\s*(?:\+|&|,|\band\b)\s*/i).map((x) => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
   for (const p of pieces) {
     const k = p.toLowerCase();
     const t = teams.find((x) => x.name.toLowerCase() === k || x.name.toLowerCase() === `team ${k}`);
     if (t) { if (!out.teams.some((x) => x.id === t.id)) out.teams.push(t); continue; }
-    const w = workers.find((x) => x.name.toLowerCase() === k) ?? workers.find((x) => x.name.toLowerCase().split(' ')[0] === k);
+    const aliased = aliases[k];
+    const w = aliased
+      ? workers.find((x) => x.name.toLowerCase() === aliased.toLowerCase())
+      : workers.find((x) => x.name.toLowerCase() === k) ?? workers.find((x) => x.name.toLowerCase().split(' ')[0] === k);
     if (w) { if (!out.workers.some((x) => x.id === w.id)) out.workers.push(w); continue; }
     out.typed.push(p);
   }

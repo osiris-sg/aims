@@ -4,25 +4,142 @@
   "organizationId": "5c700000-0000-4000-8000-5c7000000001",
   "from": "2026-10-01",
   "calendars": [
-    { "name": "Jessy WCT", "file": "main-export/Jessy WCT_service@wct.com.sg.ics", "include": true, "salesperson": "Jessy WCT" },
-    { "name": "📅ALL TYPE OF LEAVES", "file": "ui-ics/ALL TYPE OF LEAVES.ics", "include": true, "salesperson": null },
-    { "name": "Amy", "file": "ui-ics/Amy.ics", "include": true, "salesperson": "Amy Yap" },
-    { "name": "Joanne", "file": "ui-ics/Joanne.ics", "include": true, "salesperson": null },
-    { "name": "Joyna", "file": "ui-ics/Joyna.ics", "include": true, "salesperson": "Joyna Chua" },
-    { "name": "Kherry", "file": "ui-ics/Kherry.ics", "include": true, "salesperson": "Amy Yap" },
-    { "name": "Nathan", "file": "ui-ics/Nathan.ics", "include": true, "salesperson": null, "why": "hh@ calendar: owner left the salesperson blank for now" },
-    { "name": "Nee Meng", "file": "ui-ics/Nee Meng.ics", "include": true, "salesperson": "Nee Meng Tan" },
-    { "name": "Rave", "file": "ui-ics/Rave.ics", "include": true, "salesperson": "Rave Ng" },
-    { "name": "Thillai", "file": "ui-ics/Thillai.ics", "include": true, "salesperson": null },
-    { "name": "Yonny", "file": "ui-ics/Yonny.ics", "include": true, "salesperson": null },
-    { "name": "Andrea", "file": "ui-ics/Andrea.ics", "include": true, "salesperson": null, "why": "no events in range" },
-    { "name": "Bala", "file": "ui-ics/Bala.ics", "include": true, "salesperson": null, "ptwApplicant": "Bala", "why": "no events in range" },
-    { "name": "Jeff", "file": "ui-ics/Jeff.ics", "include": true, "salesperson": null, "why": "no events in range" },
-    { "name": "Joanne (Finance)", "file": "ui-ics/Joanne (Finance).ics", "include": true, "salesperson": null, "why": "no events in range" },
-    { "name": "Henry", "file": "ui-ics/Henry.ics", "include": false, "personal": true, "salesperson": "Henry Hoo", "why": "personal (\"Praying for Rahu\")" },
-    { "name": "Isadora", "file": "ui-ics/Isadora.ics", "include": false, "personal": true, "why": "personal (pay day, birthdays, claims reminders)" },
-    { "name": "Isadora's Personal Reminder", "file": "ui-ics/Isadora's Personal Reminder.ics", "include": false, "personal": true, "why": "personal (tuition, ballet, bills)" },
-    { "name": "Birthdays", "file": "main-export/Birthdays_service@wct.com.sg.ics", "include": false, "personal": true, "why": "personal (birthdays)" },
-    { "name": "Holidays in Singapore", "file": "ui-ics/Holidays in Singapore.ics", "include": false, "why": "public holidays: AIMS keeps its own (FieldPublicHoliday)" }
-  ]
+    {
+      "name": "Jessy WCT",
+      "file": "main-export/Jessy WCT_service@wct.com.sg.ics",
+      "include": true,
+      "salesperson": "Jessy WCT"
+    },
+    {
+      "name": "📅ALL TYPE OF LEAVES",
+      "file": "ui-ics/ALL TYPE OF LEAVES.ics",
+      "include": true,
+      "salesperson": null
+    },
+    {
+      "name": "Amy",
+      "file": "ui-ics/Amy.ics",
+      "include": true,
+      "salesperson": "Amy Yap"
+    },
+    {
+      "name": "Joanne",
+      "file": "ui-ics/Joanne.ics",
+      "include": true,
+      "salesperson": null
+    },
+    {
+      "name": "Joyna",
+      "file": "ui-ics/Joyna.ics",
+      "include": true,
+      "salesperson": "Joyna Chua"
+    },
+    {
+      "name": "Kherry",
+      "file": "ui-ics/Kherry.ics",
+      "include": true,
+      "salesperson": "Amy Yap"
+    },
+    {
+      "name": "Nathan",
+      "file": "ui-ics/Nathan.ics",
+      "include": true,
+      "salesperson": "Nat HH"
+    },
+    {
+      "name": "Nee Meng",
+      "file": "ui-ics/Nee Meng.ics",
+      "include": true,
+      "salesperson": "Nee Meng Tan"
+    },
+    {
+      "name": "Rave",
+      "file": "ui-ics/Rave.ics",
+      "include": true,
+      "salesperson": "Rave Ng"
+    },
+    {
+      "name": "Thillai",
+      "file": "ui-ics/Thillai.ics",
+      "include": true,
+      "salesperson": null
+    },
+    {
+      "name": "Yonny",
+      "file": "ui-ics/Yonny.ics",
+      "include": true,
+      "salesperson": null
+    },
+    {
+      "name": "Andrea",
+      "file": "ui-ics/Andrea.ics",
+      "include": true,
+      "salesperson": null,
+      "why": "no events in range"
+    },
+    {
+      "name": "Bala",
+      "file": "ui-ics/Bala.ics",
+      "include": true,
+      "salesperson": null,
+      "ptwApplicant": "Bala",
+      "why": "no events in range"
+    },
+    {
+      "name": "Jeff",
+      "file": "ui-ics/Jeff.ics",
+      "include": true,
+      "salesperson": null,
+      "why": "no events in range"
+    },
+    {
+      "name": "Joanne (Finance)",
+      "file": "ui-ics/Joanne (Finance).ics",
+      "include": true,
+      "salesperson": null,
+      "why": "no events in range"
+    },
+    {
+      "name": "Henry",
+      "file": "ui-ics/Henry.ics",
+      "include": false,
+      "personal": true,
+      "salesperson": "Henry Hoo",
+      "why": "personal (\"Praying for Rahu\")"
+    },
+    {
+      "name": "Isadora",
+      "file": "ui-ics/Isadora.ics",
+      "include": false,
+      "personal": true,
+      "why": "personal (pay day, birthdays, claims reminders)"
+    },
+    {
+      "name": "Isadora's Personal Reminder",
+      "file": "ui-ics/Isadora's Personal Reminder.ics",
+      "include": false,
+      "personal": true,
+      "why": "personal (tuition, ballet, bills)"
+    },
+    {
+      "name": "Birthdays",
+      "file": "main-export/Birthdays_service@wct.com.sg.ics",
+      "include": false,
+      "personal": true,
+      "why": "personal (birthdays)"
+    },
+    {
+      "name": "Holidays in Singapore",
+      "file": "ui-ics/Holidays in Singapore.ics",
+      "include": false,
+      "why": "public holidays: AIMS keeps its own (FieldPublicHoliday)"
+    }
+  ],
+  "crewAliases": {
+    "naga": "Nagaraja",
+    "thillai": "Thillai",
+    "bala": "Bala WCT",
+    "joanne": "Joanne Ooi"
+  },
+  "crewAliasesNote": "Owner 2026-11-25: Naga = Nagaraja; Thillai = Thillai WCT (pc1@); Bala = Bala WCT (submission@, also PTW applicant); Joanne = Joanne Ooi. Matched to active AIMS workers only; Pandi, Yonny and 'N Part Timers (Bala)' stay as typed."
 }

@@ -78,3 +78,15 @@ describe('ICS', () => {
     expect(expandRrule('2000-11-05', 'FREQ=YEARLY', '2002-12-31')).toEqual(['2000-11-05', '2001-11-05', '2002-11-05']);
   });
 });
+
+describe('splitCrew aliases (owner 2026-11-25)', () => {
+  const { splitCrew } = require('./gcal-title');
+  const workers = [{ id: 'w1', name: 'Nagaraja' }, { id: 'w2', name: 'Thillai' }];
+  const teams = [{ id: 't1', name: 'Team E' }];
+  it('an alias picks its active worker; one with no active worker stays typed', () => {
+    const r = splitCrew('Team E + Naga + Bala + Pandi', workers, teams, { naga: 'Nagaraja', bala: 'Bala WCT' });
+    expect(r.teams.map((t: any) => t.name)).toEqual(['Team E']);
+    expect(r.workers.map((w: any) => w.name)).toEqual(['Nagaraja']);
+    expect(r.typed).toEqual(['Bala', 'Pandi']);
+  });
+});
