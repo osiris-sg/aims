@@ -24,7 +24,7 @@ import { withSingapore } from '../common/sg-address';
 import { currentCrewNames } from '../workers-teams/crew';
 import { quotationSubjectOf } from '../deliveries/quick-job-quotation';
 import { isTsv, tsvEvent } from './calendar-note-types';
-import { CalendarSeriesService, RepeatView, occurrenceId, sgInstant } from './calendar-series.service';
+import { CalendarSeriesService, RepeatView, SeriesRow, occurrenceId, sgInstant } from './calendar-series.service';
 import { addDays, daysBetween } from './recurrence';
 
 /** A repeating job's occurrence id ("<templateId>~<yyyyMMdd>") -> the template's id; any other id unchanged. */
@@ -126,28 +126,34 @@ export class JobsCalendarService {
     const bad = checkRange(from, to);
     if (bad) throw new BadRequestException(bad);
 
+    // Calendar speed (2026-11-25): the reads below that do not depend on each other run side by side (the same reads
+    // and the same response as before; each round trip used to wait for the one before it).
     // Calendar style (enableCalendarStyle): this org's flag decides for its own items and its children's.
-    const styleOn = this.style ? await this.style.enabled(organizationId) : false;
+    const [styleOn, hideSc, hq, scope] = await Promise.all([
+      this.style ? this.style.enabled(organizationId) : Promise.resolve(false),
+      isOrgFeatureEnabled(this.prisma, organizationId, HIDE_SITECLOCK_JOBS_FLAG),
+      isOrgFeatureEnabled(this.prisma, organizationId, CALENDAR_HQ_VIEW_FLAG),
+      groupReadScope(this.prisma, organizationId, 'jobsCalendar'),
+    ]);
     // WCT group (2026-11-23): read this company's quotations for the New job search now, in the background.
     if (styleOn) quotationIndex.warm(this.prisma, organizationId);
     // Round 39: the people list first, so each chip takes its salesperson's People panel colour (automatic ones too).
-    const people = styleOn ? await this.people(organizationId) : null;
-    const ownColours = styleOn ? withPanelFills(await this.style!.colours(organizationId), people) : null;
-    const hideSc = await isOrgFeatureEnabled(this.prisma, organizationId, HIDE_SITECLOCK_JOBS_FLAG);
-    const [own, scope] = await Promise.all([
+    const [people, baseColours] = styleOn ? await Promise.all([this.people(organizationId), this.style!.colours(organizationId)]) : [null, null];
+    const ownColours = styleOn ? withPanelFills(baseColours!, people) : null;
+    const [own, holidays, group] = await Promise.all([
       this.orgCalendar(organizationId, from, to, styleOn ? { parent: null } : null, ownColours, hideSc),
-      groupReadScope(this.prisma, organizationId, 'jobsCalendar'),
+      styleOn ? this.holidays([organizationId, ...(scope.group ? scope.orgs.map((o) => o.id) : [])], from, to) : Promise.resolve(null),
+      // Group calendar: the children's parts are read alongside the org's own.
+      scope.group ? this.groupParts(organizationId, scope.orgs, from, to, viewer?.userId ?? null, styleOn ? { parent: ownColours } : null, hideSc) : Promise.resolve(null),
     ]);
-    const hq = await isOrgFeatureEnabled(this.prisma, organizationId, CALENDAR_HQ_VIEW_FLAG);
-    const holidays = styleOn ? await this.holidays([organizationId, ...(scope.group ? scope.orgs.map((o) => o.id) : [])], from, to) : null;
     const withHq = (r: JobsCalendarResponse): JobsCalendarResponse => {
       const out = hq ? { ...r, hqView: true as const } : r;
       const withPeople = people ? { ...out, people } : out;
       return holidays ? { ...withPeople, holidays } : withPeople;
     };
     // Gate off (or no children): exactly the org's own calendar.
-    if (!scope.group) return withHq(own);
-    return withHq(await this.withGroup(organizationId, own, scope.orgs, from, to, viewer?.userId ?? null, styleOn ? { parent: ownColours } : null, hideSc));
+    if (!scope.group || !group) return withHq(own);
+    return withHq(this.withGroup(organizationId, own, scope.orgs, group));
   }
 
   /**
@@ -190,6 +196,25 @@ export class JobsCalendarService {
     return this.style!.panel(organizationId, new Set([...jobs, ...notes]));
   }
 
+  /** Group calendar: each child org's part and the children the viewer is a member of (read before the merge). */
+  private async groupParts(
+    organizationId: string,
+    orgs: GroupOrg[],
+    from: string,
+    to: string,
+    userId: string | null,
+    style: StyleCtx = null,
+    hideSc = false,
+  ): Promise<{ parts: JobsCalendarResponse[]; members: Set<string> }> {
+    const children = orgs.filter((o) => o.id !== organizationId);
+    const [parts, members] = await Promise.all([
+      // Calendar style on the parent: children's items are styled too (parent's colours first).
+      Promise.all(children.map((c) => runAsOrg(c.id, () => this.orgCalendar(c.id, from, to, style, null, hideSc)))),
+      memberOrgIds(this.prisma, userId, children.map((c) => c.id)),
+    ]);
+    return { parts, members };
+  }
+
   /**
    * Group calendar (enableGroupCalendar on a parent org): its own calendar plus
    * each child org's jobs and notes, read only, every item named with its org.
@@ -197,23 +222,10 @@ export class JobsCalendarService {
    * for anyone else its links are stripped. Notes join only when the parent has
    * calendar notes itself (else the parent's add buttons would appear).
    */
-  private async withGroup(
-    organizationId: string,
-    own: JobsCalendarResponse,
-    orgs: GroupOrg[],
-    from: string,
-    to: string,
-    userId: string | null,
-    style: StyleCtx = null,
-    hideSc = false,
-  ): Promise<JobsCalendarResponse> {
+  private withGroup(organizationId: string, own: JobsCalendarResponse, orgs: GroupOrg[], read: { parts: JobsCalendarResponse[]; members: Set<string> }): JobsCalendarResponse {
     const children = orgs.filter((o) => o.id !== organizationId);
     const ownName = orgs.find((o) => o.id === organizationId)?.name ?? '';
-    const [parts, members] = await Promise.all([
-      // Calendar style on the parent: children's items are styled too (parent's colours first).
-      Promise.all(children.map((c) => runAsOrg(c.id, () => this.orgCalendar(c.id, from, to, style, null, hideSc)))),
-      memberOrgIds(this.prisma, userId, children.map((c) => c.id)),
-    ]);
+    const { parts, members } = read;
     const tag = <T extends object>(x: T, org: GroupOrg): T => {
       if (org.id === organizationId) return { ...x, orgId: org.id, orgName: ownName };
       const t: any = { ...x, orgId: org.id, orgName: org.name, foreign: true };
@@ -260,13 +272,15 @@ export class JobsCalendarService {
     hideSc = false,
   ): Promise<JobsCalendarResponse> {
     // hideSiteClockJobs: the SiteClock feed waits for the links below and is skipped when no job in range was pushed there.
-    const [runs, scLoaded, notesRead] = await Promise.all([
+    // Calendar speed (2026-11-25): the repeating series are read alongside the range's jobs and notes.
+    const [runs, scLoaded, notesRead, seriesRead] = await Promise.all([
       this.runs(organizationId, from, to),
       hideSc ? Promise.resolve(null) : this.siteclockJobs(organizationId, from, to),
       this.notes ? this.notes.inRange(organizationId, from, to) : Promise.resolve(null),
+      this.loadSeries(organizationId),
     ]);
     // Repeating jobs and notes (WCT group, 2026-11-25): the range's occurrences, drawn from their templates.
-    const rep = await this.repeats(organizationId, from, to, runs as any[], notesRead);
+    const rep = await this.repeats(organizationId, from, to, runs as any[], notesRead, seriesRead);
     if (rep) (runs as any[]).push(...rep.runs);
     const notes = rep && notesRead ? rep.notes : notesRead;
     // Calendar style: each run's PTW status as stored (the event's ptw is dropped below when calendar add is off).
@@ -274,35 +288,23 @@ export class JobsCalendarService {
     // Calendar add on (notes is not null): jobs show PTW and an "Untagged" mark when they have no order.
     if (notes) for (const r of runs as any[]) r.untagged = !r.order;
     else for (const r of runs as any[]) delete r.ptw;
-    // Calendar add on: each job's quotation (the order's, else the quick job's own) for the panel's QO link.
-    if (notes) await this.attachQuotations(organizationId, runs as any[]);
+    // Calendar speed: the quotations, the SiteClock links and the job fields are independent reads, run side by side.
+    const [, links, legend] = await Promise.all([
+      // Calendar add on: each job's quotation (the order's, else the quick job's own) for the panel's QO link.
+      notes ? this.attachQuotations(organizationId, runs as any[]) : Promise.resolve(),
+      runs.length
+        ? this.prisma.deliverySiteClockJob.findMany({
+            where: { organizationId, deliveryId: { in: runs.map((r) => r.id) } },
+            select: { deliveryId: true, workerName: true, durationMin: true, externalRef: true },
+          })
+        : Promise.resolve([] as Array<{ deliveryId: string; workerName: string | null; durationMin: number; externalRef: string }>),
+      // Custom job fields: each run's icons + the legend.
+      this.jobFields(organizationId, runs as any[]),
+    ]);
     const quotationIds = new Map((runs as any[]).map((r) => [r.id as string, (r.quotationId ?? null) as string | null]));
     for (const r of runs as any[]) delete r.quotationId;
-    const links = runs.length
-      ? await this.prisma.deliverySiteClockJob.findMany({
-          where: { organizationId, deliveryId: { in: runs.map((r) => r.id) } },
-          select: { deliveryId: true, workerName: true, durationMin: true, externalRef: true },
-        })
-      : [];
     let sc = scLoaded;
     if (!sc) sc = links.length ? await this.siteclockJobs(organizationId, from, to) : { jobs: null, status: { state: 'off' as const } };
-    // Custom job fields: each run's icons + the legend.
-    let legend: ReturnType<typeof calendarLegend> | undefined;
-    if (runs.length && (await isJobFieldsEnabled(this.prisma, organizationId))) {
-      const defs = await jobFieldDefs(this.prisma, organizationId);
-      const values = await jobFieldValues(this.prisma, organizationId, [...new Set(runs.map((r) => baseRunId(r.id)))], defs);
-      for (const r of runs as any[]) {
-        const v = values.get(baseRunId(r.id)) ?? {};
-        r.badges = defs.map((f) => calendarBadge(f, v[f.id])).filter(Boolean);
-      }
-      legend = calendarLegend(defs);
-      // Job category (WCT group; null elsewhere): each job's, blank = the default.
-      const catDef = await jobCategoryDef(this.prisma, organizationId);
-      if (catDef) {
-        const cats = await jobCategoryValues(this.prisma, organizationId, catDef, [...new Set(runs.map((r) => baseRunId(r.id)))]);
-        for (const r of runs as any[]) r.category = cats.get(baseRunId(r.id)) ?? catDef.defaultValue;
-      }
-    }
     let events = buildCalendarEvents(runs, links, sc.jobs, { aimsOnly: hideSc });
     if (rep) events = events.map((e) => withRepeat(e, rep.repeatOf, rep.durations));
     let shownNotes = notes;
@@ -510,12 +512,7 @@ export class JobsCalendarService {
     const orderIds = [...new Set(runs.filter((r) => !out.get(r.id) && r.order?.id).map((r) => r.order!.id))];
     if (orderIds.length) {
       const [orderDocs, orders] = await Promise.all([
-        runAsOrg(organizationId, () =>
-          this.prisma.document.findMany({
-            where: { organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] }, OR: orderIds.map((id) => ({ config: { path: ['orderId'], equals: id } })) } as any,
-            select: { id: true, config: true },
-          }),
-        ) as Promise<any[]>,
+        runAsOrg(organizationId, () => orderDoRows(this.prisma, organizationId, orderIds)),
         runAsOrg(organizationId, () => this.prisma.order.findMany({ where: { id: { in: orderIds }, organizationId }, select: { id: true, linkedDocuments: true } })) as Promise<any[]>,
       ]);
       const byOrder = new Map<string, Set<string>>();
@@ -549,9 +546,36 @@ export class JobsCalendarService {
    * and the series line ("Repeats: ...") for the occurrences and for those made into their own job / note.
    * null = the org has no repeats (every other org: untouched).
    */
-  private async repeats(organizationId: string, from: string, to: string, runs: any[], notes: CalendarNoteView[] | null) {
+  /** Custom job fields (enableJobFields): each run's icons (and job category) set on the run; the legend (undefined = off). */
+  private async jobFields(organizationId: string, runs: any[]): Promise<ReturnType<typeof calendarLegend> | undefined> {
+    if (!runs.length || !(await isJobFieldsEnabled(this.prisma, organizationId))) return undefined;
+    const ids = [...new Set(runs.map((r) => baseRunId(r.id)))];
+    // Calendar speed: the field values and the category are read side by side (same reads as before).
+    const [defs, catDef] = await Promise.all([jobFieldDefs(this.prisma, organizationId), jobCategoryDef(this.prisma, organizationId)]);
+    const [values, cats] = await Promise.all([
+      jobFieldValues(this.prisma, organizationId, ids, defs),
+      // Job category (WCT group; null elsewhere): each job's, blank = the default.
+      catDef ? jobCategoryValues(this.prisma, organizationId, catDef, ids) : Promise.resolve(null),
+    ]);
+    for (const r of runs) {
+      const v = values.get(baseRunId(r.id)) ?? {};
+      r.badges = defs.map((f) => calendarBadge(f, v[f.id])).filter(Boolean);
+    }
+    if (catDef && cats) for (const r of runs) r.category = cats.get(baseRunId(r.id)) ?? catDef.defaultValue;
+    return calendarLegend(defs);
+  }
+
+  /** The org's repeating series (null = repeats off for the org). NOTE series are used only when the org has notes. */
+  private async loadSeries(organizationId: string): Promise<{ jobS: SeriesRow[]; noteS: SeriesRow[] } | null> {
     if (!this.series || !(await this.series.enabled(organizationId))) return null;
-    const [jobS, noteS] = await Promise.all([this.series.seriesOf(organizationId, 'JOB'), notes ? this.series.seriesOf(organizationId, 'NOTE') : Promise.resolve([])]);
+    const [jobS, noteS] = await Promise.all([this.series.seriesOf(organizationId, 'JOB'), this.series.seriesOf(organizationId, 'NOTE')]);
+    return { jobS, noteS };
+  }
+
+  private async repeats(organizationId: string, from: string, to: string, runs: any[], notes: CalendarNoteView[] | null, loaded: { jobS: SeriesRow[]; noteS: SeriesRow[] } | null) {
+    if (!this.series || !loaded) return null;
+    const jobS = loaded.jobS;
+    const noteS = notes ? loaded.noteS : [];
     if (!jobS.length && !noteS.length) return null;
     const exc = await this.series.exceptionsOf(organizationId, [...jobS, ...noteS].map((s) => s.id));
     const taken = new Map<string, Set<string>>();
@@ -737,6 +761,29 @@ export class JobsCalendarService {
     }
     this.cache.set(key, { at: Date.now(), jobs });
   }
+}
+
+/**
+ * The DOs made on these orders (config.orderId), with only the config keys the ✅ count reads (orderId, cancelled,
+ * voided, erpImport). Calendar speed (2026-11-25): one `= ANY` over the org's DOs replaces a Prisma OR of one JSON
+ * path filter per order, which re-read every DO's config once per order (4 to 6 s for a WCT month, 1.5 MB of
+ * configs); same rows (a JSON string orderId equal to one of the ids), about 0.1 s.
+ */
+export async function orderDoRows(prisma: any, organizationId: string, orderIds: string[]): Promise<Array<{ id: string; config: Record<string, unknown> }>> {
+  if (!orderIds.length) return [];
+  const rows: any[] = await prisma.$queryRawUnsafe(
+    `SELECT id, config->'orderId' AS "orderId", config->'cancelled' AS cancelled, config->'voided' AS voided, config->'erpImport' AS "erpImport"
+       FROM "Document"
+      WHERE "organizationId" = $1 AND type IN ('DELIVERY_ORDER', 'DO')
+        AND jsonb_typeof(config->'orderId') = 'string' AND config->>'orderId' = ANY($2::text[])`,
+    organizationId,
+    orderIds,
+  );
+  return rows.map((r) => {
+    const config: Record<string, unknown> = { orderId: r.orderId };
+    for (const k of ['cancelled', 'voided', 'erpImport']) if (r[k] !== null && r[k] !== undefined) config[k] = r[k];
+    return { id: r.id as string, config };
+  });
 }
 
 /**

@@ -101,6 +101,46 @@ interface Props {
 
 export const SCHEDULE_VIEW = "schedule";
 
+// Calendar speed (2026-11-25): FullCalendar's options that never change, kept out of the component so every render
+// hands FullCalendar the same functions and objects (a changed one re-draws every chip on the grid).
+const NO_CLASHES: ReturnType<typeof rescheduleClashes> = [];
+const EVENT_TIME_FORMAT = { hour: "numeric", minute: "2-digit", meridiem: "short" } as const;
+const eventAllow = (drop: { allDay: boolean }) => drop.allDay;
+function eventDidMount(arg: { el: HTMLElement; event: { title: string; extendedProps: Record<string, any> } }) {
+  if (arg.event.extendedProps.holiday) return;
+  // Calendar style chips carry their own hover (styledTooltip): the outer element gets the same, never the
+  // old "#21 Customer / Category" text (2026-11-24).
+  const styledEv = arg.event.extendedProps.event as CalendarEvent | undefined;
+  if (styledEv?.style) {
+    arg.el.title = styledTooltip(styledEv);
+    return;
+  }
+  const t = categoryChipTitle(arg.event.extendedProps.event as CalendarEvent | undefined, arg.event.title);
+  if (t) arg.el.title = t;
+}
+function eventContent(arg: EventContentArg) {
+  if (arg.event.extendedProps.holiday) return true;
+  const e = arg.event.extendedProps.event as CalendarEvent;
+  if (e?.style) return <StyledBox event={e} block={arg.view.type !== "dayGridMonth"} />;
+  if (!e?.badges?.length && !e?.ptw) return true;
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, overflow: "hidden", px: 0.25 }}>
+      {arg.timeText && <Box component="span" sx={{ fontWeight: 600, flexShrink: 0 }}>{arg.timeText}</Box>}
+      <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{arg.event.title}</Box>
+      {e.ptw && (
+        <Box component="span" title={`PTW: ${e.ptw.label}`} sx={{ flexShrink: 0, fontSize: 10, fontWeight: 700, lineHeight: "14px", px: 0.5, borderRadius: "3px", bgcolor: "#fff", color: ptwColor(e.ptw.status) }}>
+          PTW
+        </Box>
+      )}
+      {(e.badges ?? []).map((b) => (
+        <Box key={b.fieldId} component="span" title={badgeTitle(b)} sx={{ display: "inline-flex", bgcolor: "#fff", borderRadius: "50%", p: "1px", flexShrink: 0 }}>
+          <JobFieldIcon icon={b.icon} sx={{ fontSize: 13, color: b.colour }} />
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
 // Calendar style chips (WCT group; only jobs with `style` use these). 2026-11-22: two sizes up from 0.72 / 0.64 / 0.70rem
 // (Month, Week, Day) and 0.875 / 0.75rem (Schedule). Month cells grow to keep about 4 two-row chips before "+n more".
 export const CHIP_FONT = { text: "0.85rem", time: "0.76rem", row2: "0.82rem" } as const;
@@ -236,7 +276,9 @@ export default function CalendarView({
       return fresh && fresh !== p.event ? { ...p, event: fresh } : p;
     });
   }, [liveEvents]);
-  const clashes = useMemo(() => (preview && panel?.event ? rescheduleClashes(liveEvents, panel.event, preview) : []), [preview, panel, liveEvents]);
+  // Calendar speed (2026-11-25): no reschedule preview = the same empty list every render, so opening or closing the
+  // panel does not rebuild the calendar's events (which re-drew every chip).
+  const clashes = useMemo(() => (preview && panel?.event ? rescheduleClashes(liveEvents, panel.event, preview) : NO_CLASHES), [preview, panel, liveEvents]);
   const clashIds = useMemo(() => new Set(clashes.map((c) => c.event.id)), [clashes]);
   // Notes first on each day (displayOrder 0), then the jobs.
   // Calendar style (WCT group): Month shows compact Google Calendar rows (StyledRow), Week / Day keep the blocks.
@@ -343,6 +385,27 @@ export default function CalendarView({
     }
   };
 
+  // Calendar speed (2026-11-25): FullCalendar compares its options by identity and re-draws every chip when one
+  // changes, so the handlers it gets never change; each call runs the latest handler (same behaviour as before).
+  const onDatesSet = (arg: DatesSetArg) => {
+    setViewType(arg.view.type);
+    onViewChange?.(arg.view.type);
+    shownView.current = { type: arg.view.type, from: arg.view.calendar.formatIso(arg.view.currentStart, true), to: arg.view.calendar.formatIso(arg.view.currentEnd, true) };
+    setVisible(rangeOf(arg.startStr, arg.endStr));
+    onRange(arg.startStr, arg.endStr);
+  };
+  const onAnyDateClick = (arg: DateClickArg) => {
+    if (mini) return mini.onPick({ ...slotOf(arg.dateStr, arg.allDay), allDay: arg.allDay });
+    if (canAdd) onDateClick(arg);
+  };
+  const latest = useRef({ onClick, onDrop, onDatesSet, onAnyDateClick });
+  latest.current = { onClick, onDrop, onDatesSet, onAnyDateClick };
+  const stableClick = useCallback((arg: EventClickArg) => latest.current.onClick(arg), []);
+  const stableDrop = useCallback((arg: EventDropArg) => latest.current.onDrop(arg), []);
+  const stableDatesSet = useCallback((arg: DatesSetArg) => latest.current.onDatesSet(arg), []);
+  const stableDateClick = useCallback((arg: DateClickArg) => latest.current.onAnyDateClick(arg), []);
+  const stableMoreLink = useMemo(() => panelMoreLink((day) => setPanel({ event: null, day })) as any, []);
+
   const border = theme.palette.divider;
   return (
     <Box
@@ -393,7 +456,7 @@ export default function CalendarView({
       <FullCalendar
         ref={calRef}
         plugins={[dayGridPlugin, timeGridPlugin, luxonPlugin, interactionPlugin]}
-        dateClick={mini ? (arg: DateClickArg) => mini.onPick({ ...slotOf(arg.dateStr, arg.allDay), allDay: arg.allDay }) : canAdd ? onDateClick : undefined}
+        dateClick={mini || canAdd ? stableDateClick : undefined}
         eventOrder="displayOrder,start,-duration,allDay,title"
         timeZone={CALENDAR_TZ}
         initialView={initialView}
@@ -418,56 +481,18 @@ export default function CalendarView({
         slotEventOverlap={!styledCal}
         nowIndicator
         scrollTime="07:00:00"
-        eventTimeFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
+        eventTimeFormat={EVENT_TIME_FORMAT}
         events={inputs}
-        eventClick={mini ? undefined : onClick}
+        eventClick={mini ? undefined : stableClick}
         // WCT: the day goes to the panel and FullCalendar opens no pop-over (see MORE_LINK_HANDLED).
-        moreLinkClick={openOnClick && !mini ? (panelMoreLink((day) => setPanel({ event: null, day })) as any) : undefined}
+        moreLinkClick={openOnClick && !mini ? stableMoreLink : undefined}
         // Job category (WCT group): the chip's tooltip names it (no tooltip for orgs without categories).
-        eventDidMount={(arg) => {
-          if (arg.event.extendedProps.holiday) return;
-          // Calendar style chips carry their own hover (styledTooltip): the outer element gets the same, never the
-          // old "#21 Customer / Category" text (2026-11-24).
-          const styledEv = arg.event.extendedProps.event as CalendarEvent | undefined;
-          if (styledEv?.style) {
-            arg.el.title = styledTooltip(styledEv);
-            return;
-          }
-          const t = categoryChipTitle(arg.event.extendedProps.event as CalendarEvent | undefined, arg.event.title);
-          if (t) arg.el.title = t;
-        }}
-        eventDrop={onMove ? onDrop : undefined}
-        eventAllow={(drop) => drop.allDay}
+        eventDidMount={eventDidMount}
+        eventDrop={onMove ? stableDrop : undefined}
+        eventAllow={eventAllow}
         // Custom job fields: the job's icons after its time + title (default rendering otherwise).
-        eventContent={(arg: EventContentArg) => {
-          if (arg.event.extendedProps.holiday) return true;
-          const e = arg.event.extendedProps.event as CalendarEvent;
-          if (e?.style) return <StyledBox event={e} block={arg.view.type !== "dayGridMonth"} />;
-          if (!e?.badges?.length && !e?.ptw) return true;
-          return (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, overflow: "hidden", px: 0.25 }}>
-              {arg.timeText && <Box component="span" sx={{ fontWeight: 600, flexShrink: 0 }}>{arg.timeText}</Box>}
-              <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{arg.event.title}</Box>
-              {e.ptw && (
-                <Box component="span" title={`PTW: ${e.ptw.label}`} sx={{ flexShrink: 0, fontSize: 10, fontWeight: 700, lineHeight: "14px", px: 0.5, borderRadius: "3px", bgcolor: "#fff", color: ptwColor(e.ptw.status) }}>
-                  PTW
-                </Box>
-              )}
-              {(e.badges ?? []).map((b) => (
-                <Box key={b.fieldId} component="span" title={badgeTitle(b)} sx={{ display: "inline-flex", bgcolor: "#fff", borderRadius: "50%", p: "1px", flexShrink: 0 }}>
-                  <JobFieldIcon icon={b.icon} sx={{ fontSize: 13, color: b.colour }} />
-                </Box>
-              ))}
-            </Box>
-          );
-        }}
-        datesSet={(arg: DatesSetArg) => {
-          setViewType(arg.view.type);
-          onViewChange?.(arg.view.type);
-          shownView.current = { type: arg.view.type, from: arg.view.calendar.formatIso(arg.view.currentStart, true), to: arg.view.calendar.formatIso(arg.view.currentEnd, true) };
-          setVisible(rangeOf(arg.startStr, arg.endStr));
-          onRange(arg.startStr, arg.endStr);
-        }}
+        eventContent={eventContent}
+        datesSet={stableDatesSet}
       />
 
       {/* Schedule view: the list, rendered into the custom view's host node. */}

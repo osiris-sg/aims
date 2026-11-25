@@ -19,7 +19,7 @@ import {
   categoryPrefix,
 } from './calendar-style';
 import { CalendarStyleService, isSalesMember } from './calendar-style.service';
-import { JobsCalendarService } from './jobs-calendar.service';
+import { JobsCalendarService, orderDoRows } from './jobs-calendar.service';
 import { CalendarNotesService } from './calendar-notes.service';
 import { CalendarSeriesService } from './calendar-series.service';
 import { jobStyleOf, parseJobStylePatch, stampJobCreator, withStampedApplicant, EMPTY_JOB_STYLE } from '../deliveries/job-style';
@@ -327,7 +327,15 @@ function fakePrisma(w: World) {
   const prisma: any = {
     organizationUIConfig: { findUnique: jest.fn(async ({ where }: any) => ({ features: w.features[where.organizationId] ?? {} })) },
     organization: { findUnique: jest.fn(async ({ where }: any) => ({ id: where.id, name: where.id })) },
-    $queryRawUnsafe: jest.fn(async (_sql: string, id: string) => (w.children[id] ?? []).map((c) => ({ id: c, name: c }))),
+    $queryRawUnsafe: jest.fn(async (sql: string, id: string, orderIds?: string[]) => {
+      // Calendar speed (2026-11-25): the order fallback reads the order's DOs by config.orderId in one `= ANY` query.
+      if (sql.includes(`config->>'orderId' = ANY`)) {
+        return (w.orderDos ?? [])
+          .filter((d: any) => typeof d.config?.orderId === 'string' && orderIds!.includes(d.config.orderId))
+          .map((d: any) => ({ id: d.id, orderId: d.config.orderId, cancelled: d.config.cancelled ?? null, voided: d.config.voided ?? null, erpImport: d.config.erpImport ?? null }));
+      }
+      return (w.children[id] ?? []).map((c) => ({ id: c, name: c }));
+    }),
     delivery: {
       findMany: jest.fn(async ({ where }: any) =>
         where.id?.in ? (w.templates ?? []).filter((t) => where.id.in.includes(t.id)).map((r) => ({ ...r })) : (w.runs[org(where)] ?? []).map((r) => ({ ...r })),
@@ -346,8 +354,8 @@ function fakePrisma(w: World) {
     },
     document: {
       findMany: jest.fn(async ({ where }: any) => {
-        // Round 37: the order fallback reads the order's DOs by config.orderId (no id list).
-        if (where.type && !where.id) return (w.orderDos ?? []).filter((d: any) => where.OR?.some((o: any) => o.config?.equals === d.config?.orderId));
+        // The order fallback no longer reads DOs here ($queryRawUnsafe above): a JSON-path OR per order was the slow query.
+        if (where.type && !where.id) throw new Error('order DOs must be read with one = ANY query');
         if (where.type)
           return [
             { id: 'do-1', name: 'DO1', status: 'delivered_installed', documentTemplateId: 't', config: {}, createdAt: new Date() },
@@ -1009,5 +1017,31 @@ describe('repeating jobs and notes (2026-11-25, Google Calendar style)', () => {
   it('an org with no series: the calendar is exactly as before', async () => {
     const a = await svc(world()).get(P, '2026-11-16', '2026-11-22', { userId: HH });
     expect(a.events.some((e: any) => e.repeat || e.occurrence)).toBe(false);
+  });
+});
+
+// Calendar speed (2026-11-25): the order DOs in one query, with only the config keys the ✅ count reads.
+describe('orderDoRows', () => {
+  it('no orders = no query; one = ANY query over the org; nulls dropped so isLiveDo / erpImport read as before', async () => {
+    const prisma: any = {
+      $queryRawUnsafe: jest.fn(async () => [
+        { id: 'd1', orderId: 'o1', cancelled: null, voided: null, erpImport: null },
+        { id: 'd2', orderId: 'o1', cancelled: true, voided: null, erpImport: null },
+        { id: 'd3', orderId: 'o2', cancelled: false, voided: true, erpImport: { source: 'wct-erp' } },
+      ]),
+    };
+    expect(await orderDoRows(prisma, 'org', [])).toEqual([]);
+    expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
+    const rows = await orderDoRows(prisma, 'org', ['o1', 'o2']);
+    const [sql, org, ids] = prisma.$queryRawUnsafe.mock.calls[0];
+    expect(sql).toMatch(/"organizationId" = \$1 AND type IN \('DELIVERY_ORDER', 'DO'\)/);
+    expect(sql).toMatch(/jsonb_typeof\(config->'orderId'\) = 'string' AND config->>'orderId' = ANY\(\$2::text\[\]\)/);
+    expect([org, ids]).toEqual(['org', ['o1', 'o2']]);
+    expect(rows).toEqual([
+      { id: 'd1', config: { orderId: 'o1' } },
+      { id: 'd2', config: { orderId: 'o1', cancelled: true } },
+      { id: 'd3', config: { orderId: 'o2', cancelled: false, voided: true, erpImport: { source: 'wct-erp' } } },
+    ]);
+    expect(rows.map((r) => isLiveDo(r))).toEqual([true, false, false]);
   });
 });

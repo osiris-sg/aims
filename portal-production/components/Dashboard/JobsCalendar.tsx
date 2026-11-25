@@ -7,6 +7,7 @@
 // outage shows the AIMS jobs with a banner instead of failing.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { Alert, Box, Checkbox, CircularProgress, FormControl, FormControlLabel, IconButton, InputLabel, ListItemText, MenuItem, OutlinedInput, Select, Skeleton, Stack, Tooltip, Typography, useMediaQuery } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
@@ -23,6 +24,7 @@ import ExportListDialog from "./jobs-calendar/ExportListDialog";
 import type { CalendarActions } from "./jobs-calendar/StyledJobPanel";
 import { NO_FILTERS, RETURN_ORG_KEY, filterEvents, parseFilters, returnOrgAction, type CalendarFilters } from "./jobs-calendar/calendarPanel";
 import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
+import { JOBS_CALENDAR_QUERY_KEY, jobsCalendarKey } from "./jobs-calendar/calendarQuery";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
@@ -59,13 +61,37 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
   const [coloursOpen, setColoursOpen] = useState(false);
   const { getToken, userId } = useAuth();
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
-  const [data, setData] = useState<CalendarPayload | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [showCancelled, setShowCancelled] = useState(false);
-  const latest = useRef("");
   const router = useRouter();
-  const [reloadKey, setReloadKey] = useState(0);
+  // Calendar speed (2026-11-25): each range on screen is cached (React Query, key = org + range), so paging back to a
+  // range already seen shows at once while it is read again; every change on the calendar refreshes all ranges (reload).
+  const queryClient = useQueryClient();
+  const rangeQuery = useQuery({
+    queryKey: range ? jobsCalendarKey(range.from, range.to, !!isHideSiteClockJobs) : [...JOBS_CALENDAR_QUERY_KEY, "none"],
+    queryFn: async (): Promise<CalendarPayload | null> => {
+      const token = await getToken();
+      if (!token) throw new Error("Couldn't load the calendar");
+      const res = await request({ path: `/dashboard/jobs-calendar?from=${range!.from}&to=${range!.to}`, method: "GET", ownError: true }, undefined, token);
+      const payload = unwrap<CalendarPayload>(res, "Couldn't load the calendar");
+      return payload ? withoutSiteClockJobs(payload, !!isHideSiteClockJobs) : payload;
+    },
+    enabled: !!range,
+    // Shown at once from the cache, and read again each time the calendar opens (changes made elsewhere show).
+    staleTime: 30_000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: false,
+    retry: false,
+    // Every read is a new object, as before: the side panel's pending changes clear on each reload.
+    structuralSharing: false,
+    // While a new range loads, the last one stays on screen (as before).
+    placeholderData: keepPreviousData,
+  });
+  // A failed read keeps the last calendar on screen with the error (as before).
+  const lastData = useRef<CalendarPayload | null>(null);
+  if (rangeQuery.data !== undefined) lastData.current = rangeQuery.data;
+  const data = rangeQuery.data !== undefined ? rangeQuery.data : lastData.current;
+  const loading = rangeQuery.isFetching;
+  const error = rangeQuery.isError ? (rangeQuery.error as Error | null)?.message || "Couldn't load the calendar" : "";
   // WCT calendar add: the server sends `notes` only to orgs with WCT orders + the calendar.
   const canAdd = !!isWctOrdersEnabled && Array.isArray(data?.notes);
   const [adding, setAdding] = useState<{ kind: "job" | "note"; slot: { date: string; time: string } } | null>(null);
@@ -91,29 +117,9 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
     setRange((cur) => (cur && cur.from === r.from && cur.to === r.to ? cur : r));
   }, []);
 
-  useEffect(() => {
-    if (!range) return;
-    const key = `${range.from}|${range.to}`;
-    latest.current = key;
-    setLoading(true);
-    (async () => {
-      try {
-        const token = await getToken();
-        if (!token) return;
-        const res = await request({ path: `/dashboard/jobs-calendar?from=${range.from}&to=${range.to}`, method: "GET", ownError: true }, undefined, token);
-        const payload = unwrap<CalendarPayload>(res, "Couldn't load the calendar");
-        if (latest.current !== key) return; // a newer range is on screen
-        setData(payload ? withoutSiteClockJobs(payload, !!isHideSiteClockJobs) : payload);
-        setError("");
-      } catch (e: any) {
-        if (latest.current === key) setError(e?.message || "Couldn't load the calendar");
-      } finally {
-        if (latest.current === key) setLoading(false);
-      }
-    })();
-  }, [range, getToken, reloadKey, isHideSiteClockJobs]);
-
-  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+  // Any change (job, note, repeat, postpone, move, colours...): every cached range is out of date; the one on screen is
+  // read again at once.
+  const reload = useCallback(() => void queryClient.invalidateQueries({ queryKey: JOBS_CALENDAR_QUERY_KEY }), [queryClient]);
   const api = useCalendarApi();
 
   // Round 36: back from another company's job (opened from this calendar): this tab switches back to its company.
@@ -212,9 +218,9 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
         throw new Error(r.message);
       }
       toast.success(`${e.title} moved to ${new Date(`${date}T12:00:00+08:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`);
-      setReloadKey((k) => k + 1);
+      reload();
     },
-    [api],
+    [api, reload],
   );
   // Repeating jobs (2026-11-25): Edit asks "This event / This and following events / All events" (Google's question);
   // Complete job always works on that occurrence alone (it becomes its own job, with its own proof and DOs).

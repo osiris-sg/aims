@@ -60,7 +60,9 @@ test("wiring: interaction plugin pinned like the others; add only for WCT calend
   assert.ok(!fc.some(([, v]) => /[\^~]/.test(v)));
   const view = read("components/Dashboard/jobs-calendar/CalendarView.tsx");
   // Round 39 #8: the job dialogs' mini calendar picks a slot; otherwise the add menu only where adding is on.
-  assert.match(view, /dateClick=\{mini \? \(arg: DateClickArg\) => mini\.onPick\([^}]*\}\) : canAdd \? onDateClick : undefined\}/);
+  // Calendar speed (2026-11-25): the same rule behind one stable handler (FullCalendar re-draws every chip when a handler changes).
+  assert.match(view, /dateClick=\{mini \|\| canAdd \? stableDateClick : undefined\}/);
+  assert.match(view, /if \(mini\) return mini\.onPick\(\{ \.\.\.slotOf\(arg\.dateStr, arg\.allDay\), allDay: arg\.allDay \}\);\n\s*if \(canAdd\) onDateClick\(arg\);/);
   const cal = read("components/Dashboard/JobsCalendar.tsx");
   assert.match(cal, /const canAdd = !!isWctOrdersEnabled && Array\.isArray\(data\?\.notes\);/);
 });
