@@ -480,12 +480,14 @@ export interface ShipmentDraft {
 }
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
+/** Round BZ: weights keep the B/L's precision — 50,039.5 KGS = 50.0395 MT (0.1 kg), not 50.040. */
+const round4 = (n: number) => Math.round(n * 10000) / 10000;
 /** B/L weights are usually printed in KG; contracts and shipments use MT. */
 export function toMt(v: number | null, unit: string | null): number | null {
   if (v === null) return null;
   const u = (unit ?? '').toUpperCase();
-  if (u.startsWith('KG') || (!u.startsWith('MT') && v > 1000)) return round3(v / 1000);
-  return round3(v);
+  if (u.startsWith('KG') || (!u.startsWith('MT') && v > 1000)) return round4(v / 1000);
+  return round4(v);
 }
 
 const NUMBER_WORDS: Record<string, number> = {

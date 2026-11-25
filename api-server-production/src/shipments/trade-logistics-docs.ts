@@ -253,7 +253,9 @@ export interface SgjpItem {
   premium: number | null;
   upcharge: number | null;
   unitPrice: number | null;
-  /** Invoice quantity (MT) — normally the net weight. */
+  /** Round BZ: FIXED_ALL_IN = the customer's fixed all-in price (Clients › Products); no LME / QMJP / premium / upcharge. */
+  priceMode?: 'FIXED_ALL_IN' | null;
+  /** Invoice quantity (MT) — normally the net weight, at the B/L's precision (50.0395). */
   quantity: number | null;
   bundles: number | null;
   pieces: number | null;
@@ -265,7 +267,8 @@ export interface SgjpItem {
 /** "ADH20260820" for 2026-08-20. */
 export const sgjpInvoiceNo = (date: string) => `ADH${(date ?? '').replace(/-/g, '').slice(0, 8)}`;
 
-export function sgjpUnitPrice(i: Pick<SgjpItem, 'lme' | 'qmjp' | 'premium' | 'upcharge' | 'unitPrice'>): number | null {
+export function sgjpUnitPrice(i: Pick<SgjpItem, 'lme' | 'qmjp' | 'premium' | 'upcharge' | 'unitPrice'> & { priceMode?: SgjpItem['priceMode'] }): number | null {
+  if (i.priceMode === 'FIXED_ALL_IN') return num(i.unitPrice);
   if (has(i.lme)) return roundTo((num(i.lme) ?? 0) + (num(i.qmjp) ?? 0) + (num(i.premium) ?? 0) + (num(i.upcharge) ?? 0), 4);
   return num(i.unitPrice);
 }
@@ -293,7 +296,17 @@ export function portWithCountry(v: string | null | undefined): string {
 /** "HS CODE : 7601.20 CIF" — the label only when there is a code. */
 const hsLine = (hs: string | null | undefined, terms?: string | null) => [hs ? `HS CODE : ${esc(hs)}` : '', terms ? esc(terms) : ''].filter(Boolean).join(' ');
 
-/** ROUNDDOWN(unit price × quantity, 2), as ADH's sheet. */
+/**
+ * Round BZ: a weight in MT as the B/L gives it — 3 decimals, or 4 when the B/L has them (50,039.5 kg → "50.0395",
+ * never "50.040"; 50,062 kg → "50.062").
+ */
+export function mtText(v: number | null): string {
+  if (v === null || !Number.isFinite(v)) return '';
+  const r4 = Math.round(v * 10000) / 10000;
+  return money(r4, Math.abs(r4 * 1000 - Math.round(r4 * 1000)) > 1e-6 ? 4 : 3);
+}
+
+/** ROUNDDOWN(unit price × quantity, 2), as ADH's sheet (Excel ROUNDDOWN = truncate: 50.0395 × 3,750 = 187,648.125 → 187,648.12). */
 export function sgjpItemAmount(i: SgjpItem): number | null {
   const p = sgjpUnitPrice(i);
   const q = num(i.quantity);
@@ -306,12 +319,12 @@ export function sgjpTotals(items: SgjpItem[]) {
       dp,
     );
   return {
-    quantity: s((i) => num(i.quantity), 3),
+    quantity: s((i) => num(i.quantity), 4),
     amount: s(sgjpItemAmount, 2),
     bundles: s((i) => num(i.bundles), 0),
     pieces: s((i) => num(i.pieces), 0),
-    netMt: s((i) => num(i.netMt), 3),
-    grossMt: s((i) => num(i.grossMt), 3),
+    netMt: s((i) => num(i.netMt), 4),
+    grossMt: s((i) => num(i.grossMt), 4),
   };
 }
 
@@ -341,10 +354,10 @@ export function renderSgjpV2Html(h: SgjpHeaderV2, items: SgjpItem[], opts: { dra
   <tbody>${items
     .map(
       (i, k) =>
-        `<tr><td class="c">${k + 1}</td><td class="pre">${br(i.goods)}<br>${hsLine(i.hsCode, i.terms)}</td><td class="num">${money(sgjpUnitPrice(i))}</td><td class="num">${money(num(i.quantity), 3)}</td><td class="num">${usdAmount(sgjpItemAmount(i))}</td></tr>`,
+        `<tr><td class="c">${k + 1}</td><td class="pre">${br(i.goods)}<br>${hsLine(i.hsCode, i.terms)}</td><td class="num">${money(sgjpUnitPrice(i))}</td><td class="num">${mtText(num(i.quantity))}</td><td class="num">${usdAmount(sgjpItemAmount(i))}</td></tr>`,
     )
     .join('')}
-  <tr class="tot"><td colspan="3">TOTAL</td><td class="num">${money(t.quantity, 3)}</td><td class="num">${usdAmount(t.amount)}</td></tr></tbody>
+  <tr class="tot"><td colspan="3">TOTAL</td><td class="num">${mtText(t.quantity)}</td><td class="num">${usdAmount(t.amount)}</td></tr></tbody>
 </table>
 <h2>PACKING DETAILS</h2>
 <table class="grid pk">
@@ -353,10 +366,10 @@ export function renderSgjpV2Html(h: SgjpHeaderV2, items: SgjpItem[], opts: { dra
   <tbody>${items
     .map(
       (i, k) =>
-        `<tr><td class="c">${k + 1}</td><td class="pre">${br(i.goods)}${has(i.bundles) ? `- ${qty(num(i.bundles))} Bundles` : ''}<br>${hsLine(i.hsCode)}</td><td class="num">${has(i.pieces) ? `${qty(num(i.pieces))} PCS` : ''}</td><td class="num">${money(num(i.netMt), 3)}</td><td class="num">${money(num(i.grossMt), 3)}</td><td class="pre">${br(i.dimension)}</td></tr>`,
+        `<tr><td class="c">${k + 1}</td><td class="pre">${br(i.goods)}${has(i.bundles) ? `- ${qty(num(i.bundles))} Bundles` : ''}<br>${hsLine(i.hsCode)}</td><td class="num">${has(i.pieces) ? `${qty(num(i.pieces))} PCS` : ''}</td><td class="num">${mtText(num(i.netMt))}</td><td class="num">${mtText(num(i.grossMt))}</td><td class="pre">${br(i.dimension)}</td></tr>`,
     )
     .join('')}
-  <tr class="tot"><td>TOTAL :</td><td>${qty(t.bundles)}  Bundle only</td><td></td><td class="num">${money(t.netMt, 3)}</td><td class="num">${money(t.grossMt, 3)}</td><td></td></tr></tbody>
+  <tr class="tot"><td>TOTAL :</td><td>${qty(t.bundles)}  Bundle only</td><td></td><td class="num">${mtText(t.netMt)}</td><td class="num">${mtText(t.grossMt)}</td><td></td></tr></tbody>
 </table>
 <div class="sign pre">${br(h.signBlock)}</div>`;
   const css = `

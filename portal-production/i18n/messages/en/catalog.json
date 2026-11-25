@@ -40,7 +40,11 @@
     "docSize": "出庫・納入依頼書: size",
     "docName": "出庫・納入依頼書",
     "hsCode": "HS code",
-    "hsCodeHelp": "Used when the B/L / CI has none"
+    "hsCodeHelp": "Used when the B/L / CI has none",
+    "priceMode": "Pricing",
+    "priceModeInfo": "Formula: LME + MJP + premium + upcharge (SUS) or separate cost lines (Kato). Fixed unit price (all-in): one price per MT that already includes transport and import clearance; the SG→JP invoice uses it and shows no LME / MJP / premium.",
+    "fixedUnitPrice": "Unit price per MT (all-in)",
+    "fixedCurrency": "Currency"
   },
   "chem": {
     "element": "Element",
@@ -69,7 +73,8 @@
     "badNumber": "Numbers only in the size, bundle, quantity and chemistry fields.",
     "unnamed": "Product",
     "toConfirm": "To confirm: {field}",
-    "source": "Source: {source}"
+    "source": "Source: {source}",
+    "fixedPrice": "{price} {currency}/MT, all-in (incl. transport & import clearance)"
   },
   "files": {
     "specSheets": "Spec sheets",
@@ -113,5 +118,9 @@
     "uploadPdf": "Upload contract PDF",
     "uploaded": "Contract PDF uploaded",
     "uploadFailed": "Could not upload the contract PDF"
+  },
+  "priceModes": {
+    "FORMULA": "Formula (LME + MJP + premium)",
+    "FIXED_ALL_IN": "Fixed unit price (all-in)"
   }
 }

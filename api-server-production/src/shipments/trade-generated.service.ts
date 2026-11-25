@@ -83,6 +83,7 @@ import {
 import { attachPiecesPng, containerPlFacts } from './trade-attach';
 import { ciAmountOf, ciRank, CiText, CiVersion, parseCiText } from './trade-ci';
 import { normHs, productHsForShipment } from './trade-hs';
+import { fixedPriceFor } from './clients-products';
 import {
   AS_RECEIVED_COA,
   HOEI_INVOICE_TEMPLATE,
@@ -779,21 +780,35 @@ export class TradeGeneratedService {
         currency: s.currency || 'USD',
         lmeMonth: defaultLmeMonth('SGJP_IV_PL', shipMonth),
       };
+      if (fixedPriceFor(cp.products, o?.grade ?? s.contractLine?.grade ?? null)) h.currency = fixedPriceFor(cp.products, o?.grade ?? s.contractLine?.grade ?? null)!.currency;
       header = h;
       // The customer price: the order's premium / upcharge (or Invoice #1's line for a contract-era shipment); the LME of the shipment month from the table.
       const inv1 = o ? null : s.contract ? await this.invoice1LineFor(organizationId, s.contract.id, s.contractLine?.id ?? null, false) : null;
       const pl = s.netWeightMt === null || s.grossWeightMt === null || s.totalBundles === null ? await this.plTotalsFor(organizationId, s.id) : null;
       const net = dec(s.netWeightMt) ?? pl?.netMt ?? null;
+      // Round BZ (Sankyo Tateyama, from Take): a customer on a fixed all-in price (Clients › Products) is invoiced at that
+      // price — no LME / MJP / premium / upcharge (the formula would give 3,411.11 for #24-1 instead of 3,750.00).
+      const grade = o?.grade ?? s.contractLine?.grade ?? null;
+      const fixed = fixedPriceFor(cp.products, grade);
+      const fixedProduct = fixed ? (cp.products ?? []).find((p) => p.id === fixed.productId) : null;
+      const productText = o?.product ?? s.contractLine?.product ?? s.commodity;
       const item: SgjpItem = {
-        goods: sgjpGoods(o?.product ?? s.contractLine?.product ?? s.commodity, o?.grade ?? s.contractLine?.grade, s.sizeSpec ?? o?.size ?? s.contractLine?.sizeSpec, defaults),
+        goods:
+          !productText && fixedProduct && (fixedProduct.form === 'INGOT' || fixedProduct.form === 'REMELT_INGOT')
+            ? `ALUMINIUM ALLOY INGOT${grade ? ` ${grade}` : ''}`
+            : sgjpGoods(productText, grade, s.sizeSpec ?? o?.size ?? s.contractLine?.sizeSpec, defaults),
         hsCode: normHs(s.hsCode ?? facts.hsCode ?? productHs?.hsCode) ?? '',
         terms: o?.incoterm ?? s.contract?.incoterm ?? 'CIF',
-        // The LME of the shipment month from the org's table when it has it (else typed).
-        lme: lmeForMonth(defaults, shipMonth),
-        ...(o
-          ? { qmjp: qmjpForMonth(defaults, shipMonth), premium: num(o.clientPremium), upcharge: num(o.upcharge) }
-          : pricePartsOf(inv1?.line ?? null, s.contractLine, qmjpForMonth(defaults, shipMonth))),
-        unitPrice: null,
+        ...(fixed
+          ? { lme: null, qmjp: null, premium: null, upcharge: null, unitPrice: fixed.unitPrice, priceMode: 'FIXED_ALL_IN' as const }
+          : {
+              // The LME of the shipment month from the org's table when it has it (else typed).
+              lme: lmeForMonth(defaults, shipMonth),
+              ...(o
+                ? { qmjp: qmjpForMonth(defaults, shipMonth), premium: num(o.clientPremium), upcharge: num(o.upcharge) }
+                : pricePartsOf(inv1?.line ?? null, s.contractLine, qmjpForMonth(defaults, shipMonth))),
+              unitPrice: null,
+            }),
         quantity: net,
         bundles: s.totalBundles ?? pl?.bundles ?? null,
         pieces: s.totalPieces,
@@ -1253,7 +1268,7 @@ export class TradeGeneratedService {
     await this.bookCredits(organizationId, { ...g, number, header, rows }, creditIds);
     // The finalized SG→JP IV's amount is the customs CIF (step 7's import-tax estimate) — filled when blank.
     // (Not Hoei's: its IV is the sale to Thailand, no Japanese import.)
-    if (g.docType === 'SGJP_IV_PL' && g.shipmentId && !hoei) await this.fillCifFromSgjp(organizationId, g.shipmentId, rows);
+    if (g.docType === 'SGJP_IV_PL' && g.shipmentId && !hoei) await this.fillCifFromSgjp(organizationId, g.shipmentId, rows, g.id);
     return finalized;
   }
 
@@ -1777,12 +1792,22 @@ export class TradeGeneratedService {
   }
 
   /** costs.cifUsd ← the SG→JP IV amount (blanks only; a typed CIF is kept). */
-  private async fillCifFromSgjp(organizationId: string, shipmentId: string, rows: unknown) {
+  private async fillCifFromSgjp(organizationId: string, shipmentId: string, rows: unknown, docId?: string) {
     const amount = sgjpTotals((Array.isArray(rows) ? rows : []) as SgjpItem[]).amount;
     if (!(amount > 0)) return;
     const s = await this.prisma.shipment.findFirst({ where: { id: shipmentId, organizationId }, select: { costs: true } });
     const costs = (s?.costs ?? {}) as Record<string, unknown>;
-    if (costs.cifUsd !== null && costs.cifUsd !== undefined && costs.cifUsd !== '') return;
+    if (costs.cifUsd !== null && costs.cifUsd !== undefined && costs.cifUsd !== '') {
+      // Round BZ: a CIF that came from an earlier SG→JP invoice of this shipment (same amount) follows the re-issued one
+      // (#24-1: 170,690.23 from ADH20261120-SKT at the formula price → 187,648.12 at the fixed price). A typed CIF stays.
+      const others: Array<{ id: string; rows: unknown }> = await this.prisma.tradeGeneratedDoc.findMany({
+        where: { organizationId, shipmentId, docType: 'SGJP_IV_PL', ...(docId ? { id: { not: docId } } : {}) },
+        select: { id: true, rows: true },
+      });
+      const stored = Number(costs.cifUsd);
+      const fromSgjp = others.some((g) => Math.abs(sgjpTotals((Array.isArray(g.rows) ? g.rows : []) as SgjpItem[]).amount - stored) < 0.005);
+      if (!fromSgjp || Math.abs(stored - amount) < 0.005) return;
+    }
     await this.prisma.shipment.update({ where: { id: shipmentId, organizationId }, data: { costs: { ...costs, cifUsd: roundTo(amount, 2) } as any } });
   }
 

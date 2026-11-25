@@ -91,6 +91,7 @@
       "saved": "Invoice #1 amounts saved",
       "cleared": "Invoice #1 amounts cleared",
       "clearTitle": "Clear the typed Invoice #1 amounts?"
-    }
+    },
+    "notInFrs": "Not in the FRS: rule needed"
   }
 }

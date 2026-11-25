@@ -48,6 +48,8 @@ export interface LotShipmentInput {
 export interface LotInput {
   orderRef: string;
   customerName: string | null;
+  /** Round BZ: the order's supplier — the FRS covers lots bought from Vedanta only. */
+  supplierName?: string | null;
   pattern: BooksPattern | null;
   deliveryMonth: string | null;
   /** 1 SGD = rate USD for the 1st of the delivery month (null = not typed yet). */
@@ -112,6 +114,8 @@ export interface PreviewCheck {
 export interface LotPreview {
   orderRef: string;
   pattern: BooksPattern | null;
+  /** Round BZ: set when the lot isn't in the FRS at all (e.g. Sankyo Tateyama / PT Sri Indah) — no postings, rule needed. */
+  notInFrs?: string | null;
   deliveryMonth: string | null;
   rateMonth: string | null;
   usdRate: number | null;
@@ -138,7 +142,34 @@ function statusOf(p: Omit<PreviewPosting, 'status'>, rate: number | null): Posti
   return p.triggerState === 'done' ? 'ready' : 'waiting';
 }
 
+/**
+ * Round BZ: why a lot is outside the FRS (null = inside). The FRS (ADH_SG_Xero_FRS.md) books SUS / Kato / Hoei lots
+ * bought from Vedanta; another supplier (PT Sri Indah for Sankyo Tateyama's fixed all-in price) has no rule yet —
+ * never borrow SUS / Kato's postings for it.
+ */
+export function notInFrs(input: Pick<LotInput, 'customerName' | 'supplierName'>): string | null {
+  if (input.supplierName === undefined) return null;
+  if (/VEDANTA/i.test(input.supplierName ?? '')) return null;
+  return `${input.customerName ?? 'This customer'} / ${input.supplierName ?? 'no supplier'} isn't in the FRS (it covers SUS, Kato and Hoei lots bought from Vedanta): how ADH books this lot`;
+}
+
 export function lotPreview(input: LotInput): LotPreview {
+  const outside = notInFrs(input);
+  if (outside) {
+    return {
+      orderRef: input.orderRef,
+      pattern: null,
+      notInFrs: outside,
+      deliveryMonth: input.deliveryMonth,
+      rateMonth: input.deliveryMonth,
+      usdRate: input.usdRate && input.usdRate > 0 ? input.usdRate : null,
+      postings: [],
+      checks: [],
+      missing: [],
+      rulesNeeded: [outside],
+      invoice1: null,
+    };
+  }
   const rate = input.usdRate && input.usdRate > 0 ? input.usdRate : null;
   const rules = input.rules ?? {};
   const missing: string[] = [];

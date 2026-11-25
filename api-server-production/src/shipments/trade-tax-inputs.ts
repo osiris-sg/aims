@@ -56,7 +56,9 @@ export function sgjpFileFacts(text: string, netMt: number | null): { invoiceNo: 
   const no = /ADH(\d{4})(\d{2})(\d{2})/.exec(text ?? '');
   const amounts = [...(text ?? '').matchAll(/US\$\s*([\d,]+\.\d{2})/g)].map((m) => Number(m[1].replace(/,/g, '')));
   const total = amounts.length ? Math.max(...amounts) : null;
-  const netMatches = netMt === null || new RegExp(`(^|[^\\d.])${netMt.toFixed(3).replace('.', '\\.')}(?!\\d)`).test(text ?? '');
+  // Round BZ: a 4-dp weight (50.0395) may print as 50.0395 or (an older sheet) 50.040.
+  const forms = netMt === null ? [] : [...new Set([(Math.round(netMt * 1000 + 1e-6) / 1000).toFixed(3), String(Math.round(netMt * 10000) / 10000), netMt.toFixed(4)])];
+  const netMatches = netMt === null || forms.some((f) => new RegExp(`(^|[^\\d.])${f.replace('.', '\\.')}(?!\\d)`).test(text ?? ''));
   return { invoiceNo: no ? no[0] : null, invoiceDate: no ? `${no[1]}-${no[2]}-${no[3]}` : null, total, netMatches };
 }
 

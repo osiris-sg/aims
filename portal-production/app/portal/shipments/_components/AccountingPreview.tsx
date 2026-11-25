@@ -145,7 +145,7 @@ export function AccountingPreviewView({ data, canTypeInvoice1 = false, onTypeInv
         ) : (
           <Chip color="error" variant="outlined" label={t("noMonth")} />
         )}
-        <Chip variant="outlined" label={data.pattern ? t(`pattern.${data.pattern}`) : t("pattern.none")} />
+        <Chip variant="outlined" color={data.notInFrs ? "warning" : "default"} label={data.notInFrs ? t("notInFrs") : data.pattern ? t(`pattern.${data.pattern}`) : t("pattern.none")} data-tour="order-accounting-pattern" />
         <Tooltip title={t("info")} placement="bottom-start">
           <InfoOutlinedIcon fontSize="small" color="action" sx={{ cursor: "help" }} />
         </Tooltip>

@@ -13,6 +13,8 @@
 
 export const PRODUCT_FORMS = ['BILLET', 'INGOT', 'REMELT_INGOT', 'SCRAP', 'OTHER'] as const;
 export type ProductForm = (typeof PRODUCT_FORMS)[number];
+export const PRICE_MODES = ['FORMULA', 'FIXED_ALL_IN'] as const;
+export type PriceMode = (typeof PRICE_MODES)[number];
 
 /** An uploaded file kept on the profile (spec sheet or packing photo). */
 export interface ProfileFile {
@@ -51,6 +53,15 @@ export interface ClientProduct {
   monthlyQtyMt?: number | null;
   /** "LME + premium", "MJP + premium", "upcharge 30 USD/t"… */
   priceBasis?: string | null;
+  /**
+   * Round BZ (Sankyo Tateyama, from Take): how the customer is priced. FORMULA (default, empty) = LME + MJP + premium +
+   * upcharge (SUS) or Kato's cost lines; FIXED_ALL_IN = one fixed unit price per MT that already includes transport and
+   * import clearance (no LME / MJP / premium fields on the SG→JP invoice).
+   */
+  priceMode?: PriceMode | null;
+  /** FIXED_ALL_IN: the unit price per MT (3,750.00) and its currency (USD). */
+  fixedUnitPrice?: number | null;
+  fixedCurrency?: string | null;
   notes?: string | null;
   /**
    * Round BF: how the product prints on the 出庫・納入依頼書 — Japanese lines, English lines (one per line, printed
@@ -146,6 +157,14 @@ export function cleanProduct(raw: unknown, prev: ClientProduct | undefined, id: 
     const s = parseSize(sizeText);
     if (s) ({ diameterMm, lengthMm } = s);
   }
+  // Round BZ: the price basis. A caller that doesn't send it (older screens) keeps it.
+  const modeRaw = r.priceMode === undefined ? (prev?.priceMode ?? null) : r.priceMode === null || r.priceMode === '' ? null : String(r.priceMode);
+  if (modeRaw && !(PRICE_MODES as readonly string[]).includes(modeRaw)) bad(`Unknown price basis "${modeRaw}"`);
+  const priceMode = modeRaw === 'FORMULA' ? null : ((modeRaw as PriceMode | null) ?? null);
+  const fixedUnitPrice = priceMode === 'FIXED_ALL_IN' ? (r.fixedUnitPrice === undefined ? (prev?.fixedUnitPrice ?? null) : num(r.fixedUnitPrice, 1e7)) : null;
+  if (priceMode === 'FIXED_ALL_IN' && !(fixedUnitPrice && fixedUnitPrice > 0)) bad('A fixed unit price (all-in) needs the price per MT');
+  const fixedCurrency = priceMode === 'FIXED_ALL_IN' ? (text(r.fixedCurrency === undefined ? prev?.fixedCurrency : r.fixedCurrency, 3)?.toUpperCase() ?? 'USD') : null;
+  if (fixedCurrency && !/^[A-Z]{3}$/.test(fixedCurrency)) bad(`"${fixedCurrency}" is not a currency code`);
   const p: ClientProduct = {
     id,
     grade: text(r.grade, 40),
@@ -160,6 +179,9 @@ export function cleanProduct(raw: unknown, prev: ClientProduct | undefined, id: 
     bundleWeightKg: num(r.bundleWeightKg, 100000),
     monthlyQtyMt: num(r.monthlyQtyMt, 1e6),
     priceBasis: text(r.priceBasis, 200),
+    priceMode,
+    fixedUnitPrice,
+    fixedCurrency,
     notes: text(r.notes, 4000),
     // A caller that doesn't send the document name (older screens) keeps it.
     docNameJa: r.docNameJa === undefined ? (prev?.docNameJa ?? null) : text(r.docNameJa, 200),
@@ -211,4 +233,20 @@ export function productMatch(want: ClientProduct, have: ClientProduct): 'exact' 
   const ws = norm(productSize(want));
   const hs = norm(productSize(have));
   return ws && hs && ws !== hs ? 'grade' : 'exact';
+}
+
+/**
+ * Round BZ — the customer's fixed all-in price for a shipment's product: the visible FIXED_ALL_IN product of that grade
+ * (and form, when the shipment's form is known). Two different fixed prices for the same grade → null (don't guess).
+ */
+export function fixedPriceFor(products: ClientProduct[] | null | undefined, grade: string | null | undefined, form?: string | null): { unitPrice: number; currency: string; productId: string } | null {
+  const g = norm(grade);
+  if (!g) return null;
+  const fixed = (products ?? []).filter((p) => !p.hidden && p.priceMode === 'FIXED_ALL_IN' && p.fixedUnitPrice && norm(p.grade) === g);
+  const byForm = form ? fixed.filter((p) => !p.form || p.form === form) : fixed;
+  const list = byForm.length ? byForm : fixed;
+  const prices = new Set(list.map((p) => `${p.fixedUnitPrice}|${p.fixedCurrency ?? 'USD'}`));
+  if (prices.size !== 1) return null;
+  const p = list[0];
+  return { unitPrice: Number(p.fixedUnitPrice), currency: p.fixedCurrency ?? 'USD', productId: p.id };
 }
