@@ -239,6 +239,51 @@ is their old data the live ledger going forward, or just reference?
 
 ---
 
+## 6b. DBF sources instead of Excel (the GGA pattern, 2026-11-26)
+
+Some customers hand over the old system's raw **.DBF tables** (Visual FoxPro)
+rather than Excel reports. Same recipe, different reader:
+
+- Reader: `scripts/lib/dbf.ts` — `readDbf(findDbf(dir, 'GL.DBF'))` returns typed
+  rows (C trimmed, N number, D = UTC-midnight Date, L boolean). No title rows,
+  no `TOTAL` row, no SheetJS date shift. **Records flagged deleted are returned
+  separately and must be skipped** — they are the old program's overwritten
+  drafts (GGA: 42 of 249 GL records) and would double the ledger.
+- Scripts: `setup-gga-org.ts` (shell copied verbatim from Chong Aik: flags,
+  modules, roles, tax codes, number formats) then `seed-default-templates.ts
+  --org <id>` then `import-gga-books.ts` (stages `coa customers suppliers sales
+  payables receipts gl verify`). GGA org id `66a00000-0000-4000-8000-66a000000001`,
+  dev schema `org_gga`.
+- Table map (same legacy software as Chong Aik, so the columns will recur):
+
+| DBF | Holds | Key fields |
+|-----|-------|------------|
+| `cof.dbf` | chart of accounts | `BS` (balance-sheet group: 1 sales, 2 purchases, 3 income, 4 expenses, 7 fixed assets, 9 current assets, 10 current liabilities, 11 capital, 12 retained, 17/19 accum. depreciation, 18 stock), `ACCN`, `DESC`, `CURR` |
+| `GL.DBF` | general ledger | `DREF` (document: `J/V OPN BAL`, `INV n`, `REC n`, `P/V …`), `DATE`, `ACCN`, `AMOU` (signed: + debit, − credit), `REMA`, `XREF`, `IDEN` (customer on the debtor line), `GSTPERC` |
+| `name.dbf` / `supplier.dbf` | customers / suppliers | `IDEN`, `NAME`, `CURR`, `ADD1..5`, `TEL`, `TEL2`, `EMAIL` (`CONT`, `TERM`, `FAX` not stored) |
+| `sdebtor.dbf` | debtor ledger, all years, balance-forward (no offsets recorded) | `DREF`, `DATE`, `IDEN`, `REMA`, `AMOU`, `FAMOU`, `RATE` |
+| `scredit.dbf` | creditor OPEN ITEMS (adds up to the creditor control) | same shape |
+
+- Type accounts by the **`BS` group**, not the code prefix (GGA has a `CA009`
+  that the old system prints under liabilities).
+- Opening balances are a normal document, `J/V OPN BAL`, keyed on the first day
+  of the year with remark "OPN BAL AS AT 31/12/…" → post as `OB <date>` dated
+  the last day of the prior FY, type `OPENING_BALANCE`.
+- The debtor ledger records no receipt→invoice offsets. Allocation order used
+  (logged per receipt): GL remark names the invoice → debtor-ledger remark
+  carries the same period label as one invoice ("APR 26") → oldest open first.
+- `scredit.dbf` gives real open items: each owed item becomes an open BILL in
+  its own currency with the legacy rate (`config.rate`, `config.baseAmount`);
+  a supplier in debit gets one `BAL-DR <code>` AP credit note. No journals.
+- New dev org schema: copy `prisma/tenancy/orgs/chongaik.prisma`, run
+  `tenancy-push.ts <org>` (fails at the two `gin_trgm_ops` indexes — create
+  those by hand with `SET search_path TO org_<org>, public`, then push again;
+  the half-built schema needs `--accept-data-loss`, safe only because it is
+  empty), `npx prisma generate --schema …`, `journal-guards.ts apply .env`,
+  then **restart the dev API** (the tenancy router loads org clients at boot).
+
+---
+
 ## 7. Gotchas log
 
 - SheetJS date shift (see `excelDate`) — always re-pin to SGT midnight.
