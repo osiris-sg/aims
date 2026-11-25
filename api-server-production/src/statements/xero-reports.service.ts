@@ -117,6 +117,19 @@ export class XeroReportsService {
       }
     }
 
+    // Money recorded AFTER the cut-off, per document. A native document's stamped balance is
+    // LIVE (today's), so "as of 31 Oct" has to add back what was received or offset since —
+    // otherwise an 18 Nov Manual Offset reaches back into October: the Statement-Of-Accounts'
+    // open items showed BI202609050 at 265.60 (today's balance) and dropped the fully offset
+    // BI202610053, then printed the November offset legs again, 671.80 short (guru 2026-11-25).
+    const payAfterByDoc = new Map<string, number>();
+    if (opts?.paymentsUpTo) {
+      const later = isAR
+        ? (await this.prisma.payment.findMany({ where: { organizationId, paymentDate: { gt: opts.paymentsUpTo } }, select: { documentId: true, amount: true } })).map((p) => ({ id: p.documentId, amount: p.amount }))
+        : (await this.prisma.billPayment.findMany({ where: { organizationId, paymentDate: { gt: opts.paymentsUpTo } }, select: { billId: true, amount: true } })).map((p) => ({ id: p.billId, amount: p.amount }));
+      for (const p of later) if (p.id) payAfterByDoc.set(p.id, R((payAfterByDoc.get(p.id) || 0) + Number(p.amount || 0)));
+    }
+
     const rows: DocRow[] = [];
     for (const doc of docs) {
       const c: any = doc.config || {};
@@ -141,6 +154,9 @@ export class XeroReportsService {
         // every native payment — it is already net of payments. Subtracting
         // recorded payments again double-counted every post-import payment.
         outstanding = R(Math.max(0, Number(outstandingOf(c))));
+        // …but it is TODAY's balance: at an earlier cut-off, money recorded since is still owed.
+        const after = payAfterByDoc.get(doc.id) || 0;
+        if (after > 0.005) outstanding = R(Math.min(gross, outstanding + after));
         paid = R(gross - outstanding);
       } else {
         paid = recordedPaid;

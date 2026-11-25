@@ -40,6 +40,8 @@ const HIDDEN_SUBMENUS: Record<string, string[]> = {
 const ORDER_OVERRIDE: Record<string, number> = { SALES: 0.5 };
 /** Sales -> Sales report (enableSalesReport orgs): the report lives under /portal/reports. */
 export const SALES_REPORT_SUBMENU = { key: "sales-report", label: "Sales report", href: "/portal/reports/sales" };
+// The full legacy Sales Report directory (Sales → Reports), enableSalesReports.
+export const SALES_REPORTS_DIR_SUBMENU = { key: "sales-reports", label: "Reports", href: "/portal/sales/reports" };
 
 // Secondary group — mirrors the sidebar's "Organization Settings" block
 // (company profile / accounting setup / Master Files hub). Accounting Setup is
@@ -131,7 +133,7 @@ export function useNavModules() {
   const { modules, isModuleEnabled } = useConfiguration();
   const { isModuleAllowed, userRoles, hasPermission, customTabs } = useUserPermissions();
   // Same rule as DynamicSidebarContent's Organization Settings group.
-  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled, isCustomAccessEnabled, isJobsCalendarEnabled, isWorkersTeamsEnabled, fieldAreas, features } = useOrganizationFeatures();
+  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isSalesReportsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled, isCustomAccessEnabled, isJobsCalendarEnabled, isWorkersTeamsEnabled, fieldAreas, features } = useOrganizationFeatures();
   // Field module (enableFieldModule + area flags, all default off): the "HR" group, only the pages this person may open.
   const { me: fieldMe } = useFieldMe();
   const isAdminUser =
@@ -219,6 +221,10 @@ export function useNavModules() {
       // Sales -> Sales report rides on the enableSalesReport flag (WCT group 2026-11-18).
       if (m.moduleCode === "SALES" && isSalesReportEnabled && salesSubmenuAllowed(customTabs, "sales-report") && !filtered.some((s: any) => (typeof s === "string" ? s : s?.key) === "sales-report")) {
         filtered.push(SALES_REPORT_SUBMENU);
+      }
+      // Sales -> Reports (legacy Sales Report directory) rides on enableSalesReports; sits at the end.
+      if (m.moduleCode === "SALES" && isSalesReportsEnabled && !filtered.some((s: any) => (typeof s === "string" ? s : s?.key) === "sales-reports")) {
+        filtered.push(SALES_REPORTS_DIR_SUBMENU);
       }
       return { ...m, config: { ...(m.config as any), subMenus: filtered } };
     })

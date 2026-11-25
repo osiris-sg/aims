@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useUiLang } from "@/i18n/UiLangProvider";
 import { useTranslations } from "next-intl";
-import { useNavLabels, SALES_REPORT_SUBMENU } from "@/components/TopNav/useNavModules";
+import { useNavLabels, SALES_REPORT_SUBMENU, SALES_REPORTS_DIR_SUBMENU } from "@/components/TopNav/useNavModules";
 import { fieldNavModule } from "@/helpers/fieldModule";
 import { useFieldMe } from "@/app/portal/hr/_lib/useField";
 import * as React from "react";
@@ -97,7 +97,7 @@ export default function DynamicSidebarContent() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled, isCustomAccessEnabled, isWorkersTeamsEnabled, fieldAreas, features } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isSalesReportsEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled, isCustomAccessEnabled, isWorkersTeamsEnabled, fieldAreas, features } = useOrganizationFeatures();
   // HR (the Field module): the same group the top bar shows (useNavModules), for the pages this person may open.
   const { me: fieldMe } = useFieldMe();
   const { isCollapsed } = useSidebar();
@@ -286,6 +286,10 @@ export default function DynamicSidebarContent() {
       // Sales -> Sales report rides on the enableSalesReport flag (same rule as the top bar).
       if (m.moduleCode === 'SALES' && isSalesReportEnabled && !filtered.some((s: any) => (typeof s === 'string' ? s : s?.key) === 'sales-report')) {
         filtered.push(SALES_REPORT_SUBMENU);
+      }
+      // Sales -> Reports (legacy Sales Report directory), enableSalesReports; at the end.
+      if (m.moduleCode === 'SALES' && isSalesReportsEnabled && !filtered.some((s: any) => (typeof s === 'string' ? s : s?.key) === 'sales-reports')) {
+        filtered.push(SALES_REPORTS_DIR_SUBMENU);
       }
       return { ...m, config: { ...(m.config as any), subMenus: filtered } };
     })

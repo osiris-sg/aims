@@ -306,11 +306,14 @@ ${orgName}`;
       maxWidth="md"
       fullWidth
       // Phone: the compose form (recipients, subject, body) needs the screen.
+      // Desktop: the paper keeps fullWidth's calc(100% - 64px) up to the md cap
+      // (guru 2026-11-25: "why is the dialog so small, increase the width for
+      // all orgs" — `width: auto` here had collapsed it to its content).
       PaperProps={{
         sx: {
           m: { xs: 0, sm: 4 },
-          width: { xs: "100%", sm: "auto" },
-          maxWidth: { xs: "100%", sm: undefined },
+          width: { xs: "100%", sm: "calc(100% - 64px)" },
+          maxWidth: { xs: "100%", sm: 900 },
           borderRadius: { xs: 0, sm: 1 },
           minHeight: { xs: "100%", sm: "auto" },
           maxHeight: { xs: "100%", sm: "calc(100% - 64px)" },

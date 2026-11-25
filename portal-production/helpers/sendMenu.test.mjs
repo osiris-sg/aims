@@ -6,22 +6,22 @@ import { editorSendControls, editorSendOptions, reportSendControls, reportSendOp
 const base = { saved: true, confirmed: false, templateMode: false, quotationESign: true, doOnOrder: false, doCompleted: false };
 const keys = (opts) => opts.map((o) => `${o.key}${o.disabled ? "(off)" : ""}`);
 
-test("quotation (e-sign org): Send for signature + Send email + WhatsApp (disabled)", () => {
-  assert.deepEqual(keys(editorSendOptions({ ...base, documentType: "QUOTATION" })), ["sign", "email", "whatsapp(off)"]);
+test("quotation (e-sign org): Send for signature + Send email + WhatsApp", () => {
+  assert.deepEqual(keys(editorSendOptions({ ...base, documentType: "QUOTATION" })), ["sign", "email", "whatsapp"]);
   assert.deepEqual(editorSendOptions({ ...base, documentType: "QO" }).map((o) => o.label), ["Send for signature", "Send email", "Send WhatsApp"]);
 });
 
 test("quotation: signature only while saved, unconfirmed, not a template (the old button's rule); email any status", () => {
-  assert.deepEqual(keys(editorSendOptions({ ...base, documentType: "QUOTATION", confirmed: true })), ["email", "whatsapp(off)"]);
-  assert.deepEqual(keys(editorSendOptions({ ...base, documentType: "QUOTATION", saved: false })), ["email", "whatsapp(off)"]);
-  assert.deepEqual(keys(editorSendOptions({ ...base, documentType: "QUOTATION", templateMode: true })), ["email", "whatsapp(off)"]);
-  assert.deepEqual(keys(editorSendOptions({ ...base, documentType: "QUOTATION", quotationESign: false })), ["email", "whatsapp(off)"]);
+  assert.deepEqual(keys(editorSendOptions({ ...base, documentType: "QUOTATION", confirmed: true })), ["email", "whatsapp"]);
+  assert.deepEqual(keys(editorSendOptions({ ...base, documentType: "QUOTATION", saved: false })), ["email", "whatsapp"]);
+  assert.deepEqual(keys(editorSendOptions({ ...base, documentType: "QUOTATION", templateMode: true })), ["email", "whatsapp"]);
+  assert.deepEqual(keys(editorSendOptions({ ...base, documentType: "QUOTATION", quotationESign: false })), ["email", "whatsapp"]);
 });
 
-test("invoice: Send email (any status) + WhatsApp; no signature", () => {
+test("invoice: Send email (any status) + WhatsApp (both live); no signature", () => {
   for (const t of ["INVOICE", "TI", "TI2"]) {
-    assert.deepEqual(keys(editorSendOptions({ ...base, documentType: t })), ["email", "whatsapp(off)"]);
-    assert.deepEqual(keys(editorSendOptions({ ...base, documentType: t, confirmed: true })), ["email", "whatsapp(off)"]);
+    assert.deepEqual(keys(editorSendOptions({ ...base, documentType: t })), ["email", "whatsapp"]);
+    assert.deepEqual(keys(editorSendOptions({ ...base, documentType: t, confirmed: true })), ["email", "whatsapp"]);
   }
 });
 
@@ -92,7 +92,7 @@ test("setting on: no old buttons, the menu instead", () => {
   const c = editorSendControls(true, { ...base, documentType: "INVOICE" });
   assert.equal(c.legacySign, false);
   assert.equal(c.legacyEmail, false);
-  assert.deepEqual(keys(c.menu), ["email", "whatsapp(off)"]);
+  assert.deepEqual(keys(c.menu), ["email", "whatsapp"]);
 });
 
 test("service report, setting off: exactly the old Copy sign link rule, no menu", () => {

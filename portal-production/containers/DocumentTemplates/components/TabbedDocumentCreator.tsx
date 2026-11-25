@@ -146,6 +146,7 @@ import { uploadImage } from "@/helpers/imageUploader";
 import AddAPhotoIcon from "@mui/icons-material/AddAPhoto";
 import BorderColorIcon from "@mui/icons-material/BorderColor";
 import QuotationSignLinkDialog from "./QuotationSignLinkDialog";
+import InvoiceWhatsAppDialog from "./InvoiceWhatsAppDialog";
 import SignLinkDialog from "@/app/portal/sales/quotations/id/_components/SignLinkDialog";
 import SendForSignatureButton from "@/app/portal/sales/quotations/id/_components/SendForSignatureButton";
 import DoOrderToolbar, { DoAttachSignedDialog, DoConfirmButton } from "@/components/delivery/DoOrderToolbar";
@@ -452,7 +453,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled, isDocRemarksEnabled, isQuotationCategoryEnabled, isRackingLayoutEnabled, isQuotationRevisionOnSaveEnabled, features: orgFeatureFlags } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled, isDocSendMenuEnabled, isDocRemarksEnabled, isQuotationCategoryEnabled, isRackingLayoutEnabled, isQuotationRevisionOnSaveEnabled, features: orgFeatureFlags } = useOrganizationFeatures();
   // RDO free-typed rows + signed-RDO lock (enableRdoFreeTypedRows, Biofuel 2026-11-19).
   const { isRdoFreeTypedRowsEnabled, isOptionalSaleOrderEnabled, isLineGlAccountsEnabled, isOfficeDoEditsEnabled, isDeliveryShareLinkEnabled } = useOrganizationFeatures();
   // enableOfficeDoEdits: a delivered / signed DO is edited by Admins only (the server refuses the rest).
@@ -750,6 +751,7 @@ export default function TabbedDocumentCreator({
   const [linkedOrderId, setLinkedOrderId] = useState<string | null>(null);
   // Client e-sign link dialog (generic quotations — enableQuotationESign).
   const [signLinkDialogOpen, setSignLinkDialogOpen] = useState(false);
+  const [invoiceWhatsAppOpen, setInvoiceWhatsAppOpen] = useState(false);
   const [isToolBarOpen, setToolBarOpen] = useState(false);
 
   // PDF generation states
@@ -985,7 +987,7 @@ export default function TabbedDocumentCreator({
   // The document page passes the DO's config flattened (orderId at the top, no .id / .config): read both shapes.
   const doOnOrder = isDeliveryOrder && !!isManualOrderFlowEnabled && !!(documentId || (existingData as any)?.id) && !!doOrderIdOf(existingData);
   // Send controls (helpers/sendMenu.ts): setting off = the old Send for signature / Send Email rules exactly.
-  const sendControls = withoutSendWhenVoided(editorSendControls(isWctDocNavEnabled, {
+  const sendControls = withoutSendWhenVoided(editorSendControls(isWctDocNavEnabled || isDocSendMenuEnabled, {
     documentType,
     saved: !!(existingData?.id || documentId),
     confirmed: isDocumentConfirmedStatus,
@@ -5852,6 +5854,12 @@ export default function TabbedDocumentCreator({
                   else if (doOnOrder) setDoSignOpen(true);
                   else void handleShareDoViewLink();
                 }
+                else if (k === "whatsapp") {
+                  // Quotation → the sign-link dialog (already sends on WhatsApp);
+                  // invoice → the invoice WhatsApp dialog (sends the pay link).
+                  if (isQuotation) setSignLinkDialogOpen(true);
+                  else setInvoiceWhatsAppOpen(true);
+                }
               }}
             />
           )}
@@ -9679,6 +9687,17 @@ export default function TabbedDocumentCreator({
           clientPhone={(formData as any)?.attention?.phoneNumber || (formData as any)?.customer?.mobile || (formData as any)?.customer?.phoneNumber || ""}
           clientEmail={(formData as any)?.attention?.email || (formData as any)?.customerEmail || (formData as any)?.customer?.email || ""}
           onClose={() => setSignLinkDialogOpen(false)}
+        />
+      )}
+      {invoiceWhatsAppOpen && (
+        <InvoiceWhatsAppDialog
+          open={invoiceWhatsAppOpen}
+          documentId={(documentId || (existingData as any)?.id) as string}
+          documentNumber={formData?.documentInfo?.documentNumber || (existingData as any)?.name || null}
+          clientName={(formData as any)?.customer?.name || ""}
+          clientPhone={(formData as any)?.attention?.phoneNumber || (formData as any)?.customer?.mobile || (formData as any)?.customer?.phoneNumber || ""}
+          grandTotal={Number((formData as any)?.totalWithTax ?? (formData as any)?.nettTotal ?? (formData as any)?.documentInfo?.nettTotal) || 0}
+          onClose={() => setInvoiceWhatsAppOpen(false)}
         />
       )}
 

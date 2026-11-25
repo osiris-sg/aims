@@ -1082,7 +1082,7 @@ export class OperatorToolsService {
       {
         name: 'create_invoice',
         description:
-          'Create a DRAFT invoice for a customer, same arguments as create_quotation. Does NOT post to the ledger until confirmed.',
+          'Create a DRAFT invoice for a customer, same arguments as create_quotation. Every save already posts it to the ledger as an UNCONFIRMED journal (Posting Queue); confirming marks that posting confirmed.',
         permissions: ['documents:create-basic'],
         input_schema: {
           type: 'object',
@@ -1817,7 +1817,7 @@ export class OperatorToolsService {
       {
         name: 'confirm_invoice',
         description:
-          'Finalize an invoice. This deducts stock and POSTS THE DOUBLE-ENTRY JOURNAL to the ledger and is irreversible. Always requires the user to confirm.',
+          'Confirm an invoice: it moves to Awaiting Payment. Its journal is ALREADY in the ledger from the save (unconfirmed, in the Posting Queue); confirming marks that posting confirmed, deducts stock and locks the document. Irreversible. Always requires the user to confirm.',
         permissions: ['documents:update'],
         input_schema: {
           type: 'object',
@@ -1840,7 +1840,7 @@ export class OperatorToolsService {
               kind: 'confirm_invoice',
               documentId: doc.id,
               documentType: doc.type,
-              summary: `Confirm INVOICE ${doc.name} for ${cfg.customerName || cfg.customer?.name || 'customer'}. Total: ${cfg.nettTotal ?? cfg.documentInfo?.nettTotal ?? 0}. This posts to the ledger.`,
+              summary: `Confirm INVOICE ${doc.name} for ${cfg.customerName || cfg.customer?.name || 'customer'}. Total: ${cfg.nettTotal ?? cfg.documentInfo?.nettTotal ?? 0}. It moves to Awaiting Payment (its ledger posting, made on save, becomes confirmed).`,
               createdAt: new Date().toISOString(),
             },
           };
@@ -2048,7 +2048,7 @@ export class OperatorToolsService {
       {
         name: 'create_bill',
         description:
-          'Record a supplier bill (accounts payable). Creates it UNPOSTED for review. Use post_bill afterwards to put it in the ledger.',
+          'Record a supplier bill (accounts payable). The save already posts an UNCONFIRMED journal to the ledger (Posting Queue); use post_bill afterwards to confirm it (Awaiting Payment).',
         permissions: ['bills:create'],
         input_schema: {
           type: 'object',
@@ -2102,7 +2102,7 @@ export class OperatorToolsService {
 
       {
         name: 'post_bill',
-        description: 'Post a bill to the general ledger. This creates the journal entry and is irreversible, so it needs confirmation.',
+        description: 'Confirm a supplier bill: its unconfirmed ledger posting (made on save) becomes confirmed and the bill moves to Awaiting Payment. Irreversible, so it needs confirmation.',
         permissions: ['bills:update'],
         input_schema: { type: 'object', properties: { billId: { type: 'string' } }, required: ['billId'] },
         run: async (ctx, { billId }) => {
@@ -2117,7 +2117,7 @@ export class OperatorToolsService {
             pending: {
               kind: 'post_bill',
               documentId: bill.id,
-              summary: `Post BILL ${bill.name} from ${cfg.supplierName || cfg.supplier?.name || 'supplier'} to the ledger. Total: ${cfg.totalAmount ?? cfg.nettTotal ?? 0}`,
+              summary: `Confirm BILL ${bill.name} from ${cfg.supplierName || cfg.supplier?.name || 'supplier'}. Total: ${cfg.totalAmount ?? cfg.nettTotal ?? 0}. Its ledger posting becomes confirmed and the bill moves to Awaiting Payment.`,
               createdAt: new Date().toISOString(),
             },
           };
@@ -3257,7 +3257,7 @@ export class OperatorToolsService {
       if (!bill) return { ok: false, message: 'That bill no longer exists.' };
       await this.bills.post(ctx.organizationId, bill.id, ctx.actor.id);
       this.log(ctx, 'APPROVED', 'document', bill.id, bill.name, `Bill posted via Operator (${ctx.channel})`);
-      return { ok: true, message: `✅ Bill ${bill.name} posted to the ledger.` };
+      return { ok: true, message: `✅ Bill ${bill.name} confirmed. Its ledger posting is now confirmed and it is Awaiting Payment.` };
     }
 
     if (pending.kind === 'email_document') {
@@ -3286,7 +3286,7 @@ export class OperatorToolsService {
         ctx.actor,
       );
       this.log(ctx, 'STATUS_CHANGED', 'document', doc.id, doc.name, `Invoice confirmed + posted via Operator (${ctx.channel})`);
-      return { ok: true, message: `✅ Invoice ${doc.name} confirmed and posted to the ledger.` };
+      return { ok: true, message: `✅ Invoice ${doc.name} confirmed — now Awaiting Payment.` };
     }
 
     if (pending.kind === 'record_payment') {

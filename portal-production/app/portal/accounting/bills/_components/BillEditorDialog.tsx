@@ -77,6 +77,12 @@ type LineForm = {
   accountName?: string | null;
   // WCT (2026-11-04): the quotation this line's cost belongs to (one SIN can cover several job sites).
   quotation?: QuotationTag | null;
+  // PER-LINE GST (Biofuel 2026-11-25). A freight invoice routinely mixes rates —
+  // standard-rated handling beside a zero-rated international leg — so one
+  // header rate cannot describe it. Empty/undefined means "follow the header
+  // code", which is what every existing bill has, so nothing changes until a
+  // line is actually overridden.
+  taxCode?: string;
 };
 
 type Account = { id: string; code: string; name: string; category: "PNL" | "BALANCE_SHEET"; accountType?: string; isActive: boolean };
@@ -223,7 +229,17 @@ export default function BillEditorDialog({
   // 13.62 — the second time it happened).
   const taxManualSumRef = useRef<number | null>(null);
   const sumOf = (ls: Array<{ amount?: any }>) => ls.reduce((t, l) => t + (parseFloat(String(l?.amount ?? "")) || 0), 0);
-  const keepTaxFor = (ls: Array<{ amount?: any }>) => {
+  // A kept figure of ZERO is never authoritative (guru 2026-11-25, 149122: "the tax code is
+  // correct but the auto calculated GST amt remains 0 … raised this before"): an extraction that
+  // read no GST, or a draft saved before the code was set, anchored "0" as if someone had typed
+  // it, and the box stayed 0 under a 9% code until a line amount was retyped. Zero means "not
+  // known" — the rate decides. Typing 0 by hand still sticks (the onChange sets the ref itself).
+  const keepTaxFor = (ls: Array<{ amount?: any }>, figure: any) => {
+    if (!(parseFloat(String(figure ?? "")) > 0)) {
+      taxManualRef.current = false;
+      taxManualSumRef.current = null;
+      return;
+    }
     taxManualRef.current = true;
     taxManualSumRef.current = sumOf(ls);
   };
@@ -286,7 +302,7 @@ export default function BillEditorDialog({
       setTaxCode(editing.taxCode || (editing.amountsAre === "NO_TAX" ? "12" : "4"));
       // Keep the stored tax while the amounts stay as stored; the first change
       // to a line amount recomputes it at the rate (see taxManualSumRef).
-      keepTaxFor(Array.isArray(editing.lines) ? editing.lines : []);
+      keepTaxFor(Array.isArray(editing.lines) ? editing.lines : [], editing.taxAmount);
       setInboundChannel(editing.inboundChannel || "MANUAL");
       setAttachments(Array.isArray(editing.attachments) ? editing.attachments : []);
       const toRows = (ls: any[]) =>
@@ -318,7 +334,7 @@ export default function BillEditorDialog({
             if (cancelled || !full) return;
             const fullLines = Array.isArray(full.lines) ? full.lines : [];
             setLines(toRows(fullLines));
-            keepTaxFor(fullLines); // the stored tax belongs to THESE amounts
+            keepTaxFor(fullLines, editing.taxAmount); // the stored tax belongs to THESE amounts
             if (full.attachments) setAttachments(Array.isArray(full.attachments) ? full.attachments : []);
           })
           .catch((e: any) => toast.error(e?.message || "Failed to load bill lines"));
@@ -351,6 +367,33 @@ export default function BillEditorDialog({
   );
   const tax = parseFloat(taxAmount) || 0;
   const selRate = taxRates.find((t) => t.code === taxCode)?.rate ?? 9;
+  // A supplier invoice is PURCHASE tax: only INPUT codes belong on it. The list
+  // from the server carries both directions, and offering "Output Tax 0%" on a
+  // bill invites GST to be coded to the wrong side — a real risk now that there
+  // is a selector on every LINE, not just one on the header. A code already
+  // stored on this bill is kept in the list whatever its direction, so an older
+  // bill never renders a blank box (guru 2026-11-25).
+  const taxOptions = useMemo(() => {
+    const input = taxRates.filter((t) => String(t.direction).toUpperCase() !== 'OUTPUT');
+    const keep = new Set<string>([taxCode, ...lines.map((l) => l.taxCode || '')].filter(Boolean));
+    const extras = taxRates.filter((t) => keep.has(t.code) && !input.some((i) => i.code === t.code));
+    return [...input, ...extras];
+  }, [taxRates, taxCode, lines]);
+
+  // The rate a line is taxed at: its own override, else the header's code.
+  const rateOfLine = (l: LineForm): number => {
+    const code = l.taxCode || taxCode;
+    return taxRates.find((t) => t.code === code)?.rate ?? selRate;
+  };
+  /** Tax on ONE line, under the current Tax Exclusive / Inclusive setting. */
+  const taxOfLine = (l: LineForm): number => {
+    if (amountsAre === "NO_TAX") return 0;
+    const amt = parseFloat(l.amount) || 0;
+    const r = rateOfLine(l);
+    return amountsAre === "INCLUSIVE" ? (amt * r) / (100 + r) : (amt * r) / 100;
+  };
+  // Any line that disagrees with the header — what makes the per-line sum differ.
+  const hasLineTaxOverride = lines.some((l) => !!l.taxCode && l.taxCode !== taxCode);
   // INCLUSIVE: line amounts are gross → subtotal nets the tax out, total = gross.
   const subtotal = amountsAre === "INCLUSIVE" ? linesSum - tax : linesSum;
   const totalAmount = amountsAre === "INCLUSIVE" ? linesSum : linesSum + tax;
@@ -370,11 +413,13 @@ export default function BillEditorDialog({
       taxManualRef.current = false;
       taxManualSumRef.current = null;
     }
-    let t = 0;
-    if (amountsAre === "EXCLUSIVE") t = (linesSum * selRate) / 100;
-    else if (amountsAre === "INCLUSIVE") t = (linesSum * selRate) / (100 + selRate);
+    // Summed PER LINE, so a line overridden to zero-rated simply contributes
+    // nothing. With no override every line carries the header rate and this is
+    // arithmetically identical to the old single-rate calculation.
+    const t = lines.reduce((sum, l) => sum + taxOfLine(l), 0);
     setTaxAmount(t ? t.toFixed(2) : "0");
-  }, [linesSum, amountsAre, selRate, isReadOnly]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lines, linesSum, amountsAre, selRate, taxCode, taxRates, isReadOnly]);
 
   const setLine = (uid: string, patch: Partial<LineForm>) => {
     setLines((rows) =>
@@ -453,7 +498,7 @@ export default function BillEditorDialog({
         setTaxAmount(String(extracted.taxAmount || 0));
         // Extracted actuals win over the computed rate — for the extracted
         // amounts; retyping a line recomputes.
-        keepTaxFor(Array.isArray(extracted.lines) ? extracted.lines : []);
+        keepTaxFor(Array.isArray(extracted.lines) ? extracted.lines : [], extracted.taxAmount);
       }
       if (Array.isArray(extracted.lines) && extracted.lines.length > 0) {
         setLines(
@@ -534,7 +579,7 @@ export default function BillEditorDialog({
       reference: "",
       description: "",
       taxAmount: extracted?.taxAmount !== undefined ? String(extracted.taxAmount || 0) : "0",
-      taxManual: extracted?.taxAmount !== undefined,
+      taxManual: Number(extracted?.taxAmount) > 0, // 0 / null from the reader = unknown → the rate decides
       amountsAre: "EXCLUSIVE",
       taxCode: "4",
       lines:
@@ -814,7 +859,9 @@ export default function BillEditorDialog({
   const submit = async (andSubmit = false) => {
     if (!supplierId) return toast.error("Supplier is required");
     if (!billNumber.trim()) return toast.error("Invoice number is required");
-    if (lines.length === 0 || lines.every((l) => !l.amount)) return toast.error("Add at least one line");
+    // A $0 bill saves and posts (guru 2026-11-25: the supplier's $0 invoice still goes on record;
+    // the amount is keyed in later, like a $0 invoice). Only an empty bill is refused.
+    if (lines.length === 0) return toast.error("Add at least one line");
     setSaving(true);
     try {
       const body = {
@@ -839,6 +886,14 @@ export default function BillEditorDialog({
           // Auto too — sending it back made Submit fail with "unknown or
           // inactive account" while the editor showed nothing wrong.
           accountId: l.accountId && (accounts.length === 0 || accounts.some((a) => a.id === l.accountId)) ? l.accountId : undefined,
+          // PER-LINE GST: the code chosen on the line and the tax it works out
+          // to. The server already sums lines' taxAmount when no header figure
+          // is sent, and the header figure IS still sent (the Tax box stays
+          // typeable), so this is what makes the two agree rather than the
+          // header silently winning. Sent only on a bill that has tax.
+          ...(amountsAre !== "NO_TAX"
+            ? { taxCode: l.taxCode || taxCode, taxAmount: Math.round(taxOfLine(l) * 100) / 100 }
+            : {}),
           ...(showQuotation ? { quotationId: l.quotation?.id ?? null } : {}),
         })),
         inboundChannel,
@@ -908,7 +963,7 @@ export default function BillEditorDialog({
 
   // Open the AI account-review dialog (dry-run — saves/posts nothing).
   const openReview = async () => {
-    if (lines.length === 0 || lines.every((l) => !l.amount)) return toast.error("Add at least one line first");
+    if (lines.length === 0 || lines.every((l) => !l.amount)) return toast.error("Nothing to review yet: no line carries an amount.");
     setPreviewOpen(true);
     setPreviewLoading(true);
     setPreviewData(null);
@@ -1291,7 +1346,7 @@ export default function BillEditorDialog({
             size="small"
             select
             label="Tax code"
-            value={taxRates.some((t) => t.code === taxCode) ? taxCode : ""}
+            value={taxOptions.some((t) => t.code === taxCode) ? taxCode : ""}
             onChange={(e) => {
               setTaxCode(e.target.value);
               taxManualRef.current = false; // code change → recompute
@@ -1300,7 +1355,7 @@ export default function BillEditorDialog({
             disabled={isReadOnly || amountsAre === "NO_TAX"}
             SelectProps={{ renderValue: (v) => String(v) }}
           >
-            {taxRates.map((t) => (
+            {taxOptions.map((t) => (
               <MenuItem key={t.id} value={t.code}>
                 {t.code} — {t.name} ({t.rate}%)
               </MenuItem>
@@ -1325,7 +1380,7 @@ export default function BillEditorDialog({
         {/* Phone: line-items table scrolls inside its container */}
         <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflowX: "auto" }}>
           {/* WCT SIN: the line table scrolls sideways (instead of squashing columns) once Description would drop below its old ~270px. */}
-          <Table size="small" sx={{ minWidth: showQuotation ? 1230 : 760 }}>
+          <Table size="small" sx={{ minWidth: (showQuotation ? 1230 : 760) + (amountsAre !== "NO_TAX" ? 130 : 0) }}>
             <TableHead>
               <TableRow sx={{ bgcolor: (t: any) => alpha(t.palette.text.primary, 0.03) }}>
                 <TableCell sx={{ fontWeight: 700, width: 40 }}>#</TableCell>
@@ -1336,6 +1391,9 @@ export default function BillEditorDialog({
                 <TableCell align="right" sx={{ fontWeight: 700, width: 80 }}>Qty</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 700, width: showQuotation ? 100 : 110 }}>Unit</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 700, width: 120 }}>Amount</TableCell>
+                {/* Per-line GST. Hidden when the bill carries no tax at all —
+                    a column of "No GST" on a NO_TAX bill says nothing. */}
+                {amountsAre !== "NO_TAX" && <TableCell sx={{ fontWeight: 700, width: 130 }}>Tax</TableCell>}
                 {!isReadOnly && <TableCell sx={{ width: 40 }} />}
               </TableRow>
             </TableHead>
@@ -1455,6 +1513,31 @@ export default function BillEditorDialog({
                       sx={{ width: 110 }}
                     />
                   </TableCell>
+                  {amountsAre !== "NO_TAX" && (
+                    <TableCell>
+                      {/* Blank = follow the header code, which is what every
+                          line does until someone changes one. The amount under
+                          it is this line's own share of the GST, so a zero-rated
+                          line reads 0.00 and the header total visibly drops. */}
+                      <TextField
+                        select
+                        size="small"
+                        value={taxOptions.some((t) => t.code === (l.taxCode || taxCode)) ? (l.taxCode || taxCode) : ""}
+                        onChange={(e) => setLine(l.uid, { taxCode: e.target.value })}
+                        disabled={isReadOnly}
+                        SelectProps={{ displayEmpty: true }}
+                        sx={{ width: 120 }}
+                        helperText={`${taxOfLine(l).toFixed(2)}`}
+                        FormHelperTextProps={{ sx: { textAlign: "right", mr: 0, mt: 0.25 } }}
+                      >
+                        {taxOptions.map((t) => (
+                          <MenuItem key={t.code} value={t.code}>
+                            {t.name ?? t.code} ({t.rate}%)
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    </TableCell>
+                  )}
                   {!isReadOnly && (
                     <TableCell>
                       <Tooltip title="Remove line">

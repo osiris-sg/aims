@@ -5,7 +5,8 @@
 // the document can do today, with the same show rules as the old buttons:
 //   - Send for signature: the existing sign-link flow of that document.
 //   - Send email: the existing manual email send of that document.
-//   - Send WhatsApp: shown disabled (not built yet).
+//   - Send WhatsApp: quotations (sign link) and invoices (pay link) send via
+//     the org's connected line; still a disabled stub on delivery orders.
 // No option of its own = no Send button (WhatsApp alone is not a menu).
 
 export type SendKey = "sign" | "email" | "whatsapp";
@@ -72,7 +73,9 @@ export function editorSendOptions(o: {
     } else add("sign");
   }
   if (!out.length) return [];
-  add("whatsapp", true);
+  // WhatsApp send is live for quotations (sign-link flow) and invoices (pay
+  // link) — guru 2026-11-25. Still a disabled stub for delivery orders.
+  add("whatsapp", !(kind === "quotation" || kind === "invoice"));
   return out;
 }
 
