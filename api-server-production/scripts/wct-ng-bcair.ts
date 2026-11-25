@@ -75,6 +75,12 @@ const TWINS_MODE = one('--twins');
 const TWINS_DELETE = TWINS_MODE === 'delete' || TWINS_MODE === 'delete-except-placeholders';
 if (TWINS_MODE && !TWINS_DELETE) throw new Error('--twins delete|delete-except-placeholders');
 const FROZEN = one('--frozen-held');
+// Owner 25 Nov (final, "mirror the ERPs"): --mirror <csv> moves every invoice the csv names (column "name") to BC Air,
+// whatever the amount: a BC Air twin is no hold (both invoices stay, as in both ERPs), an order billed over its
+// quotation is no hold, a $0 one moves. Its ABSS journals (WCT (S)'s own books) stay posted in WCT (S), detached from
+// the document, so WCT (S) still equals ABSS. Every invoice the csv does not name is left as it is.
+const MIRROR = one('--mirror');
+const MIRROR_SET = new Set<string>();
 if (!['move', 'remove'].includes(PLACEHOLDERS)) throw new Error('--placeholders move|remove');
 const DAY = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10); // Singapore date (file names)
 const OUT_DIR = one('--out', path.join(os.homedir(), 'Desktop/aims-agents/logs/wct'))!;
@@ -335,6 +341,14 @@ type Inv = {
           return null;
         })
         .filter(Boolean) as Array<{ j: any; why: string }>;
+    if (MIRROR) {
+      for (const r of readCsv(MIRROR)) MIRROR_SET.add(String(r.name ?? r['\ufeffname'] ?? '').trim());
+      MIRROR_SET.delete('');
+      const missing = [...MIRROR_SET].filter((n) => !invs.some((d) => d.name === n));
+      if (missing.length) throw new Error(`--mirror names invoices not found in WCT (S): ${missing.join(', ')}`);
+      for (const d of invs) d.action = MIRROR_SET.has(d.name) ? 'move' : 'keep';
+    }
+    const mirrored = (d: Inv) => MIRROR_SET.has(d.name);
     for (const d of invs) {
       if (d.action === 'keep') continue;
       const tw0 = twinOf.get(d.name) ?? [];
@@ -345,12 +359,12 @@ type Inv = {
       if (childDocs.some((x) => x.src === d.id)) d.holds.push(`documents made from it: ${childDocs.filter((x) => x.src === d.id).map((x) => `${x.type} ${x.name}`).join(', ')}`);
       if (d.cls === 'placeholder') {
         const heavy = ledgerHeavy(d);
-        if (heavy.length && !DETACH) d.holds.push(`ledger is more than the placeholder: ${heavy.map((j) => j.why).join('; ')} (finance; --detach-ledger keeps these journals posted and removes the document)`);
+        if (heavy.length && !DETACH && !mirrored(d)) d.holds.push(`ledger is more than the placeholder: ${heavy.map((j) => j.why).join('; ')} (finance; --detach-ledger keeps these journals posted and removes the document)`);
       }
       if (d.action !== 'move') continue;
       const tw = twinOf.get(d.name) ?? [];
       // A moved placeholder is never counted, so a BC Air twin is no double bill for it.
-      if (tw.length && d.cls !== 'placeholder') d.holds.push(`BC Air already has ${tw.map((t) => `${t.name} ($${money(Number(t.total))})`).join(', ')} naming it (moving would bill the job twice)`);
+      if (tw.length && d.cls !== 'placeholder' && !mirrored(d)) d.holds.push(`BC Air already has ${tw.map((t) => `${t.name} ($${money(Number(t.total))})`).join(', ')} naming it (moving would bill the job twice)`);
       // A placeholder is never counted: off a WCT (S) order it simply moves (no BC Air order needed).
       if (d.cls !== 'placeholder' && wctOrderOf.has(d.id) && d.linkedQuoteOrg !== BC) d.holds.push(`on WCT (S) order ${wctOrderOf.get(d.id)!.map((o) => o.orderNumber).join(', ')} (its quotation ${d.linkedQuote ?? ''} is WCT (S)'s)`);
       if (bcNameClash.has(d.name)) d.holds.push(`number ${d.name} already used in BC Air`);
@@ -524,8 +538,8 @@ type Inv = {
             } as any;
             // Over-billing: the adds would bill the order over its quotation total (and it was not over before): hold them.
             const overBefore = !!b && b.quoteTotal != null && b.billed > b.quoteTotal + 0.01;
-            if (a && a.quoteTotal != null && a.billed > a.quoteTotal + 0.01 && !overBefore && p.add.length) {
-              for (const d of p.add) { d.holds.push(`would bill ${p.order.orderNumber} over its quotation (${money(a.billed)} of ${money(a.quoteTotal)})`); newHolds++; }
+            if (a && a.quoteTotal != null && a.billed > a.quoteTotal + 0.01 && !overBefore && p.add.some((d) => !mirrored(d))) {
+              for (const d of p.add.filter((x) => !mirrored(x))) { d.holds.push(`would bill ${p.order.orderNumber} over its quotation (${money(a.billed)} of ${money(a.quoteTotal)})`); newHolds++; }
             }
             statusRows.push(row);
           }
@@ -558,10 +572,15 @@ type Inv = {
     const detachIds = new Set(removing.flatMap((d) => ledgerHeavy(d).map((x) => x.j.id)));
     const detachJ = removing.flatMap((d) => (journalsOf.get(d.id) ?? []).filter((j) => detachIds.has(j.id)));
     const voidJ = removing.flatMap((d) => (journalsOf.get(d.id) ?? []).filter((j) => !detachIds.has(j.id)));
-    const moveJ = moving.flatMap((d) => (journalsOf.get(d.id) ?? []).map((j) => ({ j, d })));
+    // --mirror: a moved invoice's ABSS journals stay in WCT (S) (its own books), posted, detached from the document.
+    const isAbss = (j: any) => String(j.createdBy ?? '').startsWith('abss');
+    const mirrorKeepJ = moving.filter(mirrored).flatMap((d) => (journalsOf.get(d.id) ?? []).filter(isAbss).map((j) => ({ j, d })));
+    const moveJ = moving.flatMap((d) => (journalsOf.get(d.id) ?? []).filter((j) => !(mirrored(d) && isAbss(j))).map((j) => ({ j, d })));
     const plugDate = { [WCT]: '2023-12-31', [BC]: '2026-11-06' };
     // Ledger effect per company and account (posted balances = debit - credit).
-    const effect = new Map<string, { org: string; code: string; name: string; before?: number; delta: number; prePlug: number; prePlugClosed: number }>();
+    const effect = new Map<string, { org: string; code: string; name: string; before?: number; delta: number; prePlug: number; prePlugClosed: number; afterAbss?: number }>();
+    // WCT (S)'s ABSS ledger runs to 5 Nov 2026; entries after it are the ERP catch-up's (not ABSS's).
+    const ABSS_LAST_DAY = '2026-11-05';
     const openYear = { [WCT]: '2024-01-01', [BC]: '2026-01-01' };
     const bump = (org: string, code: string, name: string, amount: number, date: string) => {
       const k = `${org}|${code}`;
@@ -569,6 +588,7 @@ type Inv = {
       e.delta = R2(e.delta + amount);
       if (date.slice(0, 10) <= plugDate[org]) e.prePlug = R2(e.prePlug + amount);
       if (date.slice(0, 10) < openYear[org]) e.prePlugClosed = R2(e.prePlugClosed + amount);
+      if (date.slice(0, 10) > ABSS_LAST_DAY && date.slice(0, 10) < '9999') e.afterAbss = R2((e.afterAbss ?? 0) + amount);
       effect.set(k, e);
     };
     for (const j of voidJ) for (const l of linesOf.get(j.id) ?? []) { const a = acctById.get(l.accountId); bump(WCT, a.code, a.name, -(l.debit - l.credit), j.entryDate); }
@@ -731,6 +751,26 @@ type Inv = {
       for (const d of invs.filter((x) => x.frozen)) say(`  ${d.name} ${d.cls} S$${money(d.gross)} · was: ${d.frozen} · now: ${d.newAction}`);
       writeCsv(path.join(CSV_DIR, 'frozen-held.csv'), ['name', 'date', 'customerName', 'subject', 'gross', 'owed', 'cls', 'frozen', 'newAction'], invs.filter((x) => x.frozen));
     }
+    if (MIRROR) {
+      // Per invoice: where it lands and where BC Air's twin sits (the same order = no second order for the job).
+      const ordersOfDoc = (id: string) => bcOrders.filter((o: any) => JSON.stringify(o.linkedDocuments ?? {}).includes(id)).map((o: any) => o.orderNumber);
+      say(`\nMIRROR (--mirror ${path.basename(MIRROR)}): ${MIRROR_SET.size} invoices, every one moved to BC Air; both invoices stay where BC Air has a twin`);
+      say(`  ${'WCT no.'.padEnd(9)} ${'class'.padEnd(11)} ${'amount'.padStart(10)} ${'owed'.padStart(9)}  ${'BC Air twin'.padEnd(26)} ${'lands in'.padEnd(16)} twin's order / note`);
+      const rows: any[] = [];
+      for (const d of invs.filter(mirrored)) {
+        const tw = twinOf.get(d.name) ?? [];
+        const twOrders = [...new Set(tw.flatMap((t: any) => ordersOfDoc(t.id)))];
+        const lands = landing.get(d.id) ?? (d.holds.length ? `HELD: ${d.holds.join('; ')}` : '');
+        const same = !tw.length ? '' : !twOrders.length ? 'twin on no order' : twOrders.includes(lands) ? 'same order' : `DIFFERENT: twin on ${twOrders.join(', ')}`;
+        const abss = (journalsOf.get(d.id) ?? []).filter(isAbss).map((j: any) => j.journalNumber);
+        rows.push({ name: d.name, cls: d.cls, gross: d.gross, owed: d.owed, twin: tw.map((t: any) => `${t.name} $${money(Number(t.total))}`).join(' '), lands, twinOrders: twOrders.join(' '), same, abssStaysInWct: abss.join(' ') });
+        say(`  ${d.name.padEnd(9)} ${d.cls.padEnd(11)} ${money(d.gross).padStart(10)} ${money(d.owed).padStart(9)}  ${(rows[rows.length - 1].twin || '-').padEnd(26)} ${lands.padEnd(16)} ${same}${abss.length ? ` · ABSS ${abss.join(', ')} stays in WCT (S)` : ''}`);
+      }
+      writeCsv(path.join(CSV_DIR, 'mirror.csv'), ['name', 'cls', 'gross', 'owed', 'twin', 'lands', 'twinOrders', 'same', 'abssStaysInWct'], rows);
+      say(`  ABSS journals kept in WCT (S), detached: ${mirrorKeepJ.length} (${mirrorKeepJ.map((x) => x.j.journalNumber).join(', ')})`);
+      say(`  WCT (S) orders that drop the moved invoice's link: ${[...orderPlans.values()].filter((p) => p.org === WCT && p.drop.length).map((p) => `${p.order.orderNumber} (${p.drop.map((d) => d.name).join(' ')})`).join(', ') || 'none'}`);
+      say(`  ERP DOs in WCT (S) naming them (stay on WCT (S) quotations): ${wctDos.map((x: any) => `${x.name} ${x.quote ?? ''} [${(x.invs || []).filter((n: string) => MIRROR_SET.has(n)).join(' ')}]`).join(', ') || 'none'}`);
+    }
     const held = invs.filter((d) => d.action !== 'keep' && d.holds.length);
     say(`HELD (cannot be moved / removed as planned, nothing written): ${held.length}`);
     for (const d of held) say(`  ${d.name} ${d.cls} S$${money(d.gross)}: ${d.holds.join('; ')}`);
@@ -780,7 +820,16 @@ type Inv = {
     const overAfter = bcRows.filter((r) => r.leftAfter != null && r.leftAfter < -0.01).length;
     const deltaOf = (org: string, code: string) => effect.get(`${org}|${code}`)?.delta ?? 0;
     const changedInv = [...removing, ...moving];
-    const guards = [
+    const abssDelta = (org: string, code: string) => R2(deltaOf(org, code) - (effect.get(`${org}|${code}`)?.afterAbss ?? 0));
+    const mirrorOverAdds = MIRROR ? statusRows.filter((r) => r.org === 'BC Air' && r.leftAfter != null && r.leftAfter < -0.01 && !(r.leftBefore != null && r.leftBefore < -0.01)).length : 0;
+    const guards = MIRROR ? [
+      [`Mirror: every listed invoice moves (${moving.filter(mirrored).length} of ${MIRROR_SET.size}), none held, nothing else touched (${moving.filter((d) => !mirrored(d)).length + removing.length})`, moving.filter(mirrored).length === MIRROR_SET.size && moving.length === MIRROR_SET.size && !removing.length],
+      [`Mirror: no second order (new BC Air orders ${newOrders.length})`, newOrders.length === 0],
+      [`BC Air over-billed orders up only where a mirrored invoice joins its twin's job (${overBefore} -> ${overAfter}; from the mirror ${mirrorOverAdds})`, overAfter - overBefore === mirrorOverAdds],
+      [`WCT (S) balances 1 Jan 2024 to ${ABSS_LAST_DAY} still = ABSS: bank 1-2101 ${money(abssDelta(WCT, '1-2101'))}, AR 1-3100 ${money(abssDelta(WCT, '1-3100'))} (within S$5; after ${ABSS_LAST_DAY} AR ${money(effect.get(`${WCT}|1-3100`)?.afterAbss ?? 0)}: ERP catch-up invoices moving)`, Math.abs(abssDelta(WCT, '1-2101')) <= 5 && Math.abs(abssDelta(WCT, '1-3100')) <= 5 && KEEP_ABSS],
+      [`No invoice without "(NG)" in the subject in the change list (${[...removing, ...moving].filter((d) => !/\(NG\)/i.test(d.subject)).length})`, [...removing, ...moving].every((d) => /\(NG\)/i.test(d.subject))],
+      ['Full id sweep clean', !strays.length],
+    ] : [
       [`BC Air over-billed orders not up (${overBefore} -> ${overAfter}, was 22)`, overAfter <= overBefore && overAfter <= 22],
       [`WCT (S) balances from 1 Jan 2024 still = ABSS: bank 1-2101 ${money(deltaOf(WCT, '1-2101'))}, AR 1-3100 ${money(deltaOf(WCT, '1-3100'))} (within S$5)`, Math.abs(deltaOf(WCT, '1-2101')) <= 5 && Math.abs(deltaOf(WCT, '1-3100')) <= 5 && KEEP_ABSS],
       [`No invoice without "(NG)" in the subject in the change list (${changedInv.filter((d) => d.cls === 'linked' || d.cls === 'none').length})`, changedInv.every((d) => ['placeholder', 'zero', 'real'].includes(d.cls))],
@@ -826,7 +875,7 @@ type Inv = {
     // Backup of every row the APPLY writes (taken in the same snapshot, before the first write; --backup in a dry run).
     const writeBackup = async (file: string) => {
       const docIds = [...removing, ...moving].map((d) => d.id);
-      const jIds = [...voidJ, ...detachJ, ...moveJ.map((x) => x.j)].map((j) => j.id);
+      const jIds = [...voidJ, ...detachJ, ...moveJ.map((x) => x.j), ...mirrorKeepJ.map((x) => x.j)].map((j) => j.id);
       const backup = {
         at: new Date().toISOString(),
         note: 'Rows the "(NG)" APPLY changes, before it (WCT (S) + BC Air). Inserted rows (customers, orders, journals, Activity Log) are listed in the APPLY log.',
@@ -862,7 +911,7 @@ type Inv = {
     const now = new Date().toISOString();
     const bk = await writeBackup(path.join(OUT_DIR, `${STEM}.backup.json`));
     say(`Backup before the first write: ${bk.file} · documents ${bk.documents}, journals ${bk.journals} (${bk.lines} lines), orders ${bk.orders}, customers ${bk.customers}`);
-    const log: any = { at: now, script: SCRIPT, backup: bk.file, options: { ZERO, PLACEHOLDERS, TWINS_DELETE, FROZEN, INCLUDE_LINKED, BANK, KEEP_ABSS, ONLY_BATCH }, removed: [], voided: [], detached: [], moved: [], movedJournals: [], customers: [], orders: [], newOrders: [], journalsCreated: [], s3: [], actionLogs: [] };
+    const log: any = { at: now, script: SCRIPT, backup: bk.file, options: { ZERO, PLACEHOLDERS, TWINS_DELETE, FROZEN, MIRROR, INCLUDE_LINKED, BANK, KEEP_ABSS, ONLY_BATCH }, removed: [], voided: [], detached: [], moved: [], movedJournals: [], customers: [], orders: [], newOrders: [], journalsCreated: [], s3: [], actionLogs: [] };
     const logFile = path.join(OUT_DIR, `${STEM}.log.json`);
     const alogs: any[] = [];
     const alog = (org: string, action: string, resource: string, resourceId: string, note: string, extra: any = {}) => alogs.push({ id: randomUUID(), org, action, resource, resourceId, details: { note, ...extra } });
@@ -946,6 +995,12 @@ type Inv = {
       alog(WCT, 'MOVE', 'document', d.id, `Moved to BC Air: invoice ${d.name} ("(NG)" documents to BC Air, owner 25 Nov)`, { to: BC });
     }
     step(`moved ${moving.length} documents`);
+    for (const { j, d } of mirrorKeepJ) {
+      expect('detach ABSS journal (stays in WCT (S))', (await c.query(`update "JournalEntry" set "sourceDocumentId" = null, "updatedAt" = now() where id = $1 and "sourceDocumentId" = $2 and "organizationId" = $3`, [j.id, d.id, WCT])).rowCount, 1);
+      log.detached.push({ id: j.id, journalNumber: j.journalNumber, sourceDocumentId: d.id });
+      alog(WCT, 'UPDATE', 'journal', j.id, `${j.journalNumber} stays in WCT (S) (ABSS, WCT (S)'s books); invoice ${d.name} moved to BC Air (mirror the ERPs, owner 25 Nov)`);
+    }
+    step(`ABSS journals kept in WCT (S), detached: ${mirrorKeepJ.length}`);
 
     // Journals with them: lines re-pointed to BC Air's accounts (bank lines to the inter-company account), then the rows.
     const mvJ = moveJ.map((x) => x.j);

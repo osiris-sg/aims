@@ -50,7 +50,7 @@ import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, CHIP_TEXT, CHIP_TIME, GREYED_OPACITY, chipBorder, chipFill, applicantLabel, badgeTitle, chipTimeRange, crewLine, crossOrgTarget, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
+import { CALENDAR_TZ, CHIP_FONT_BASE, CHIP_TEXT, CHIP_TIME, GREYED_OPACITY, chipBorder, chipFill, chipFontOf, applicantLabel, badgeTitle, chipTimeRange, crewLine, crossOrgTarget, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
 import DoStatusTag from "@/components/DoStatusTag";
 import StyledJobPanel, { type CalendarActions } from "./StyledJobPanel";
 import { RETURN_ORG_KEY, chipLines, chipTone, customerOf, hoverLines, remarksLine, rescheduleClashes, returnOrgMarker, scheduleLines, type RescheduleTarget } from "./calendarPanel";
@@ -143,7 +143,7 @@ function eventContent(arg: EventContentArg) {
 
 // Calendar style chips (WCT group; only jobs with `style` use these). 2026-11-22: two sizes up from 0.72 / 0.64 / 0.70rem
 // (Month, Week, Day) and 0.875 / 0.75rem (Schedule). Month cells grow to keep about 4 two-row chips before "+n more".
-export const CHIP_FONT = { text: "0.85rem", time: "0.76rem", row2: "0.82rem" } as const;
+export const CHIP_FONT = CHIP_FONT_BASE;
 // 2026-11-24: back to the old, smaller size (Schedule view only).
 export const SCHEDULE_FONT = { text: "0.875rem", time: "0.75rem", row2: "0.75rem" } as const;
 export const MONTH_CELL_MIN = 206;
@@ -1042,16 +1042,17 @@ function PtwCircle({ colour, size = 9 }: { colour: string; size?: number }) {
  */
 function StyledBox({ event: e, block }: { event: CalendarEvent; block: boolean }) {
   const l = chipLines(e);
+  const font = chipFontOf(e);
   return (
     <Box
       title={styledTooltip(e)}
       data-testid="styled-chip"
-      sx={{ px: 0.5, py: "1px", overflow: "hidden", color: CHIP_TEXT, lineHeight: 1.3, fontSize: CHIP_FONT.text, minWidth: 0, height: block ? "100%" : "auto", boxSizing: "border-box" }}
+      sx={{ px: 0.5, py: "1px", overflow: "hidden", color: CHIP_TEXT, lineHeight: 1.3, fontSize: font.text, minWidth: 0, height: block ? "100%" : "auto", boxSizing: "border-box" }}
     >
       <Box sx={{ display: "flex", gap: "3px", alignItems: "baseline", whiteSpace: "nowrap", overflow: "hidden" }}>
         {/* Round 39: Day / Week blocks print no time (the time axis shows it); Month keeps a small grey time. */}
         {l.time && !block && (
-          <Box component="span" sx={{ flexShrink: 0, fontVariantNumeric: "tabular-nums", fontSize: CHIP_FONT.time, color: CHIP_TIME }}>
+          <Box component="span" sx={{ flexShrink: 0, fontVariantNumeric: "tabular-nums", fontSize: font.time, color: CHIP_TIME }}>
             {l.time}
           </Box>
         )}
@@ -1060,7 +1061,7 @@ function StyledBox({ event: e, block }: { event: CalendarEvent; block: boolean }
           {l.customer}
         </Box>
       </Box>
-      {l.row2 && <Box sx={{ whiteSpace: "nowrap", overflow: "hidden", fontSize: CHIP_FONT.row2 }}>{l.row2}</Box>}
+      {l.row2 && <Box sx={{ whiteSpace: "nowrap", overflow: "hidden", fontSize: font.row2 }}>{l.row2}</Box>}
     </Box>
   );
 }

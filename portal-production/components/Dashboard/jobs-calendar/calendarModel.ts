@@ -787,3 +787,13 @@ export const peopleOpenKey = (peopleKey: string | null | undefined): string | nu
   peopleKey ? peopleKey.replace(/^aims-jc-people-hidden:/, "aims-jc-people-open:") : null;
 /** The stored choice: "1" open, "0" closed, anything else = not chosen yet (the screen width decides). */
 export const parsePanelOpen = (v: string | null | undefined): boolean | null => (v === "1" ? true : v === "0" ? false : null);
+
+/**
+ * Calendar style chip font (WCT group). Owner 25 Nov: timed jobs' chips ("10am Hood Making") 1px smaller than before;
+ * all-day bars keep the old size (notes and PH have their own styles, unchanged).
+ */
+export const CHIP_FONT_BASE = { text: "0.85rem", time: "0.76rem", row2: "0.82rem" } as const;
+export function chipFontOf(e: Pick<CalendarEvent, "allDay">): { text: string; time: string; row2: string } {
+  if (e.allDay) return { ...CHIP_FONT_BASE };
+  return { text: `calc(${CHIP_FONT_BASE.text} - 1px)`, time: `calc(${CHIP_FONT_BASE.time} - 1px)`, row2: `calc(${CHIP_FONT_BASE.row2} - 1px)` };
+}
