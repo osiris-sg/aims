@@ -103,6 +103,24 @@ export class DocumentsController {
     );
   }
 
+  /** ⋮ menu Delete (WCT group, 2026-11-25): which of these documents can be deleted, and why not. Read only. */
+  @Post('wct-delete/check')
+  @Permissions('documents:read')
+  async wctDeleteCheck(@Body() body: { ids?: string[] }, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return await this.documentsService.wctDeleteCheck(Array.isArray(body?.ids) ? body.ids : [], organizationId);
+  }
+
+  /** ⋮ menu / ticked-rows Delete (WCT group, 2026-11-25): soft delete each allowed document; one result per id. */
+  @Post('wct-delete')
+  @Permissions('documents:delete')
+  async wctDelete(@Body() body: { ids?: string[] }, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return await this.documentsService.wctDelete(Array.isArray(body?.ids) ? body.ids : [], organizationId, actorFromReq(req));
+  }
+
   @Post()
   @Permissions('documents:read')
   async getAllDocuments(@Req() req: RequestWithOrganization): Promise<GetDocumentDto[]> {

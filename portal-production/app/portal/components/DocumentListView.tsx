@@ -14,7 +14,10 @@ import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import { wctStatusOptionsFor } from "@/helpers/wctStatuses";
 import { flowStatusOptions } from "@/helpers/wctStatusFlow";
+import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
+import { bulkDeleteSummary, canMenuDelete, checkMenuDelete, deleteConfirmTitle, deleteToast, menuDeleteOn, runMenuDelete, type MenuDeleteVerdict } from "@/helpers/wctMenuDelete";
 import {
+  Tooltip,
   Stack,
   Chip,
   Box,
@@ -363,6 +366,55 @@ export default function DocumentListView({
   const [rowMenu, setRowMenu] = useState<{ pos: { left: number; top: number }; row: any } | null>(null);
 
   const deleteDocumentMutation = useDeleteDocument();
+
+  // ⋮ menu Delete (WCT group, 2026-11-25; helpers/wctMenuDelete.ts): drafts AND confirmed quotations / DOs / invoices,
+  // for people with Edit on Sales. The server says what can go (paid invoice, documents made from it…).
+  const { hasPermission } = useUserPermissions();
+  const menuDel = menuDeleteOn({ softDelete: isSoftDeleteDraftsEnabled, wctDocNav: isWctDocNavEnabled, types: documentTypes }) && canMenuDelete(hasPermission);
+  const [rowVerdict, setRowVerdict] = useState<{ id: string; v: MenuDeleteVerdict | null } | null>(null);
+  const [menuDelTarget, setMenuDelTarget] = useState<{ ids: string[]; title: string; skipped: number } | null>(null);
+  const [menuDelBusy, setMenuDelBusy] = useState(false);
+  const loadRowVerdict = async (id: string) => {
+    setRowVerdict({ id, v: null });
+    try {
+      const v = await checkMenuDelete(request as any, (await getToken()) ?? undefined, [id]);
+      setRowVerdict((cur) => (cur?.id === id ? { id, v: v[id] ?? { ok: false, reason: "Can't be deleted" } } : cur));
+    } catch {
+      setRowVerdict((cur) => (cur?.id === id ? { id, v: { ok: false, reason: "Couldn't check: try again" } } : cur));
+    }
+  };
+  const confirmMenuDelete = async () => {
+    if (!menuDelTarget) return;
+    setMenuDelBusy(true);
+    try {
+      const results = await runMenuDelete(request as any, (await getToken()) ?? undefined, menuDelTarget.ids);
+      const t = deleteToast(results);
+      if (t.ok) toast.success(t.ok);
+      if (t.error) toast.error(t.error);
+      bulk.remove(results.filter((r) => r.deleted).map((r) => r.id));
+    } catch (e: any) {
+      toast.error(e?.message || "Delete failed");
+    }
+    setMenuDelBusy(false);
+    setMenuDelTarget(null);
+    refetch();
+    refetchStats();
+  };
+  const startBulkMenuDelete = async () => {
+    const ids = bulk.selectedRows.map((d: any) => d.id);
+    try {
+      const v = await checkMenuDelete(request as any, (await getToken()) ?? undefined, ids);
+      const { ok, skipped } = bulkDeleteSummary(v, ids);
+      if (!ok.length) {
+        toast.error(skipped[0]?.reason ? `Nothing to delete: ${skipped[0].reason}` : "Nothing to delete");
+        return;
+      }
+      const one = bulk.selectedRows.find((d: any) => d.id === ok[0]);
+      setMenuDelTarget({ ids: ok, title: ok.length === 1 ? deleteConfirmTitle(one?.name) : `Delete ${ok.length} documents?`, skipped: skipped.length });
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't check the selection");
+    }
+  };
 
   // Bulk actions (guru 2026-11-21): tick rows → Download (PDF / ZIP), Delete
   // drafts, Void. Selection survives paging and clears on any re-scope.
@@ -722,7 +774,7 @@ export default function DocumentListView({
           data-tour="document-row-view"
           onClick={(e: React.MouseEvent<HTMLElement>) => {
             e.stopPropagation();
-            setRowMenu({ pos: { left: e.clientX, top: e.clientY }, row: row.original });
+            (setRowMenu({ pos: { left: e.clientX, top: e.clientY }, row: row.original }), menuDel && void loadRowVerdict(row.original.id));
           }}
           sx={{ color: "text.secondary" }}
         >
@@ -887,8 +939,32 @@ export default function DocumentListView({
         >
           Open
         </MenuItem>
+        {/* WCT group ⋮ menu Delete (2026-11-25): drafts and confirmed ones; greyed with the server's reason. */}
+        {rowMenu && menuDel && (() => {
+          const v = rowVerdict && rowVerdict.id === rowMenu.row.id ? rowVerdict.v : null;
+          const item = (
+            <MenuItem
+              sx={{ color: "error.main" }}
+              disabled={!v?.ok}
+              onClick={() => {
+                const row = rowMenu!.row;
+                setRowMenu(null);
+                setMenuDelTarget({ ids: [row.id], title: deleteConfirmTitle(row.name), skipped: 0 });
+              }}
+            >
+              Delete
+            </MenuItem>
+          );
+          return v && !v.ok && v.reason ? (
+            <Tooltip title={v.reason} placement="left">
+              <span>{item}</span>
+            </Tooltip>
+          ) : (
+            item
+          );
+        })()}
         {/* Drafts only; never an imported (old ERP) one. WCT group (enableSoftDeleteDrafts): hidden, number kept as a gap. */}
-        {rowMenu && ["draft", "unconfirmed"].includes(rowMenu.row.status || "unconfirmed") && !(rowMenu.row as any).imported && (
+        {rowMenu && !menuDel && ["draft", "unconfirmed"].includes(rowMenu.row.status || "unconfirmed") && !(rowMenu.row as any).imported && (
           <MenuItem
             sx={{ color: "error.main" }}
             onClick={() => {
@@ -926,6 +1002,23 @@ export default function DocumentListView({
         </DialogActions>
       </Dialog>
 
+      <Dialog open={!!menuDelTarget} onClose={() => (menuDelBusy ? undefined : setMenuDelTarget(null))}>
+        <DialogTitle>{menuDelTarget?.title}</DialogTitle>
+        {!!menuDelTarget?.skipped && (
+          <DialogContent>
+            <DialogContentText>{`${menuDelTarget.skipped} selected ${menuDelTarget.skipped === 1 ? "row can't be deleted and is" : "rows can't be deleted and are"} left as they are.`}</DialogContentText>
+          </DialogContent>
+        )}
+        <DialogActions>
+          <Button onClick={() => setMenuDelTarget(null)} disabled={menuDelBusy}>
+            Cancel
+          </Button>
+          <Button onClick={() => void confirmMenuDelete()} color="error" variant="contained" disabled={menuDelBusy} data-testid="menu-delete-confirm">
+            {menuDelBusy ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Floating bulk-action bar (guru 2026-11-21) */}
       <BulkActionBar
         count={bulk.count}
@@ -959,7 +1052,17 @@ export default function DocumentListView({
                 : "Void the selected documents and their journals",
             onClick: () => setBulkConfirm("void"),
           },
-          {
+          menuDel
+            ? {
+                key: "delete",
+                label: "Delete",
+                icon: <DeleteIcon />,
+                color: "error",
+                disabled: bulkBusy || menuDelBusy,
+                tooltip: "Delete the selected documents (paid invoices and documents with others made from them are skipped)",
+                onClick: () => void startBulkMenuDelete(),
+              }
+            : {
             key: "delete",
             label: bulkDeletable.length > 0 && bulkDeletable.length < bulk.count ? `Delete ${bulkDeletable.length} ${bulkDeletable.length === 1 ? "draft" : "drafts"}` : "Delete",
             icon: <DeleteIcon />,

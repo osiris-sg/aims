@@ -68,7 +68,7 @@ const SKIP_GET_PATHS = [
 // house convention) — log them as VIEW, not CREATE.
 // trade-generated/preview (Shipments, 2026-10): renders live-preview HTML only.
 const VIEW_POST_RE =
-  /^\/(documents(\/paginated|\/stats)?|assets|inventories(\/by-status|\/by-ids)?|customers(\/lookup)?|suppliers|projects|documentTemplates|users\/list|payments\/summary|statements\/(soa|supplier-soa)|posting-preview|documentTemplates\/variants\/[^/]+\/design-preview|trade-generated\/preview|trade-clients\/customers\/[0-9a-f-]{36}\/formats\/[A-Z_]+\/(preview|layout-preview)|trade-clients\/customers\/[0-9a-f-]{36}\/(process|due-rules)\/preview|email-inbox\/[0-9a-f-]{36}\/preview|email-inbox\/placements|email-inbox\/shipment-facts|payables\/match-payment|field\/jobs\/import\/preview)$/;
+  /^\/(documents(\/paginated|\/stats|\/wct-delete\/check)?|assets|inventories(\/by-status|\/by-ids)?|customers(\/lookup)?|suppliers|projects|documentTemplates|users\/list|payments\/summary|statements\/(soa|supplier-soa)|posting-preview|documentTemplates\/variants\/[^/]+\/design-preview|trade-generated\/preview|trade-clients\/customers\/[0-9a-f-]{36}\/formats\/[A-Z_]+\/(preview|layout-preview)|trade-clients\/customers\/[0-9a-f-]{36}\/(process|due-rules)\/preview|email-inbox\/[0-9a-f-]{36}\/preview|email-inbox\/placements|email-inbox\/shipment-facts|payables\/match-payment|field\/jobs\/import\/preview)$/;
 
 // Path verb segment → semantic action (checked against the LAST static segment).
 /** HR (/field/*) only: leave type restored, leave entered by the office, the day's plan sent to the crew,
@@ -80,6 +80,8 @@ const FIELD_VERB_ACTIONS: Record<string, string> = {
 const VERB_ACTIONS: Record<string, string> = {
   'confirm-do': 'CONFIRM', 'confirm-invoice': 'CONFIRM', 'confirm-pr': 'CONFIRM',
   'bulk-complete-do': 'CONFIRM', approve: 'APPROVE', reject: 'REJECT', submit: 'SUBMIT',
+  // ⋮ menu Delete (WCT group, 2026-11-25): a soft delete.
+  'wct-delete': 'DELETE',
   void: 'VOID', post: 'POST_GL', 'post-batch': 'POST_GL', 'post-held': 'POST_GL', confirm: 'CONFIRM',
   'close-filed': 'PROCESS', 'send-email': 'SEND', 'sync-to-xero': 'SYNC', sync: 'SYNC', 'confirm-from-xero': 'CONFIRM', duplicate: 'DUPLICATE',
   revisions: 'CREATE_REVISION', notes: 'NOTE', sign: 'SIGN', 'generate-pdf': 'EXPORT',

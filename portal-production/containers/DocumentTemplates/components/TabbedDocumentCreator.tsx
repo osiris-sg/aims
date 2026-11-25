@@ -130,6 +130,8 @@ import { useAuth, useUser } from "@clerk/nextjs";
 import { useReactToPrint } from "react-to-print";
 import { installPrintFit } from "@/lib/printScale";
 import { request, withActiveOrg } from "@/helpers/request";
+import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
+import { canMenuDelete, checkMenuDelete, deleteConfirmTitle, deleteToast, menuDeleteOn, runMenuDelete, type MenuDeleteVerdict } from "@/helpers/wctMenuDelete";
 import { requestFailed } from "@/helpers/requestOutcome";
 import { categoryChoices } from "@/helpers/salesReport";
 import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
@@ -161,6 +163,7 @@ import SendMenuButton from "@/components/nav/SendMenuButton";
 import { editorSendControls, withoutSendWhenVoided } from "@/helpers/sendMenu";
 import { useDocumentLock } from "@/app/portal/hooks/useDocumentLock";
 import { toast } from "react-toastify";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useForm, Controller } from "react-hook-form";
 import { usePathname, useRouter } from "next/navigation";
 import { usePastDescriptions } from "../hooks/usePastDescriptions";
@@ -4228,6 +4231,54 @@ export default function TabbedDocumentCreator({
   // ⋮ overflow menu (Xero-style) — hosts the secondary toolbar actions.
   const [moreMenuAnchor, setMoreMenuAnchor] = useState<null | HTMLElement>(null);
   const closeMoreMenu = () => setMoreMenuAnchor(null);
+  // ⋮ menu Delete (WCT group, 2026-11-25; helpers/wctMenuDelete.ts): the same Delete as the lists, for people with Edit
+  // on Sales. Checked with the server when the menu opens; greyed with its reason when it can't go.
+  const { hasPermission: hasDocPermission } = useUserPermissions();
+  const menuDelDocId = (existingData as any)?.id || documentId || null;
+  const menuDel =
+    !!menuDelDocId &&
+    !isTemplateEditMode &&
+    menuDeleteOn({ softDelete: orgFeatureFlags?.enableSoftDeleteDrafts === true, wctDocNav: !!isWctDocNavEnabled, types: [actualDocumentType || documentType] }) &&
+    canMenuDelete(hasDocPermission);
+  const [menuDelVerdict, setMenuDelVerdict] = useState<MenuDeleteVerdict | null>(null);
+  const [menuDelConfirm, setMenuDelConfirm] = useState(false);
+  const [menuDelBusy, setMenuDelBusy] = useState(false);
+  useEffect(() => {
+    if (!moreMenuAnchor || !menuDel || !menuDelDocId) return;
+    let live = true;
+    setMenuDelVerdict(null);
+    void (async () => {
+      try {
+        const v = await checkMenuDelete(request as any, (await getToken()) ?? undefined, [menuDelDocId]);
+        if (live) setMenuDelVerdict(v[menuDelDocId] ?? { ok: false, reason: "Can't be deleted" });
+      } catch {
+        if (live) setMenuDelVerdict({ ok: false, reason: "Couldn't check: try again" });
+      }
+    })();
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moreMenuAnchor, menuDel, menuDelDocId]);
+  const runEditorMenuDelete = async () => {
+    if (!menuDelDocId) return;
+    setMenuDelBusy(true);
+    try {
+      const results = await runMenuDelete(request as any, (await getToken()) ?? undefined, [menuDelDocId]);
+      const t = deleteToast(results);
+      if (t.error) toast.error(t.error);
+      if (t.ok) {
+        toast.success(t.ok);
+        const T = String(actualDocumentType || documentType || "").toUpperCase();
+        const list = ["QUOTATION", "QO", "QO1"].includes(T) ? "/portal/sales/quotations" : ["DELIVERY_ORDER", "DO"].includes(T) ? "/portal/sales/delivery-orders" : "/portal/sales/invoices";
+        router.push(list);
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Delete failed");
+    }
+    setMenuDelBusy(false);
+    setMenuDelConfirm(false);
+  };
 
   // Per-line GL account chip under each line's item code (guru 2026-10-27).
   // It is DISPLAY ONLY since 2026-11-23 (guru: "only allow one edit, which is
@@ -6081,6 +6132,22 @@ export default function TabbedDocumentCreator({
                 <ListItemText>Duplicate</ListItemText>
               </MenuItem>
             )}
+            {menuDel && (() => {
+              const item = (
+                <MenuItem
+                  disabled={!menuDelVerdict?.ok}
+                  onClick={() => { closeMoreMenu(); setMenuDelConfirm(true); }}
+                  sx={{ color: "error.main" }}
+                  data-testid="editor-menu-delete"
+                >
+                  <ListItemIcon><DeleteOutlineIcon fontSize="small" color="error" /></ListItemIcon>
+                  <ListItemText>Delete</ListItemText>
+                </MenuItem>
+              );
+              return menuDelVerdict && !menuDelVerdict.ok && menuDelVerdict.reason ? (
+                <Tooltip title={menuDelVerdict.reason} placement="left"><span>{item}</span></Tooltip>
+              ) : item;
+            })()}
             {/* Receipts / payment vouchers / journal vouchers copy too
                 (guru 2026-11-19) — same lines, new unconfirmed document dated
                 today; the settlement (offsets, allocations, cheque no) never
@@ -6278,6 +6345,15 @@ export default function TabbedDocumentCreator({
               </MenuItem>
             )}
           </Menu>
+          <Dialog open={menuDelConfirm} onClose={() => (menuDelBusy ? undefined : setMenuDelConfirm(false))}>
+            <DialogTitle>{deleteConfirmTitle((existingData as any)?.name || formData?.documentInfo?.documentNumber)}</DialogTitle>
+            <DialogActions>
+              <Button onClick={() => setMenuDelConfirm(false)} disabled={menuDelBusy}>Cancel</Button>
+              <Button color="error" variant="contained" onClick={() => void runEditorMenuDelete()} disabled={menuDelBusy} data-testid="editor-menu-delete-confirm">
+                {menuDelBusy ? "Deleting..." : "Delete"}
+              </Button>
+            </DialogActions>
+          </Dialog>
           {/* GL account → ITEM mapping picker, opened from a line's GL chip. */}
           <Popover
             open={!!glMapMenu}

@@ -74,6 +74,7 @@ import { DO_DATE_FLAG, ownDocDate, withDoDate } from './do-date';
 import { insertWithLockedNumber } from '../document-numbering/locked-number';
 import { signBucketUrlsInHtml } from '../common/storage-sign';
 import { GST_MOVE_KEYS, withoutGstMove } from '../common/gst-move-keys';
+import { isInvoiceType as isWctInvoiceType, wctDeleteVerdict, type WctDeleteVerdict } from './wct-delete';
 
 /** WCT group: invoices and DOs made from another document take their own type's terms (createBasicDocument). */
 const OWN_TERMS_TYPES = new Set(['INVOICE', 'DELIVERY_ORDER']);
@@ -3447,16 +3448,20 @@ export class DocumentsService {
    * it; config.softDeleted keeps the type and who / when); it leaves any order it was on and that order's status is
    * worked out again. Document history + Activity Log (the DELETE request) record it.
    */
-  async softDeleteDraft(id: string, organizationId: string, actor?: DocumentActor) {
+  async softDeleteDraft(id: string, organizationId: string, actor?: DocumentActor, opts: { menuDelete?: boolean } = {}) {
     const doc: any = await this.prisma.document.findFirst({ where: { id, organizationId }, select: { id: true, name: true, type: true, status: true, config: true } });
     if (!doc) throw new NotFoundException('Document not found');
     const what = doc.name || 'This document';
-    if (isErpImported(doc.config)) throw new BadRequestException(`${what} was imported from the old ERP: it is never deleted.`);
-    const [signLinks, sent] = await Promise.all([
-      (this.prisma as any).documentSignLink?.count({ where: { documentId: id } }).catch(() => 0) ?? 0,
-      this.prisma.auditLog.count({ where: { organizationId, resource: 'document', action: 'SENT', resourceId: id } }).catch(() => 0),
-    ]);
-    if (signLinks > 0 || sent > 0) throw new BadRequestException(`${what} was sent to the customer: void or cancel it instead.`);
+    // The ⋮ menu Delete (wctDelete, owner 2026-11-25) has its own rules (wct-delete.ts): imported and sent documents
+    // follow them like any other. The draft Delete keeps its own guards.
+    if (!opts.menuDelete) {
+      if (isErpImported(doc.config)) throw new BadRequestException(`${what} was imported from the old ERP: it is never deleted.`);
+      const [signLinks, sent] = await Promise.all([
+        (this.prisma as any).documentSignLink?.count({ where: { documentId: id } }).catch(() => 0) ?? 0,
+        this.prisma.auditLog.count({ where: { organizationId, resource: 'document', action: 'SENT', resourceId: id } }).catch(() => 0),
+      ]);
+      if (signLinks > 0 || sent > 0) throw new BadRequestException(`${what} was sent to the customer: void or cancel it instead.`);
+    }
     const docType = String(doc.type || '').toUpperCase();
     const isInvoice = ['INVOICE', 'TI', 'TI2', 'TAX_INVOICE', 'INV'].includes(docType);
     // A DO a live job carries stays (the job's lines point at it; a hidden DO would leave the job without its DO).
@@ -3514,6 +3519,105 @@ export class DocumentsService {
     for (const oid of orderIds) await refreshOrderStatus(this.prisma, organizationId, oid).catch(() => null);
     void this.logDocumentEvent({ documentId: id, organizationId, action: 'DELETED', detail: `${what} deleted (hidden; its number is kept as a gap)`, documentName: doc.name || undefined, actor });
     return { id, name: doc.name, type: doc.type, deleted: true, soft: true };
+  }
+
+  /**
+   * ⋮ menu Delete (WCT group, enableSoftDeleteDrafts, owner 2026-11-25): whether each document can be deleted, and
+   * why not (wct-delete.ts). Read only; the lists grey the item with the reason.
+   */
+  async wctDeleteCheck(ids: string[], organizationId: string): Promise<Record<string, WctDeleteVerdict>> {
+    const out: Record<string, WctDeleteVerdict> = {};
+    const list = [...new Set((ids || []).filter((x) => typeof x === 'string' && x))].slice(0, 200);
+    if (!list.length) return out;
+    if (!(await isOrgFeatureEnabled(this.prisma, organizationId, SOFT_DELETE_DRAFTS_FLAG).catch(() => false))) {
+      for (const id of list) out[id] = { ok: false, reason: 'Delete is not on for this company' };
+      return out;
+    }
+    const docs: any[] = await this.prisma.document.findMany({ where: { id: { in: list }, organizationId }, select: { id: true, name: true, type: true, status: true, config: true } });
+    const byId = new Map(docs.map((d) => [d.id, d]));
+    const live = (alias: string) => `${alias}.type::text <> '${SOFT_DELETED_TYPE}' AND coalesce(${alias}.status::text, '') NOT IN ('voided', 'void', 'cancelled') AND coalesce(${alias}.config->>'voided', '') <> 'true' AND coalesce(${alias}.config->>'cancelled', '') <> 'true'`;
+    // Documents made from these: sourceDocumentId (DO / invoice from a QO, invoice from a DO, CN from an invoice).
+    const made: Array<{ src: string; name: string | null }> = await this.prisma.$queryRawUnsafe(
+      `SELECT d.config->>'sourceDocumentId' AS src, d.name FROM "Document" d WHERE d."organizationId" = $1 AND d.config->>'sourceDocumentId' = ANY($2) AND ${live('d')}`,
+      organizationId,
+      list,
+    );
+    // A DO billed on a live invoice (orderInvoiceId).
+    const doInvIds = docs.map((d) => d.config?.orderInvoiceId).filter((v) => typeof v === 'string' && v && !v.startsWith('claim:'));
+    const doInv: Array<{ id: string; name: string | null }> = doInvIds.length
+      ? await this.prisma.$queryRawUnsafe(`SELECT d.id, d.name FROM "Document" d WHERE d."organizationId" = $1 AND d.id::text = ANY($2) AND ${live('d')}`, organizationId, doInvIds)
+      : [];
+    // A quotation's order: the live DOs / invoices on it.
+    const qoIds = docs.filter((d) => ['QUOTATION', 'QO', 'QO1'].includes(String(d.type).toUpperCase())).map((d) => d.id);
+    const orders: Array<{ id: string; q: string }> = qoIds.length
+      ? await this.prisma.$queryRawUnsafe(`SELECT o.id, o."sourceQuotationId"::text AS q FROM "Order" o WHERE o."organizationId" = $1 AND o."sourceQuotationId"::text = ANY($2)`, organizationId, qoIds).catch(() => [] as Array<{ id: string; q: string }>) as Array<{ id: string; q: string }>
+      : [];
+    const qoOrder = new Map<string, string[]>();
+    for (const o of orders) qoOrder.set(o.q, [...(qoOrder.get(o.q) ?? []), o.id]);
+    for (const d of docs) if (qoIds.includes(d.id) && typeof d.config?.orderId === 'string') qoOrder.set(d.id, [...new Set([...(qoOrder.get(d.id) ?? []), d.config.orderId])]);
+    const allOrderIds = [...new Set([...qoOrder.values()].flat())];
+    const onOrders: Array<{ orderId: string; name: string | null; id: string }> = allOrderIds.length
+      ? await this.prisma.$queryRawUnsafe(
+          `SELECT d.config->>'orderId' AS "orderId", d.name, d.id::text AS id FROM "Document" d WHERE d."organizationId" = $1 AND d.config->>'orderId' = ANY($2) AND upper(d.type::text) IN ('DELIVERY_ORDER','DO','INVOICE','TI','TI2','TAX_INVOICE','INV') AND ${live('d')}`,
+          organizationId,
+          allOrderIds,
+        )
+      : [];
+    const invIds = docs.filter((d) => isWctInvoiceType(d.type)).map((d) => d.id);
+    const pays: Array<{ documentId: string }> = invIds.length ? await this.prisma.payment.findMany({ where: { organizationId, documentId: { in: invIds } }, select: { documentId: true } }) : [];
+    const paidSet = new Set(pays.map((p) => p.documentId));
+    for (const id of list) {
+      const d = byId.get(id);
+      if (!d) {
+        out[id] = { ok: false, reason: 'Not found' };
+        continue;
+      }
+      const children = [
+        ...made.filter((m) => m.src === id).map((m) => m.name || 'a document'),
+        ...(typeof d.config?.orderInvoiceId === 'string' ? doInv.filter((x) => x.id === d.config.orderInvoiceId).map((x) => x.name || 'its invoice') : []),
+        ...(qoOrder.get(id) ?? []).flatMap((oid) => onOrders.filter((x) => x.orderId === oid && x.id !== id).map((x) => x.name || 'a document')),
+      ];
+      out[id] = wctDeleteVerdict({
+        name: d.name,
+        type: String(d.type ?? ''),
+        missing: d.type === SOFT_DELETED_TYPE,
+        paid: paidSet.has(id) || (Number(amountPaidOf(d.config) ?? 0) || 0) > 0.005,
+        children,
+        stockDeducted: d.config?.stockDeducted === true,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * ⋮ menu Delete (WCT group, owner 2026-11-25): soft delete each document the rules allow (wct-delete.ts), after
+   * voiding its live journals the app's way (a confirmed unpaid invoice). One result per id; a refused one is left as
+   * it was. The order it sat on is worked out again (softDeleteDraft).
+   */
+  async wctDelete(ids: string[], organizationId: string, actor?: DocumentActor): Promise<Array<{ id: string; name: string | null; deleted: boolean; reason: string | null; journalsVoided: number }>> {
+    const verdicts = await this.wctDeleteCheck(ids, organizationId);
+    const results: Array<{ id: string; name: string | null; deleted: boolean; reason: string | null; journalsVoided: number }> = [];
+    for (const id of Object.keys(verdicts)) {
+      const v = verdicts[id];
+      const doc: any = await this.prisma.document.findFirst({ where: { id, organizationId }, select: { id: true, name: true, type: true, config: true, createdAt: true } });
+      if (!v.ok || !doc) {
+        results.push({ id, name: doc?.name ?? null, deleted: false, reason: v.reason, journalsVoided: 0 });
+        continue;
+      }
+      try {
+        assertRecordUnlocked(doc, 'deleted');
+        const jes = await this.prisma.journalEntry.findMany({ where: { organizationId, sourceDocumentId: id, status: { not: 'VOID' } }, select: { id: true } });
+        for (const je of jes) await this.journalService.void(organizationId, je.id, actor?.id);
+        await this.softDeleteDraft(id, organizationId, actor, { menuDelete: true });
+        if (jes.length) {
+          void this.logDocumentEvent({ documentId: id, organizationId, action: 'VOIDED', detail: `${doc.name || 'Document'}: ${jes.length} journal(s) voided before the delete`, documentName: doc.name || undefined, actor });
+        }
+        results.push({ id, name: doc.name, deleted: true, reason: null, journalsVoided: jes.length });
+      } catch (e: any) {
+        results.push({ id, name: doc.name, deleted: false, reason: e?.response?.message || e?.message || 'Could not delete', journalsVoided: 0 });
+      }
+    }
+    return results;
   }
 
   async deleteDocument(id: string, organizationId: string, actor?: DocumentActor, opts?: { force?: boolean; untouched?: boolean }) {
