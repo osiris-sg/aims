@@ -7,6 +7,7 @@
 // keys and Documents columns; only the values and each action's own gating differ. Pure: tested by orderPage.test.mjs.
 
 import { HUB_ACTION_LABEL, hubNextStep, hubRowActions, hubStatus, hubStatusInfo, hubSteps, type HubActionKey } from "./wctOrderHub";
+import { reportNoText } from "./serviceReportOrder";
 import { importedBilledPct, importedLinkSourceLabel, importedMoney, importedProgress, importedStatusHue, importedSteps, type ImportedLinkType } from "./importedOrders";
 import { invoiceNowText, jobStatusLabel, orderStatusLabel } from "./wctOrders";
 import { flowDocStatus, flowDoRowWord, flowOrderStatus } from "./wctStatusFlow";
@@ -303,7 +304,7 @@ function workRows(o: any): OrderDocRow[] {
       key: `r:${r.id}`,
       kind: "report",
       type: "Service report",
-      number: r.reportNumber ? `#${r.reportNumber}` : "(draft)",
+      number: reportNoText(r) ?? "(draft)",
       date: r.date ?? null,
       status: r.sentAt ? "Sent" : r.status === "completed" ? (r.uploaded ? "Uploaded" : "Completed") : "Draft",
       by: "",
@@ -321,13 +322,14 @@ function workRows(o: any): OrderDocRow[] {
     const by = a.addedByName ? `Linked by ${a.addedByName}` : "Linked";
     if (a.kind === "report") {
       if (a.reportId && jobReportIds.has(a.reportId)) continue;
-      const n = a.report?.reportNumber ?? a.reportNumber ?? null;
-      const name = n ? `Service report #${n}` : "Service report";
+      // WCT group: the SR202611-0001 number when the report has one (else #n as before).
+      const no = reportNoText({ reportNumber: a.report?.reportNumber ?? a.reportNumber ?? null, srNumber: a.report?.srNumber ?? a.srNumber ?? null });
+      const name = no ? `Service report ${no}` : "Service report";
       rows.push({
         key: `a:${a.id}`,
         kind: "report",
         type: "Service report",
-        number: n ? `#${n}` : "(draft)",
+        number: no ?? "(draft)",
         date: a.addedAt ?? null,
         status: a.report ? (a.report.status === "completed" ? "Completed" : "Draft") : "Report not found",
         by,
@@ -641,7 +643,7 @@ export function importedOrderPage(o: any, ctx: OrderPageContext = {}): OrderPage
     ...placeholders.map((i) => ({ label: invLabel(i), status: null, href: invHref(i), placeholder: true })),
   ];
   const firstInvDate = invoices.map((i) => i.date).filter(Boolean).sort()[0] ?? null;
-  const reportLabel = (l: string) => (l.startsWith("#") ? `Service report ${l}` : l);
+  const reportLabel = (l: string) => (l.startsWith("#") || /^SR\d{6}-/.test(l) ? `Service report ${l}` : l);
   const canCreate = !!o.canInvoice && !draft;
   const doDocs: OrderCardDoc[] = withDoUploads(
     (t("do").docs ?? []).map((d: any) => ({ label: d.label, status: d.status ?? null, href: d.href ?? null })),

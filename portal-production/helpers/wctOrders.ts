@@ -189,7 +189,9 @@ export interface OrderAttachment {
   mimeType?: string;
   reportId?: string;
   reportNumber?: number | null;
-  report?: { id: string; reportNumber: number | null; status: string } | null;
+  /** WCT group: SR202611-0001 (stored on the link, and the report's current one). */
+  srNumber?: string | null;
+  report?: { id: string; reportNumber: number | null; srNumber?: string | null; status: string } | null;
   addedAt?: string;
   addedByName?: string | null;
 }
@@ -209,9 +211,9 @@ export function attachmentLine(a: OrderAttachment): { title: string; detail: str
   // "linked by Elroy Lee · 01 Nov 2026"; without a name, "linked 01 Nov 2026".
   const by = (verb: string) => (a.addedByName ? [`${verb} by ${a.addedByName}`, when].filter(Boolean).join(" · ") : when ? `${verb} ${when}` : "");
   if (a.kind === "report") {
-    const n = a.report?.reportNumber ?? a.reportNumber;
+    const n = a.report?.srNumber ?? a.srNumber ?? ((a.report?.reportNumber ?? a.reportNumber) ? `#${a.report?.reportNumber ?? a.reportNumber}` : null);
     const st = a.report ? (a.report.status === "completed" ? "Completed" : "Draft") : "Report not found";
-    return { title: `Service report ${n ? `#${n}` : "(draft)"}`, detail: [st, by("linked")].filter(Boolean).join(" · ") };
+    return { title: `Service report ${n ?? "(draft)"}`, detail: [st, by("linked")].filter(Boolean).join(" · ") };
   }
   return { title: a.fileName || "File", detail: [a.label || "Uploaded file", by("added")].filter(Boolean).join(" · ") };
 }

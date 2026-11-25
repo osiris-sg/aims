@@ -21,6 +21,7 @@ export default function SendServiceReportDialog({
   onSent,
   reportId,
   reportNumber,
+  srNumber,
 }: {
   open: boolean;
   onClose: () => void;
@@ -33,6 +34,8 @@ export default function SendServiceReportDialog({
   /** Report page Send menu (enableWctDocNav): send ONLY this report. Absent = every completed report of the order. */
   reportId?: string;
   reportNumber?: number | null;
+  /** WCT group: SR202611-0001, shown instead of the running number. */
+  srNumber?: string | null;
 }) {
   const { getToken } = useAuth();
   const [to, setTo] = useState("");
@@ -69,7 +72,7 @@ export default function SendServiceReportDialog({
         {intro && <DialogContentText sx={{ mb: 1.5 }}>{intro}</DialogContentText>}
         <DialogContentText sx={{ mb: 2 }}>
           {reportId
-            ? `Service report${reportNumber != null ? ` #${String(reportNumber).padStart(6, "0")}` : ""} is emailed as a PDF, with the photos file if there is one.`
+            ? `Service report${srNumber ? ` ${srNumber}` : reportNumber != null ? ` #${String(reportNumber).padStart(6, "0")}` : ""} is emailed as a PDF, with the photos file if there is one.`
             : `The service report${orderNumber ? ` of order ${orderNumber}` : ""} is emailed as a PDF, with the photos file if there is one.`}
         </DialogContentText>
         <TextField size="small" label="Email to" value={to} onChange={(e) => setTo(e.target.value)} placeholder="customer@example.com" helperText="Several addresses: separate them with commas" fullWidth autoFocus />

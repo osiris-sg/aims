@@ -10,6 +10,7 @@
 // stays a gap. Every change is in the Activity Log and the report's history.
 
 import React, { useRef, useState } from "react";
+import { reportNoText } from "@/helpers/serviceReportOrder";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
@@ -105,7 +106,7 @@ export default function ReportEditActions({ report, isUploaded }: { report: { id
   const remove = async () => {
     const ok = await call("delete", `/maintenance-reports/${report.id}`, "DELETE");
     if (ok) {
-      toast.success(`Service report${report.reportNumber != null ? ` #${report.reportNumber}` : ""} deleted`);
+      toast.success(`Service report${reportNoText(report as any) ? ` ${reportNoText(report as any)}` : ""} deleted`);
       router.push("/portal/maintenance-reports");
     }
   };
@@ -179,7 +180,7 @@ export default function ReportEditActions({ report, isUploaded }: { report: { id
       </Dialog>
 
       <Dialog open={askDelete} onClose={busy ? undefined : () => setAskDelete(false)} fullWidth maxWidth="xs">
-        <DialogTitle>Delete service report{report.reportNumber != null ? ` #${report.reportNumber}` : ""}?</DialogTitle>
+        <DialogTitle>Delete service report{reportNoText(report as any) ? ` ${reportNoText(report as any)}` : ""}?</DialogTitle>
         <DialogContent>
           <DialogContentText>
             It has not been sent to the customer. It is removed from the lists, its order and its job. The number is not reused: it stays as a gap.

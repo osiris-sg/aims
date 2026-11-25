@@ -45,6 +45,7 @@ import {
 import { useRunWords } from "@/app/portal/hooks/useRunWords";
 import { runTitle } from "@/helpers/jobWording";
 import DateInput from "@/components/DateInput";
+import { officeEmailPrefill, reportNoText } from "@/helpers/serviceReportOrder";
 
 /**
  * WCT service job — the SERVICE itself, walked step by step (guru 2026-10-27:
@@ -134,7 +135,11 @@ interface Draft {
  * office started for a customer's DO; it ends with the customer's signature
  * on screen and the report's number, with no job steps.
  */
-export default function WctServiceReportForm({ deliveryId: deliveryIdProp, reportId, office = false }: { deliveryId?: string; reportId?: string; office?: boolean }) {
+/**
+ * onExit (office, WCT order page 2026-11-25): the form runs in a dialog on the order page; Back on the first step and
+ * "Back to the order" on the done screen close it instead of leaving for the report page.
+ */
+export default function WctServiceReportForm({ deliveryId: deliveryIdProp, reportId, office = false, onExit }: { deliveryId?: string; reportId?: string; office?: boolean; onExit?: () => void }) {
   // WCT (enableWctOrders): "Job" wording (helpers/jobWording.ts).
   const w = useRunWords();
   const router = useRouter();
@@ -142,7 +147,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
   const { user } = useUser();
   const deliveryId = deliveryIdProp ?? "";
   // Office mode: the report itself (no job), and the on-screen signature.
-  const [officeReport, setOfficeReport] = useState<{ id: string; status: string; reportNumber: number | null; doNumber: string | null; orderNo: string | null } | null>(null);
+  const [officeReport, setOfficeReport] = useState<{ id: string; status: string; reportNumber: number | null; srNumber: string | null; doNumber: string | null; orderNo: string | null } | null>(null);
   const [signerName, setSignerName] = useState("");
   const sigPad = useRef<SignaturePadHandle>(null);
 
@@ -169,7 +174,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [created, setCreated] = useState<{ id: string; reportNumber: number | null } | null>(null);
+  const [created, setCreated] = useState<{ id: string; reportNumber: number | null; srNumber?: string | null } | null>(null);
   const [restored, setRestored] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const { surface: printSurface, printReport, downloadReport, busy: printBusy } = useMsrPrint();
@@ -242,12 +247,13 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
           if (rr?.success === false) throw new Error(rr?.message ?? "Could not load the service report");
           const rep: any = rr?.data ?? rr;
           const sd: any = rep?.serviceData ?? {};
-          setOfficeReport({ id: rep.id, status: rep.status, reportNumber: rep.reportNumber ?? null, doNumber: sd.doNumber ?? null, orderNo: sd.orderNo ?? null });
+          setOfficeReport({ id: rep.id, status: rep.status, reportNumber: rep.reportNumber ?? null, srNumber: sd.srNumber ?? null, doNumber: sd.doNumber ?? null, orderNo: sd.orderNo ?? null });
           setBrand(sd.brand ?? null);
           setCustomerName(sd.customerName ?? "");
           setJobLocation(sd.jobLocation ?? "");
           if (sd.serviceDate) setServiceDate(String(sd.serviceDate).slice(0, 10));
-          if (sd.clientEmail) setClientEmail(sd.clientEmail);
+          // Never the customer's email on file (UAT 2026-11-25): only what was typed, or a reopened report's own address.
+          setClientEmail(officeEmailPrefill({ reportNumber: rep.reportNumber ?? null, serviceData: sd }));
           setSignerName(sd.customerName ?? "");
           applyDraft(sd.draft);
           return;
@@ -382,7 +388,8 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
   const goBack = () => {
     setError(null);
     if (cursor.phase === "job") {
-      if (office) router.push(`/portal/maintenance-reports/${reportId}`);
+      if (office && onExit) onExit();
+      else if (office) router.push(`/portal/maintenance-reports/${reportId}`);
       else router.replace(run?.status === "completed" ? `/scan/deliveries/finished/${deliveryId}` : `/scan/delivery/${deliveryId}`);
       return;
     }
@@ -491,7 +498,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
           );
       if (res?.success === false) throw new Error(res?.message ?? "Could not create the service report");
       const row = res?.data ?? res;
-      setCreated({ id: row.id, reportNumber: row.reportNumber ?? null });
+      setCreated({ id: row.id, reportNumber: row.reportNumber ?? null, srNumber: row.serviceData?.srNumber ?? null });
       // The job is still open: end the service lines (the unsigned "End
       // Delivery" the DO flow does) and go straight to the customer signature.
       // (Office reports have no job step here: they end on the done screen.)
@@ -544,14 +551,14 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
     return (
       <Box sx={{ p: 2 }}>
         <Alert severity="error">{loadError ?? `${w.Noun} not found`}</Alert>
-        <Button sx={{ mt: 2 }} onClick={() => router.back()}>Back</Button>
+        <Button sx={{ mt: 2 }} onClick={() => (onExit ? onExit() : router.back())}>Back</Button>
       </Box>
     );
   }
 
   const doneId = created?.id ?? existing?.id ?? null;
   if (doneId && office) {
-    const no = created?.reportNumber ?? officeReport?.reportNumber ?? null;
+    const no = reportNoText(created ?? officeReport, { pad: true }) ?? reportNoText(officeReport, { pad: true });
     return (
       <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2, alignItems: "stretch" }}>
         {printSurface}
@@ -559,7 +566,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
           <CheckCircleIcon sx={{ fontSize: 80, color: "success.main" }} />
           <Typography variant="h5">{created ? "Service report completed" : "This service report is completed"}</Typography>
           <Typography variant="body2" color="text.secondary">
-            {no != null ? `Report #${String(no).padStart(6, "0")}` : ""}
+            {no ? `Report ${no}` : ""}
             {officeReport?.doNumber ? ` · ${officeReport.doNumber}` : ""}
             {officeReport?.orderNo ? ` · ${officeReport.orderNo}` : ""}
           </Typography>
@@ -572,6 +579,11 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
           Download PDF
         </Button>
         {error && <Alert severity="error">{error}</Alert>}
+        {onExit && (
+          <Button variant="contained" color="inherit" onClick={onExit} fullWidth sx={FIELD_BUTTON_SX} data-tour="service-report-form-back-to-order">
+            Back to the order
+          </Button>
+        )}
         <Button variant="text" onClick={() => router.push(`/portal/maintenance-reports/${doneId}`)} fullWidth sx={FIELD_BUTTON_SX}>
           Open the report
         </Button>

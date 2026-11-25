@@ -54,6 +54,8 @@ import ReportEditActions, { ReportHistory } from "../_components/ReportEditActio
 import ReportFileView, { type ReportFileHandle } from "@/components/maintenance/ReportFileView";
 import { fetchServiceReportFile, reportFileStem, saveBlob } from "@/helpers/serviceReportFileBlob";
 import { msrStatusChip } from "@/helpers/msrStatus";
+import { reportLinkPills, reportNoText } from "@/helpers/serviceReportOrder";
+import { newTabHref, newTabProps } from "@/helpers/newTab";
 import { showBackToOrder } from "@/helpers/wctDocUi";
 
 // Labels come from the SHARED catalogue (see the drift warning there). Which
@@ -96,6 +98,8 @@ interface MsrDetail {
   id: string;
   /** WCT orders (2026-11-13): the order this report belongs to (own link, its job's, or an order attachment). */
   order?: { id: string; orderNumber: string } | null;
+  /** WCT group (UAT 2026-11-25): the DO and the job, for the Order / DO / Job pills. */
+  links?: { do: { id: string; name: string | null } | null; job: { id: string; number: number | null } | null } | null;
   reportNumber: number | null;
   /** Optional proof photos (S3 keys), shown at the end. */
   photos?: string[] | null;
@@ -423,9 +427,18 @@ export default function MaintenanceReportDetailPage() {
           orderNumber={report.order.orderNumber}
           reportId={report.id}
           reportNumber={report.reportNumber ?? null}
+          srNumber={(sd as any).srNumber ?? null}
           defaultEmail={(report as any).customer?.email ?? sd.clientEmail ?? null}
           onSent={(r) => toast.success(`Service report sent to ${r.sentTo.join(", ")}`)}
         />
+      )}
+      {/* WCT group (enableWctDocNav, UAT 2026-11-25): the report's Order / DO / Job, each opening in a new tab. */}
+      {isWctDocNavEnabled && (isWct || isUploaded) && reportLinkPills(report).length > 0 && (
+        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ "@media print": { display: "none" } }} data-tour="service-report-links">
+          {reportLinkPills(report).map((p) => (
+            <Chip key={p.key} size="small" variant="outlined" clickable component="a" href={newTabHref(p.href)} {...newTabProps} label={p.label} sx={{ fontWeight: 600 }} data-testid={`report-link-${p.key}`} />
+          ))}
+        </Stack>
       )}
       {isWct && (
         <>
@@ -433,7 +446,7 @@ export default function MaintenanceReportDetailPage() {
             <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
               <Box>
                 <Typography variant="h6" fontWeight={700}>
-                  Service Report #{report.reportNumber != null ? String(report.reportNumber).padStart(6, "0") : "—"}
+                  Service Report {reportNoText(report, { pad: true }) ?? "#—"}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   {sd.customerName ?? "—"} · {sd.jobLocation ?? "—"} · {sd.serviceDate ?? "—"} · by {report.technicianName ?? "—"} · created {formatDateTime(report.createdAt)}
@@ -448,7 +461,7 @@ export default function MaintenanceReportDetailPage() {
             </Stack>
           </Paper>
           {tabs}
-          {onPhotos ? photosTab() : <WctReportView reportId={report.id} reportNumber={report.reportNumber} extraActions={photosControls} editable={report.status !== "completed" && !(sd as any).deletedAt} />}
+          {onPhotos ? photosTab() : <WctReportView reportId={report.id} reportNumber={report.reportNumber} srNumber={(sd as any).srNumber ?? null} extraActions={photosControls} editable={report.status !== "completed" && !(sd as any).deletedAt} />}
         </>
       )}
 
@@ -458,7 +471,7 @@ export default function MaintenanceReportDetailPage() {
             <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
               <Box>
                 <Typography variant="h6" fontWeight={700}>
-                  Service Report #{report.reportNumber ?? "—"}
+                  Service Report {reportNoText(report) ?? "#—"}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   {sd.customerName ?? "—"} · {sd.jobLocation ?? "—"} · {sd.serviceDate ?? "—"} · uploaded {formatDateTime(report.createdAt)}
