@@ -10,6 +10,7 @@ interface OrganizationFeatures {
   hideAppSwitcher?: boolean;
   enableWctStatusFlow?: boolean;
   enableSubjectType?: boolean;
+  enableServiceTypes?: boolean;
   enableQuotationRevisionOnSave?: boolean;
   subjectTypeSetsAccount?: boolean;
   enableQuotationGst?: boolean;
@@ -274,6 +275,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Subject type (WCT group, 2026-11-19): a dropdown of AA / CD / MV / TS / VO on the left of
   // the Subject box; stored in the subject itself as "AA - text" (helpers/subjectType.ts). Default OFF.
   enableSubjectType: false,
+  // Service types (WCT group, 2026-11-26): a service is mapped to a job type (MV / CD / AA/VO / TS),
+  // never to an account code; on a quotation the only add button is Add service. Default OFF.
+  enableServiceTypes: false,
   // Save as revision (WCT group, 2026-11-23): saving an edited accepted quotation asks revision (-R1…) or current. Default OFF.
   enableQuotationRevisionOnSave: false,
   // Server-side (2026-11-20, WCT only): the Subject's type decides what the invoice posts (one subject line, or its priced lines).
@@ -482,6 +486,7 @@ export function useOrganizationFeatures() {
     isAnalyticsEnabled: features.enableAnalytics ?? true,
     isEditInventorySkuEnabled: features.enableEditInventorySku ?? false,
     isServiceItemsEnabled: features.enableServiceItems ?? false,
+    isServiceTypesEnabled: features.enableServiceTypes === true,
     isUserMgmtMasterfileEnabled: features.enableUserMgmtMasterfile ?? false,
     isPurchaseJournalGridEnabled: features.enablePurchaseJournalGrid ?? false,
     isTrackedInventoryOnlyEnabled: features.enableTrackedInventoryOnly ?? false,

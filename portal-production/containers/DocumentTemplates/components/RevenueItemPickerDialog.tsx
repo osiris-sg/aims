@@ -12,6 +12,7 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  MenuItem,
   Stack,
   Table,
   TableBody,
@@ -36,7 +37,12 @@ export type RevenueItem = {
   unitPrice?: number | null;
   accountCode: string;
   accountName?: string | null;
+  /** The job type the service is mapped to (orgs with service types); null = not mapped. */
+  serviceType?: string | null;
 };
+
+/** One of the org's service types (GET /revenue-items/service-types). */
+export type ServiceTypeOption = { code: string; accountCode?: string | null; accountName?: string | null };
 
 // Master-file picker used by "Add Item / Add Service" in the invoice editor.
 // Selecting a row returns the item (with its GL accountCode) so the added line
@@ -51,6 +57,12 @@ export type RevenueItem = {
 //    for WCT (guru 2026-10-26), whose quotations repeat the same dozen scope
 //    lines (G-/S- services + a maintenance package) on every job: one trip to
 //    the picker instead of twelve.
+//
+// Service types (`serviceTypes` given and not empty; orgs with enableServiceTypes, guru
+// 2026-11-26): the office never sees an account. Each row carries a Type box (MV / CD / AA/VO /
+// TS, or "Not mapped") that saves on the service itself, and "New service" adds one to the
+// master list with its name, price and type, ticked and ready to add. No blank line here: a
+// line on these quotations is always a service.
 export default function RevenueItemPickerDialog({
   open,
   onClose,
@@ -59,6 +71,7 @@ export default function RevenueItemPickerDialog({
   onBlank,
   typeFilter,
   showGl = true,
+  serviceTypes,
 }: {
   open: boolean;
   onClose: () => void;
@@ -69,12 +82,71 @@ export default function RevenueItemPickerDialog({
   // GL account column + chip + footer copy. Only invoice-type documents post
   // lines to the GL, so quotations / DOs pass false (guru 2026-11-17).
   showGl?: boolean;
+  serviceTypes?: ServiceTypeOption[];
 }) {
   const { getToken } = useAuth();
   const [items, setItems] = useState<RevenueItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState("");
   const multi = typeof onSelectMany === "function";
+  const typed = Array.isArray(serviceTypes) && serviceTypes.length > 0;
+  const gl = showGl && !typed; // with service types the account is never shown
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState({ name: "", unitPrice: "", serviceType: "" });
+  const [creating, setCreating] = useState(false);
+  useEffect(() => { if (open) { setError(null); setAdding(false); setDraft({ name: "", unitPrice: "", serviceType: "" }); } }, [open]);
+
+  const api = useCallback(async (path: string, method: string, body?: unknown) => {
+    const token = await getToken();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    if (typeof window !== "undefined") {
+      const activeOrgId = window.sessionStorage.getItem("aims-admin-active-org");
+      if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
+    }
+    const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) {
+      const m = json?.message;
+      throw new Error(Array.isArray(m) ? m.join(", ") : m || "The change could not be saved");
+    }
+    return json?.data ?? json;
+  }, [getToken]);
+
+  // Map a service to a type. Saved on the service, so every quotation that picks it carries it.
+  const changeType = async (it: RevenueItem, code: string) => {
+    setSavingId(it.id);
+    setError(null);
+    try {
+      const row = await api(`/revenue-items/${it.id}/service-type`, "PATCH", { serviceType: code || null });
+      setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, accountCode: row?.accountCode ?? "", accountName: null, serviceType: code || null } : x)));
+    } catch (e: any) {
+      setError(e?.message || "The type could not be saved");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const createService = async () => {
+    if (!draft.name.trim() || creating) return;
+    setCreating(true);
+    setError(null);
+    try {
+      const row = await api(`/revenue-items/typed`, "POST", { name: draft.name.trim(), unitPrice: draft.unitPrice.trim() === "" ? null : Number(draft.unitPrice), serviceType: draft.serviceType || null });
+      const made: RevenueItem = { id: row.id, code: row.code, name: row.name, type: row.type || "SERVICE", unitPrice: row.unitPrice ?? null, accountCode: row.accountCode ?? "", serviceType: draft.serviceType || null };
+      setItems((prev) => [...prev, made]);
+      setSelectedIds((prev) => new Set(prev).add(made.id));
+      setQ("");
+      setAdding(false);
+      setDraft({ name: "", unitPrice: "", serviceType: "" });
+    } catch (e: any) {
+      setError(e?.message || "The service could not be added");
+    } finally {
+      setCreating(false);
+    }
+  };
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   // A fresh open starts with nothing ticked — last job's picks must not leak
   // into the next quotation.
@@ -107,8 +179,8 @@ export default function RevenueItemPickerDialog({
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return items;
-    return items.filter((i) => i.name.toLowerCase().includes(s) || (i.code || "").toLowerCase().includes(s) || (i.accountName || "").toLowerCase().includes(s) || i.accountCode.includes(s));
-  }, [items, q]);
+    return items.filter((i) => i.name.toLowerCase().includes(s) || (i.code || "").toLowerCase().includes(s) || (typed ? (i.serviceType || "not mapped").toLowerCase().includes(s) : (i.accountName || "").toLowerCase().includes(s) || String(i.accountCode || "").includes(s)));
+  }, [items, q, typed]);
 
   const toggle = (id: string) =>
     setSelectedIds((prev) => {
@@ -159,29 +231,61 @@ export default function RevenueItemPickerDialog({
       }}
     >
       <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span>{multi ? "Add services" : "Add item / service"}</span>
+        <span>{multi ? "Add services" : typed ? "Change service" : "Add item / service"}</span>
         <IconButton size="small" onClick={onClose}><CloseIcon fontSize="small" /></IconButton>
       </DialogTitle>
       <DialogContent dividers>
         <Stack direction="row" gap={1} sx={{ mb: 1.5 }} alignItems="center">
           <TextField
-            fullWidth size="small" autoFocus placeholder="Search items & services…"
+            fullWidth size="small" autoFocus placeholder={typed ? "Search services…" : "Search items & services…"}
             value={q} onChange={(e) => setQ(e.target.value)}
             InputProps={{ startAdornment: <SearchIcon sx={{ color: "text.secondary", mr: 1 }} fontSize="small" /> }}
           />
-          {onBlank && (
+          {onBlank && !typed && (
             <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => { onBlank(); onClose(); }} sx={{ whiteSpace: "nowrap" }}>
               Blank line
             </Button>
           )}
+          {typed && !adding && (
+            <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => setAdding(true)} sx={{ whiteSpace: "nowrap" }} data-tour="service-picker-new">
+              New service
+            </Button>
+          )}
         </Stack>
+
+        {typed && adding && (
+          <Stack direction={{ xs: "column", sm: "row" }} gap={1} sx={{ mb: 1.5 }} alignItems={{ sm: "center" }}>
+            <TextField
+              size="small" autoFocus fullWidth label="Service name" value={draft.name}
+              onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void createService(); } }}
+            />
+            <TextField
+              size="small" label="Unit price" value={draft.unitPrice} sx={{ width: { sm: 130 }, flexShrink: 0 }}
+              onChange={(e) => setDraft((d) => ({ ...d, unitPrice: e.target.value.replace(/[^0-9.]/g, "") }))}
+              inputProps={{ inputMode: "decimal" }}
+            />
+            <TextField
+              select size="small" label="Type" value={draft.serviceType} sx={{ width: { sm: 150 }, flexShrink: 0 }}
+              onChange={(e) => setDraft((d) => ({ ...d, serviceType: e.target.value }))}
+            >
+              <MenuItem value=""><em>Not mapped</em></MenuItem>
+              {(serviceTypes || []).map((t) => <MenuItem key={t.code} value={t.code}>{t.code}</MenuItem>)}
+            </TextField>
+            <Button variant="contained" size="small" disabled={!draft.name.trim() || creating} onClick={() => void createService()} sx={{ whiteSpace: "nowrap", flexShrink: 0 }}>
+              {creating ? "Saving…" : "Save service"}
+            </Button>
+            <Button size="small" onClick={() => setAdding(false)} sx={{ flexShrink: 0 }}>Cancel</Button>
+          </Stack>
+        )}
+        {error && <Typography variant="body2" color="error" sx={{ mb: 1 }}>{error}</Typography>}
 
         {loading ? (
           <Box sx={{ display: "flex", justifyContent: "center", p: 5 }}><CircularProgress /></Box>
         ) : filtered.length === 0 ? (
           <Box sx={{ textAlign: "center", py: 5, color: "text.secondary" }}>
             <Typography variant="body2">
-              {items.length === 0 ? "No revenue items yet — add them in Accounting Setup → Revenue Items." : "No matches."}
+              {items.length === 0 ? (typed ? "No services yet. Use New service to add the first one." : "No revenue items yet — add them in Accounting Setup → Revenue Items.") : "No matches."}
             </Typography>
           </Box>
         ) : (
@@ -203,7 +307,7 @@ export default function RevenueItemPickerDialog({
                   <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Type</TableCell>
                   <TableCell sx={{ fontWeight: 700 }} align="right">Unit price</TableCell>
-                  {showGl && <TableCell sx={{ fontWeight: 700 }}>GL account</TableCell>}
+                  {gl && <TableCell sx={{ fontWeight: 700 }}>GL account</TableCell>}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -231,7 +335,7 @@ export default function RevenueItemPickerDialog({
                           line shows so the two read identically (guru 2026-08-17). */}
                       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
                         {it.code && <Typography variant="caption" sx={{ color: "text.secondary" }}>{it.code}</Typography>}
-                        {showGl && <Typography
+                        {gl && <Typography
                           variant="caption"
                           sx={{
                             px: 0.5,
@@ -245,9 +349,24 @@ export default function RevenueItemPickerDialog({
                         </Typography>}
                       </Box>
                     </TableCell>
-                    <TableCell><Chip size="small" variant="outlined" label={it.type === "PRODUCT" ? "Item" : "Service"} color={it.type === "PRODUCT" ? "primary" : "default"} /></TableCell>
+                    <TableCell onClick={typed ? (e) => e.stopPropagation() : undefined}>
+                      {typed ? (
+                        <TextField
+                          select size="small" variant="standard" value={it.serviceType || ""} disabled={savingId === it.id}
+                          onChange={(e) => void changeType(it, e.target.value)}
+                          SelectProps={{ displayEmpty: true, renderValue: (v: any) => (v ? String(v) : "Not mapped") }}
+                          sx={{ minWidth: 110, "& .MuiSelect-select": { color: it.serviceType ? "text.primary" : "warning.main", fontWeight: it.serviceType ? 600 : 400 } }}
+                          inputProps={{ "aria-label": `Type of ${it.name}` }}
+                        >
+                          <MenuItem value=""><em>Not mapped</em></MenuItem>
+                          {(serviceTypes || []).map((t) => <MenuItem key={t.code} value={t.code}>{t.code}</MenuItem>)}
+                        </TextField>
+                      ) : (
+                        <Chip size="small" variant="outlined" label={it.type === "PRODUCT" ? "Item" : "Service"} color={it.type === "PRODUCT" ? "primary" : "default"} />
+                      )}
+                    </TableCell>
                     <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{it.unitPrice != null ? it.unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</TableCell>
-                    {showGl && <TableCell><Typography variant="body2"><b>{it.accountCode}</b>{it.accountName ? ` — ${it.accountName}` : ""}</Typography></TableCell>}
+                    {gl && <TableCell><Typography variant="body2"><b>{it.accountCode}</b>{it.accountName ? ` — ${it.accountName}` : ""}</Typography></TableCell>}
                   </TableRow>
                 ))}
               </TableBody>
@@ -255,9 +374,11 @@ export default function RevenueItemPickerDialog({
           </TableContainer>
         )}
         <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mt: 1 }}>
-          {multi
-            ? (showGl ? "Tick the services for this job, then Add — each line posts to its mapped GL account automatically." : "Tick the services for this job, then Add.")
-            : (showGl ? "Click a row to add it — the line will post to its mapped GL account automatically." : "Click a row to add it.")}
+          {typed
+            ? "Tick the services for this job, then Add. Set a service's type once and every quotation that picks it carries that type."
+            : multi
+            ? (gl ? "Tick the services for this job, then Add — each line posts to its mapped GL account automatically." : "Tick the services for this job, then Add.")
+            : (gl ? "Click a row to add it — the line will post to its mapped GL account automatically." : "Click a row to add it.")}
         </Typography>
       </DialogContent>
       {multi && (

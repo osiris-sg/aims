@@ -47,6 +47,27 @@ export class RevenueItemsController {
     return this.service.removeSection(orgId(req), id);
   }
 
+  // ── Service types (flag enableServiceTypes; declared before the generic :id routes) ──
+  // The office maps a service to a type from the quotation (Add service), so these need the
+  // document permissions, not Accounting Setup's. The account behind a type is the server's.
+  @Get('service-types')
+  @Permissions('documents:read')
+  serviceTypes(@Req() req: RequestWithOrganization) {
+    return this.service.listServiceTypes(orgId(req));
+  }
+
+  @Post('typed')
+  @Permissions('documents:update')
+  createTyped(@Req() req: RequestWithOrganization, @Body() body: any) {
+    return this.service.createTypedService(orgId(req), body);
+  }
+
+  @Patch(':id/service-type')
+  @Permissions('documents:update')
+  setServiceType(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() body: { serviceType?: string | null }) {
+    return this.service.setServiceType(orgId(req), id, body?.serviceType);
+  }
+
   // ── Items ────────────────────────────────────────────────────────────────
   // Read is used by the invoice editor (sales) → documents:read.
   // ?workOnly=true returns just the work-library items (those in a section).

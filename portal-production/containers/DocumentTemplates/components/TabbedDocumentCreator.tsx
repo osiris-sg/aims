@@ -110,7 +110,7 @@ import DynamicFormFields, { headerInputSx } from "./DynamicFormFields";
 import OrderRefField from "./OrderRefField";
 import { isEmptyItems, itemsFromLines, referenceOf, refLinkOn, withReference } from "@/helpers/orderRef";
 import StockCardDialog from "./StockCardDialog";
-import RevenueItemPickerDialog, { type RevenueItem } from "./RevenueItemPickerDialog";
+import RevenueItemPickerDialog, { type RevenueItem, type ServiceTypeOption } from "./RevenueItemPickerDialog";
 import { resolveQuotationGroup, insertItemGrouped, makeGroupHeaderItem, mergeRates, dissolveMerge, normalizeRateMerges, contiguityError, mergeMembers, mergeRunPosition, setMergePriceOn, setMergeQuantityOn, RateMergeColumn } from "./quotationItemGroups";
 import LocateDocumentDialog from "./LocateDocumentDialog";
 import ExtractQuotationDialog from "./ExtractQuotationDialog";
@@ -516,7 +516,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled, isDocSendMenuEnabled, isDocRemarksEnabled, isQuotationCategoryEnabled, isRackingLayoutEnabled, isQuotationRevisionOnSaveEnabled, features: orgFeatureFlags } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isServiceTypesEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled, isDocSendMenuEnabled, isDocRemarksEnabled, isQuotationCategoryEnabled, isRackingLayoutEnabled, isQuotationRevisionOnSaveEnabled, features: orgFeatureFlags } = useOrganizationFeatures();
   // RDO free-typed rows + signed-RDO lock (enableRdoFreeTypedRows, Biofuel 2026-11-19).
   const { isRdoFreeTypedRowsEnabled, isOptionalSaleOrderEnabled, isLineGlAccountsEnabled, isOfficeDoEditsEnabled, isDeliveryShareLinkEnabled, isOfficeDoSignEnabled, isAvgCostFromPoEnabled } = useOrganizationFeatures();
   // enableOfficeDoEdits: a delivered / signed DO is edited by Admins only (the server refuses the rest).
@@ -4541,6 +4541,61 @@ export default function TabbedDocumentCreator({
   // later pick of that item self-codes.
   const [glMapMenu, setGlMapMenu] = useState<{ pos: { left: number; top: number }; itemId: any } | null>(null);
   const [glMapSaving, setGlMapSaving] = useState(false);
+
+  // ── Service types (flag enableServiceTypes, quotations: guru 2026-11-26) ──────────────────
+  // The office maps a service to a job type (MV / CD / AA/VO / TS) and never sees an account
+  // code: AIMS keeps the account behind the type. On these quotations the only add button is
+  // Add service, the line shows its type where an invoice shows the GL account, and a click on
+  // that chip sets the type ON THE SERVICE (every quotation that picks it then carries it).
+  const serviceTypeMode = isServiceTypesEnabled && isQuotation && !isTemplateEditMode;
+  const [serviceTypes, setServiceTypes] = useState<ServiceTypeOption[]>([]);
+  useEffect(() => {
+    if (!serviceTypeMode) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = await getToken();
+        const res: any = await request({ path: `/revenue-items/service-types`, method: "GET", quiet: true }, {}, token ?? undefined);
+        const list: any[] = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
+        if (!cancelled) setServiceTypes(list.filter((t) => t?.code));
+      } catch {
+        if (!cancelled) setServiceTypes([]);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceTypeMode]);
+  const serviceTypeOfLine = (row: any): string | null => {
+    const code = String(row?.accountCode ?? "").trim();
+    return code ? serviceTypes.find((t) => t.accountCode === code)?.code ?? null : null;
+  };
+  const [typeMenu, setTypeMenu] = useState<{ pos: { left: number; top: number }; itemId: any } | null>(null);
+  const [typeSaving, setTypeSaving] = useState(false);
+  const assignTypeToService = async (typeCode: string) => {
+    const row = typeMenu ? (items || []).find((r: any) => r.id === typeMenu.itemId) : null;
+    const code = String(row?.itemCode || "").trim();
+    if (!row || !code) return;
+    setTypeSaving(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Authentication required");
+      const res: any = await request({ path: `/revenue-items?activeOnly=true`, method: "GET", quiet: true }, {}, token);
+      const list: any[] = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
+      const rev = list.find((r) => String(r.code || "").trim().toUpperCase() === code.toUpperCase());
+      if (!rev) throw new Error(`${code} is not in the Services list, so the type could not be saved on it.`);
+      await request({ path: `/revenue-items/${rev.id}/service-type`, method: "PATCH" }, { serviceType: typeCode || null }, token);
+      const accountCode = typeCode ? serviceTypes.find((t) => t.code === typeCode)?.accountCode ?? "" : "";
+      // Every line of this quotation that is the same service follows.
+      setItems((rows: any[]) => rows.map((r) => (String(r.itemCode || "").trim().toUpperCase() === code.toUpperCase() ? { ...r, accountCode, accountName: undefined } : r)));
+      setTypeMenu(null);
+      toast.success(typeCode ? `${code} is now ${typeCode}. Every quotation that picks it will carry this type.` : `${code} is no longer mapped to a type.`);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || "The type could not be saved on the service";
+      toast.error(Array.isArray(msg) ? msg.join(", ") : String(msg));
+    } finally {
+      setTypeSaving(false);
+    }
+  };
   const glMapRow = glMapMenu ? (items || []).find((r: any) => r.id === glMapMenu.itemId) : null;
   const glMapTarget = (() => {
     if (!glMapRow) return null;
@@ -6243,21 +6298,25 @@ export default function TabbedDocumentCreator({
       {lockEnabled && lockReadOnly && (
         <Box
           sx={{
-            px: 2,
-            py: 1,
+            // A slim notice inside the document's own margins (guru 2026-11-26,
+            // "this ui is abit off": the edge-to-edge orange band washed the
+            // text out in dark mode). A translucent warning/error tint under the
+            // theme's own text colour, with a solid left rule, reads in both modes.
+            mx: legacyLayout ? { xs: 1, md: "204px" } : { xs: 1, md: 2 },
+            mt: 1,
+            px: 1.5,
+            py: 0.75,
             display: "flex",
             alignItems: "center",
             gap: 1.5,
-            // Explicit high-contrast colors so the banner is clearly legible in
-            // BOTH light and dark mode (the theme warning/error tokens render as
-            // pale fills with dark text that wash out on the dark surface).
-            bgcolor: lock.lostLock ? "#C62828" : "#F9A825",
-            color: lock.lostLock ? "#FFFFFF" : "#1A1100",
-            borderBottom: 1,
-            borderColor: "divider",
+            borderRadius: 1,
+            borderLeft: 4,
+            borderColor: lock.lostLock ? "error.main" : "warning.main",
+            bgcolor: (t) => alpha(lock.lostLock ? t.palette.error.main : t.palette.warning.main, t.palette.mode === "dark" ? 0.18 : 0.12),
+            color: "text.primary",
           }}
         >
-          <Typography variant="body2" sx={{ fontWeight: 700, flex: 1 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, flex: 1, color: "inherit" }}>
             {lock.lostLock
               ? `${lock.holderName || "Someone"} took over editing this document. Reload to see the latest version before making changes.`
               : lock.canTakeOver
@@ -6265,11 +6324,11 @@ export default function TabbedDocumentCreator({
               : `${lock.holderName || "Someone"} is currently editing this document. Please wait until they're done before you can take over.`}
           </Typography>
           {lock.lostLock ? (
-            <Button size="small" variant="contained" color="inherit" onClick={() => window.location.reload()}>
+            <Button size="small" variant="contained" color="error" disableElevation onClick={() => window.location.reload()}>
               Reload
             </Button>
           ) : lock.canTakeOver ? (
-            <Button size="small" variant="contained" color="inherit" onClick={() => lock.takeOver()}>
+            <Button size="small" variant="contained" color="warning" disableElevation onClick={() => lock.takeOver()}>
               Take over
             </Button>
           ) : null}
@@ -7316,7 +7375,7 @@ export default function TabbedDocumentCreator({
                   if (scope && !nextEnterField(scope, el)) {
                     e.preventDefault();
                     e.stopPropagation();
-                    if (isFcuCuVariant) { addFcuCuRow(); } else { setStockCardMode("add"); setStockCardDialogOpen(true); }
+                    if (isFcuCuVariant) { addFcuCuRow(); } else if (serviceTypeMode) { setRevenueItemPickerOpen(true); } else { setStockCardMode("add"); setStockCardDialogOpen(true); }
                     return;
                   }
                 }
@@ -8948,7 +9007,7 @@ export default function TabbedDocumentCreator({
                                         : (item.itemCode || ""));
                                   const repickRow = () => {
                                     setEditingItemId(item.id);
-                                    if (isSvcRow) {
+                                    if (isSvcRow || serviceTypeMode) {
                                       setRevenueItemPickerOpen(true);
                                     } else {
                                       setStockCardMode("add");
@@ -9025,7 +9084,35 @@ export default function TabbedDocumentCreator({
                                         </Tooltip>
                                         );
                                       })()}
-                                      {item.revenueTag && (
+                                      {serviceTypeMode && serviceTypes.length > 0 && isSvcRow && (() => {
+                                        // The line's job type, where an invoice line shows its GL account.
+                                        // Clickable when the row is a service from the list and the
+                                        // quotation is editable: the pick is saved on the service.
+                                        const t = serviceTypeOfLine(item);
+                                        const mappable = !confirmedReadOnly && !lockReadOnly && !!String(item.itemCode || "").trim();
+                                        return (
+                                          <Tooltip title={t ? `Type ${t}${mappable ? " · click to change it on the service" : ""}` : mappable ? "Not mapped to a type yet. Click to pick one; it is saved on the service." : "Not mapped to a type"}>
+                                            <Typography
+                                              variant="caption"
+                                              data-tour="editor-line-type-chip"
+                                              onClick={mappable ? (e) => { e.stopPropagation(); setTypeMenu({ pos: { left: e.clientX, top: e.clientY }, itemId: item.id }); } : undefined}
+                                              sx={{
+                                                display: "inline-block",
+                                                mt: 0.25,
+                                                px: 0.5,
+                                                borderRadius: 0.5,
+                                                fontWeight: t ? 600 : 400,
+                                                color: t ? "text.secondary" : "warning.main",
+                                                bgcolor: (th) => alpha(t ? th.palette.primary.main : th.palette.warning.main, th.palette.mode === "dark" ? 0.18 : 0.08),
+                                                ...(mappable ? { cursor: "pointer", "&:hover": { textDecoration: "underline" } } : {}),
+                                              }}
+                                            >
+                                              {t || "No type yet"}
+                                            </Typography>
+                                          </Tooltip>
+                                        );
+                                      })()}
+                                      {item.revenueTag && !serviceTypeMode && (
                                         <Typography variant="caption" sx={{ display: "block", color: "text.secondary", mt: 0.25 }}>({item.revenueTag})</Typography>
                                       )}
                                     </TableCell>
@@ -9590,7 +9677,9 @@ export default function TabbedDocumentCreator({
                         sit outside the scroll container so they're always
                         visible without scrolling to the end of the items list. */}
                     <Box sx={{ pt: 1, pb: 0.5, pl: 1, display: confirmedReadOnly ? "none" : "flex", gap: 1, flexShrink: 0 }}>
-                      <Button
+                      {/* Service types (WCT group quotations): a line is always a service, so
+                          the one add button is Add service (below). */}
+                      {!serviceTypeMode && <Button
                         data-tour="editor-add-item"
                         data-hotkey="addLine"
                         variant="contained"
@@ -9603,7 +9692,7 @@ export default function TabbedDocumentCreator({
                         size="small"
                       >
                         {isFcuCuVariant ? "Add Row" : "Add Item"}
-                      </Button>
+                      </Button>}
                       {isRdoFreeTypedRowsEnabled && isRDO && !isTemplateEditMode && (
                         <Button variant="outlined" startIcon={<AddIcon />} onClick={addNewItem} size="small" data-tour="editor-rdo-free-item">
                           Free type item
@@ -9653,15 +9742,16 @@ export default function TabbedDocumentCreator({
                           Tag Items ({selectedItemIds.length})
                         </Button>
                       )}
-                      {isServiceItemsEnabled && (
+                      {(isServiceItemsEnabled || serviceTypeMode) && (
                         <Button
-                          variant="outlined"
+                          variant={serviceTypeMode ? "contained" : "outlined"}
                           startIcon={<AddIcon />}
                           onClick={() => setRevenueItemPickerOpen(true)}
                           size="small"
                           data-tour="editor-add-service"
+                          {...(serviceTypeMode ? { "data-hotkey": "addLine" } : {})}
                         >
-                          Add Service
+                          {serviceTypeMode ? "Add service" : "Add Service"}
                         </Button>
                       )}
                       {/* Section titles are normally minted automatically when a
@@ -10792,7 +10882,25 @@ export default function TabbedDocumentCreator({
         onBlank={addBlankServiceLine}
         typeFilter="SERVICE"
         showGl={isInvoiceTypeDoc && !headerGlMode}
+        serviceTypes={serviceTypeMode ? serviceTypes : undefined}
       />
+
+      {/* Service type of a quotation line (flag enableServiceTypes): anchored at the click. */}
+      <Menu
+        open={!!typeMenu}
+        onClose={() => { if (!typeSaving) setTypeMenu(null); }}
+        anchorReference="anchorPosition"
+        anchorPosition={typeMenu?.pos}
+      >
+        {serviceTypes.map((t) => (
+          <MenuItem key={t.code} disabled={typeSaving} selected={!!typeMenu && serviceTypeOfLine((items || []).find((r: any) => r.id === typeMenu.itemId)) === t.code} onClick={() => void assignTypeToService(t.code)}>
+            {t.code}
+          </MenuItem>
+        ))}
+        <MenuItem disabled={typeSaving} onClick={() => void assignTypeToService("")} sx={{ color: "text.secondary" }}>
+          <em>Not mapped</em>
+        </MenuItem>
+      </Menu>
 
       {/* Locate Document Dialog */}
       <LocateDocumentDialog

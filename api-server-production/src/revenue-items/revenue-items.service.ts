@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
+import { ServiceType, serviceTypeOfAccount, serviceTypesOf } from './service-types';
 
 type ItemDto = {
   code?: string | null;
@@ -67,11 +68,68 @@ export class RevenueItemsService {
       ? await this.prisma.workSection.findMany({ where: { organizationId, id: { in: sectionIds } }, select: { id: true, letter: true, title: true, sortOrder: true } })
       : [];
     const sectionById = new Map(sections.map((s) => [s.id, s]));
+    // Service types (flag enableServiceTypes): the type each service is mapped to, by its account.
+    const types = await this.orgServiceTypes(organizationId);
     return items.map((i) => ({
       ...i,
       accountName: nameByCode.get(i.accountCode) || null,
+      serviceType: serviceTypeOfAccount(types, i.accountCode),
       workSection: i.workSectionId ? sectionById.get(i.workSectionId) || null : null,
     }));
+  }
+
+  // ── Service types (./service-types.ts, flag enableServiceTypes) ─────────────────────────────
+  private async orgServiceTypes(organizationId: string): Promise<ServiceType[]> {
+    const ui = await this.prisma.organizationUIConfig.findUnique({ where: { organizationId }, select: { features: true } });
+    return serviceTypesOf(ui?.features);
+  }
+
+  /** The org's service types with the name of the account behind each; [] when the feature is off. */
+  async listServiceTypes(organizationId: string) {
+    const types = await this.orgServiceTypes(organizationId);
+    if (!types.length) return [];
+    const accts = await this.prisma.chartOfAccount.findMany({
+      where: { organizationId, isActive: true, code: { in: types.map((t) => t.accountCode) } },
+      select: { code: true, name: true },
+    });
+    const name = new Map(accts.map((a) => [a.code, a.name]));
+    // A type whose account is not in the chart cannot be posted to, so it is not offered.
+    // accountCode is for the editor's own matching (which type a saved line is); the screens show the type only.
+    return types.filter((t) => name.has(t.accountCode)).map((t) => ({ code: t.code, accountCode: t.accountCode, accountName: name.get(t.accountCode) }));
+  }
+
+  /** The account a type stands for; "" for "not mapped"; throws on a type the org does not have. */
+  private async accountOfType(organizationId: string, typeCode: unknown): Promise<string> {
+    const code = String(typeCode ?? '').trim();
+    const types = await this.orgServiceTypes(organizationId);
+    if (!types.length) throw new BadRequestException('Service types are not set up for this organisation');
+    if (!code) return '';
+    const t = types.find((x) => x.code === code);
+    if (!t) throw new BadRequestException(`"${code}" is not one of this organisation's service types (${types.map((x) => x.code).join(', ')})`);
+    return t.accountCode;
+  }
+
+  /** Map a service to a type (or to none): the account behind the type is written, never typed. */
+  async setServiceType(organizationId: string, id: string, typeCode: unknown) {
+    const existing = await this.prisma.revenueItem.findFirst({ where: { id, organizationId }, select: { id: true } });
+    if (!existing) throw new NotFoundException('Service not found');
+    const accountCode = await this.accountOfType(organizationId, typeCode);
+    const row = await this.prisma.revenueItem.update({
+      where: { id },
+      data: { accountCode, accountId: await this.resolveAccountId(organizationId, accountCode) },
+    });
+    return { ...row, serviceType: String(typeCode ?? '').trim() || null };
+  }
+
+  /** A new service from the quotation's Add service dialog: a name, a price and (optionally) its type. */
+  async createTypedService(organizationId: string, dto: { name?: unknown; unitPrice?: unknown; serviceType?: unknown }) {
+    const name = String(dto?.name ?? '').trim();
+    if (!name) throw new BadRequestException('Enter the service name');
+    const price = dto?.unitPrice === undefined || dto?.unitPrice === null || dto?.unitPrice === '' ? null : Number(dto.unitPrice);
+    if (price !== null && (!Number.isFinite(price) || price < 0)) throw new BadRequestException('The unit price must be a number');
+    const accountCode = await this.accountOfType(organizationId, dto?.serviceType);
+    const row = await this.create(organizationId, { name, unitPrice: price, accountCode, type: 'SERVICE' });
+    return { ...row, serviceType: String(dto?.serviceType ?? '').trim() || null };
   }
 
   private async resolveAccountId(organizationId: string, code?: string | null) {

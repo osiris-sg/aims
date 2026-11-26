@@ -11,6 +11,10 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   enableDocumentAI: true,
   enableCustomFields: true,
   enableServiceItems: true,
+  // Service types (guru 2026-11-26, WCT group): a service is mapped to a job type (MV / CD / AA/VO /
+  // TS) and never to an account code; the org's table is features.serviceTypes
+  // (revenue-items/service-types.ts). On a quotation the only add button is Add service.
+  enableServiceTypes: false,
   // Integrations / mode toggles (opt-in)
   enableXeroIntegration: false,
   enableEditInventorySku: false,
