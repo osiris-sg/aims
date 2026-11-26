@@ -51,5 +51,7 @@ export function extForMime(mimeType: string | null | undefined): string {
 }
 
 /** "000012" style number the WCT viewer already uses in file names. */
-export const reportFileStem = (reportNumber: number | null, reportId: string) =>
-  `service-report-${reportNumber != null ? String(reportNumber).padStart(6, "0") : reportId.slice(0, 8)}`;
+export const reportFileStem = (reportNumber: number | null, reportId?: string | null) =>
+  // A file name is never worth a crash: a row with neither a number nor an id
+  // still downloads, under a plain name.
+  `service-report-${reportNumber != null ? String(reportNumber).padStart(6, "0") : String(reportId ?? "").slice(0, 8) || "draft"}`;

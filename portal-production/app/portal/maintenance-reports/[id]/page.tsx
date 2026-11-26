@@ -208,7 +208,14 @@ export default function MaintenanceReportDetailPage() {
           token,
         );
         if (cancelled) return;
-        const payload = (res?.data ?? res) as MsrDetail;
+        const payload = (res?.data ?? res) as MsrDetail | undefined;
+        // A report of ANOTHER organisation (or any refusal) answers with the
+        // envelope, not a report: `res.data` is absent, so `res` itself used to
+        // be set as the report — truthy, with no id — and the page died on the
+        // first field it read, showing a blank "Application error" instead of
+        // "Report not found" (guru 2026-11-26, opening a Biofuel report while
+        // viewing another org).
+        if (!payload?.id) throw new Error((res as any)?.message ?? "Report not found");
         setReport(payload);
       } catch (e: any) {
         if (!cancelled) setError(e?.message ?? "Failed to load report");
