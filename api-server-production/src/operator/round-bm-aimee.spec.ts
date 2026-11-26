@@ -91,7 +91,9 @@ describe('AIMEE token usage', () => {
 
   it('the Admin usage endpoint is for platform admins only', async () => {
     const usage: any = { summary: jest.fn(async (d: number) => ({ days: d })) };
-    const c = new AiUsageController(usage);
+    // The controller also takes the operator service, Prisma and the Clerk client
+    // (the support thread view); this test only exercises the admin gate on summary().
+    const c = new AiUsageController(usage, {} as any, {} as any, {} as any);
     await expect(c.summary({ isOsirisAdmin: false }, '7')).rejects.toBeInstanceOf(ForbiddenException);
     await expect(c.summary({ isOsirisAdmin: true }, '500')).resolves.toEqual({ days: 90 });
   });
