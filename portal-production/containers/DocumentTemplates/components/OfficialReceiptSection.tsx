@@ -59,6 +59,7 @@ import type { TemplateFieldConfig } from "../types/templateFieldTypes";
 import DocumentRefLink from "@/components/DocumentRefLink";
 import { todayIso } from "@/helpers/orgToday";
 import EditorRail from "./EditorRail";
+import { docRailSx } from "@/helpers/wctDocUi";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { standingRateFor } from "@/helpers/orgFx";
 
@@ -705,11 +706,11 @@ export function OfficialReceiptOffsetSection({
   ];
 
   return (
-    <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", gap: 1, position: framed ? "relative" : undefined }}>
+    <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", flexDirection: framed ? { xs: "column", lg: "row" } : "row", gap: 1, position: framed ? "relative" : undefined }}>
       {/* Side rail — the legacy screen's left module buttons. Framed: the rail
           sits in the editor's 204px left margin, matching the invoice/DO. */}
-      <Box sx={framed ? { position: "absolute", left: "-192px", top: 8, width: 172 } : undefined}>
-        <EditorRail buttons={railButtons} />
+      <Box sx={docRailSx(framed)}>
+        <EditorRail buttons={railButtons} responsive={framed} />
       </Box>
 
       <Card data-tour="or-offset-grid" sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>

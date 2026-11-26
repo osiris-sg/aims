@@ -71,6 +71,7 @@ import { focusNextEmptyInRow } from "@/helpers/focusNextEmptyInRow";
 import type { TemplateFieldConfig } from "../types/templateFieldTypes";
 import { todayIso } from "@/helpers/orgToday";
 import EditorRail from "./EditorRail";
+import { docRailSx } from "@/helpers/wctDocUi";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 
 export type { PvLine, PvOffset };
@@ -652,12 +653,12 @@ export function PaymentVoucherLinesSection({
   ];
 
   return (
-    <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", gap: 1, position: framed ? "relative" : undefined }}>
+    <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", flexDirection: framed ? { xs: "column", lg: "row" } : "row", gap: 1, position: framed ? "relative" : undefined }}>
       {/* Side rail — the legacy screen's left module buttons. Framed (legacy
           chrome): the rail sits in the editor's 204px left margin instead of a
           flow column, matching the invoice/DO. */}
-      <Box sx={framed ? { position: "absolute", left: "-192px", top: 8, width: 172 } : undefined}>
-        <EditorRail buttons={railButtons} />
+      <Box sx={docRailSx(framed)}>
+        <EditorRail buttons={railButtons} responsive={framed} />
       </Box>
 
       <Card data-tour="pv-lines" sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>

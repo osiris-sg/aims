@@ -34,6 +34,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../../../_lib/api";
 import EditorRail from "@/containers/DocumentTemplates/components/EditorRail";
+import { docGutter } from "@/helpers/wctDocUi";
 import { todayIso } from "@/helpers/orgToday";
 import DateInput from "@/components/DateInput";
 import { enterScopeProps } from "@/helpers/enterAdvance";
@@ -330,7 +331,7 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
   return (
     <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100%", bgcolor: "background.default" }}>
       {/* ---- Coloured legacy toolbar (framed) ---- */}
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, py: 1, px: { xs: 1, md: "204px" }, borderBottom: 1, borderColor: "divider", position: "sticky", top: 0, zIndex: 3, bgcolor: "background.paper", flexWrap: { xs: "wrap", md: "nowrap" } }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, py: 1, px: docGutter(true), borderBottom: 1, borderColor: "divider", position: "sticky", top: 0, zIndex: 3, bgcolor: "background.paper", flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <IconButton size="small" onClick={onExit}><ArrowBackIcon /></IconButton>
         <Typography variant="h6" fontWeight={600} noWrap sx={{ minWidth: 0, flexShrink: 1 }}>{voucherNo || (isNew ? "New Purchase Journal" : "Purchase Journal")}</Typography>
         <Box sx={{ flex: 1 }} />
@@ -374,10 +375,10 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
       {/* data-enter-scope: Enter / ↓ = next field, ↑ = previous, exactly like
           the OR / JV / PV editors (guru 2026-11-19). Without it this screen
           only had the weaker global Enter layer and no arrow walking. */}
-      <Box {...enterScopeProps} sx={{ position: "relative", flex: 1, px: { xs: 1, md: "204px" }, py: 2, display: "flex", flexDirection: "column", gap: 1.5 }}>
+      <Box {...enterScopeProps} sx={{ position: "relative", flex: 1, px: docGutter(true), py: 2, display: "flex", flexDirection: "column", gap: 1.5 }}>
         {/* Rail in the left margin, like PV/JV */}
-        <Box sx={{ position: { xs: "static", md: "absolute" }, left: 16, top: 16, mb: { xs: 1, md: 0 } }}>
-          <EditorRail buttons={railButtons} />
+        <Box sx={{ position: { xs: "static", lg: "absolute" }, left: 16, top: 16, mb: { xs: 1, lg: 0 } }}>
+          <EditorRail buttons={railButtons} responsive />
         </Box>
 
         {/* Header grid — bordered label | field rows, like the PV / OR General grid */}

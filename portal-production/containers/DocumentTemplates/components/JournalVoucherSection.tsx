@@ -60,6 +60,7 @@ import { todayIso } from "@/helpers/orgToday";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import EditorRail from "./EditorRail";
+import { docRailSx } from "@/helpers/wctDocUi";
 
 export type JvLine = {
   id: string;
@@ -344,7 +345,7 @@ export function JournalVoucherLinesSection({
   const removeLine = (id: string) => writeLines(lines.filter((l) => l.id !== id));
   const addLine = () => writeLines([...lines, newLine()]);
 
-  // Enter on the LAST line's last money box adds the next line and lands in
+  // Enter on EITHER money box of the LAST line adds the next line and lands in
   // its Account code (guru 2026-11-16: "press enter through the first row,
   // it should auto add the second row"). MoneyInput commits on Enter by
   // blurring first; the add is deferred a tick so it builds on the committed
@@ -443,11 +444,11 @@ export function JournalVoucherLinesSection({
   ];
 
   return (
-    <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", gap: 1, position: framed ? "relative" : undefined }}>
+    <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", flexDirection: framed ? { xs: "column", lg: "row" } : "row", gap: 1, position: framed ? "relative" : undefined }}>
       {/* Side rail — the legacy screen's left module buttons. Framed: the rail
           sits in the editor's 204px left margin, matching the invoice/DO. */}
-      <Box sx={framed ? { position: "absolute", left: "-192px", top: 8, width: 172 } : undefined}>
-        <EditorRail buttons={railButtons} />
+      <Box sx={docRailSx(framed)}>
+        <EditorRail buttons={railButtons} responsive={framed} />
       </Box>
 
       <Card data-tour="jv-lines" sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
@@ -556,7 +557,7 @@ export function JournalVoucherLinesSection({
                             )}
                           </TableCell>
                         )}
-                        <TableCell sx={{ textAlign: "right" }}>
+                        <TableCell sx={{ textAlign: "right" }} onKeyDown={isLast && !isCreditor ? onLastMoneyKeyDown : undefined}>
                           <MoneyInput
                             value={l.debit ?? ""}
                             disabled={disabled || isCreditor}

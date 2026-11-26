@@ -8,6 +8,33 @@
  */
 export const showBackToOrder = (wctDocNav: boolean): boolean => !wctDocNav;
 
+/**
+ * The legacy editor chrome (every document editor, the PV / JV / OR / purchase journal): a 204px gutter on
+ * BOTH sides of the document, the module rail (Audit Trail, Stock Card…) sitting in the left one. The gutters
+ * only apply from this breakpoint (1200px) up — on a split screen they left the document a sliver (guru
+ * 2026-11-26, "if a certain size width remove the margin"); narrower, the document gets the plain 16px gutter
+ * and the rail sits ABOVE the content as a row of buttons (docRailSx / EditorRail responsive).
+ */
+export const DOC_GUTTER_BP = "lg" as const;
+export const DOC_GUTTER = "204px";
+
+/** Side padding/margin of the editor's toolbar, banner and body: the framed gutter from lg, 16px below. */
+export function docGutter(framed: boolean): Record<string, number | string> {
+  return framed ? { xs: 1, md: 2, [DOC_GUTTER_BP]: DOC_GUTTER } : { xs: 1, md: 2 };
+}
+
+/** The rail box: in the left gutter (absolute, `left` from the content's edge) from lg; a static row above the content below. */
+export function docRailSx(framed: boolean, left: string | number = "-192px"): Record<string, unknown> | undefined {
+  if (!framed) return undefined;
+  return {
+    position: { xs: "static", [DOC_GUTTER_BP]: "absolute" },
+    left: { [DOC_GUTTER_BP]: left },
+    top: { [DOC_GUTTER_BP]: 8 },
+    width: { xs: "100%", [DOC_GUTTER_BP]: 172 },
+    mb: { xs: 1, [DOC_GUTTER_BP]: 0 },
+  };
+}
+
 /** The S/No line column ("no"). */
 export const SNO_COLUMN = "no";
 

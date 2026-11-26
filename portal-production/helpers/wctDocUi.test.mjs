@@ -2,7 +2,7 @@
 // Setting off = every org's screens exactly as before.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SNO_COLUMN, WCT_SNO_WIDTH, documentListSubtitle, editorTitleBar, isNarrowSnoCell, lineColumnWidth, showBackToOrder } from "./wctDocUi.ts";
+import { DOC_GUTTER, docGutter, docRailSx, SNO_COLUMN, WCT_SNO_WIDTH, documentListSubtitle, editorTitleBar, isNarrowSnoCell, lineColumnWidth, showBackToOrder } from "./wctDocUi.ts";
 
 test("Back to order: shown with the setting off (other orgs), gone with it on", () => {
   assert.equal(showBackToOrder(false), true);
@@ -42,4 +42,14 @@ test("editor title bar: two rows for every org — details on top, buttons below
     assert.equal(b.actions.justifyContent, "flex-start"); // buttons start at the left of row 2
     assert.equal(b.actions.flexWrap, "wrap");
   }
+});
+
+test("the 204px editor gutters only apply from lg; narrower is the plain gutter and the rail goes static above", () => {
+  assert.deepEqual(docGutter(true), { xs: 1, md: 2, lg: DOC_GUTTER });
+  assert.deepEqual(docGutter(false), { xs: 1, md: 2 });
+  assert.equal(docRailSx(false), undefined);
+  const rail = docRailSx(true);
+  assert.deepEqual(rail.position, { xs: "static", lg: "absolute" });
+  assert.deepEqual(rail.left, { lg: "-192px" });
+  assert.deepEqual(docRailSx(true, 16).left, { lg: 16 });
 });

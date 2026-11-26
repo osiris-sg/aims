@@ -157,7 +157,7 @@ import DoOrderToolbar, { DoAttachSignedDialog, DoConfirmButton } from "@/compone
 import { withDocumentDiscountField, withLineDiscountColumn, wctDiscountsOn, lineDiscountsTotal } from "@/helpers/wctDiscount";
 import { roundCents, wctTotalsFromNet } from "@/helpers/moneyRound";
 import DoSignLinkDialog, { doSignCustomerOf } from "@/components/delivery/DoSignLinkDialog";
-import { editorTitleBar, isNarrowSnoCell, lineColumnWidth } from "@/helpers/wctDocUi";
+import { DOC_GUTTER, docGutter, docRailSx, editorTitleBar, isNarrowSnoCell, lineColumnWidth } from "@/helpers/wctDocUi";
 import { docTypeTitle } from "@/helpers/docTypeFamily";
 import { installPrintedBy, printedByLine, printerName } from "@/helpers/printedBy";
 import { codeColumnWidth, ICON_PX, MAX_MONEY_CHARS, MAX_QTY_CHARS, moneyBoxDisplay, numberBoxInputProps, numberBoxTitle, numberBoxWidthPx, numberColumnWidth, numberTextColumnWidth, withinCharCap } from "@/helpers/lineNumberBox";
@@ -6302,7 +6302,7 @@ export default function TabbedDocumentCreator({
             // "this ui is abit off": the edge-to-edge orange band washed the
             // text out in dark mode). A translucent warning/error tint under the
             // theme's own text colour, with a solid left rule, reads in both modes.
-            mx: legacyLayout ? { xs: 1, md: "204px" } : { xs: 1, md: 2 },
+            mx: docGutter(legacyLayout),
             mt: 1,
             px: 1.5,
             py: 0.75,
@@ -6341,7 +6341,7 @@ export default function TabbedDocumentCreator({
           // Legacy invoice: the toolbar keeps the same margins as the document
           // below it (guru 2026-11-14), so the title and the buttons line up
           // with the header card.
-          px: legacyLayout ? { xs: 1, md: "204px" } : { xs: 1, md: 2 },
+          px: docGutter(legacyLayout),
           borderBottom: 1,
           borderColor: "divider",
           display: "flex",
@@ -7384,7 +7384,7 @@ export default function TabbedDocumentCreator({
             }}
             // Invoice (guru 2026-11-14): a margin on BOTH sides of the document
             // and the legacy module buttons at the top-left of that margin.
-            sx={{ flex: 1, minWidth: 0, overflow: "visible", position: "relative", display: "flex", flexDirection: "column", ...((invoiceRailButtons.length || (isSettlementDoc && legacyLayout)) ? { pl: "204px", pr: "204px" } : {}) }}
+            sx={{ flex: 1, minWidth: 0, overflow: "visible", position: "relative", display: "flex", flexDirection: "column", ...((invoiceRailButtons.length || (isSettlementDoc && legacyLayout)) ? { px: { xs: 0, lg: DOC_GUTTER } } : {}) }}
           >
             {/* Template Settings Toggle Button */}
             {isTemplateEditMode && (
@@ -7408,7 +7408,7 @@ export default function TabbedDocumentCreator({
                 the header (guru 2026-11-17). WCT QO / DO / Invoice (Link Document on, 2026-11-23): the doc chain
                 panel heads the left column instead, with the rail buttons under it. */}
             {linkOn && linkPage && !isTemplateEditMode && (
-              <Box sx={{ position: "absolute", left: "12px", top: "8px", width: "180px", zIndex: 2, display: { xs: "none", md: "block" } }} data-tour="doc-chain-top">
+              <Box sx={{ position: "absolute", left: "12px", top: "8px", width: "180px", zIndex: 2, display: { xs: "none", lg: "block" } }} data-tour="doc-chain-top">
                 <DocChainPanel documentId={linkDocId} page={linkPage} />
                 {invoiceRailButtons.length > 0 && (
                   <Box sx={{ mt: 1 }}>
@@ -8607,8 +8607,8 @@ export default function TabbedDocumentCreator({
             {/* Legacy left-rail modules, aligned to the top of the items table
                 and sitting in the left page margin (guru 2026-11-17). */}
             {invoiceRailButtons.length > 0 && !(linkOn && linkPage && !isTemplateEditMode) && (
-              <Box sx={{ position: "absolute", left: "-192px", top: 0, zIndex: 2, display: { xs: "none", md: "block" } }}>
-                <EditorRail buttons={invoiceRailButtons} />
+              <Box sx={{ ...docRailSx(true), top: { lg: 0 }, zIndex: 2 }}>
+                <EditorRail buttons={invoiceRailButtons} responsive />
               </Box>
             )}
             <Card sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
