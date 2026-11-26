@@ -229,7 +229,10 @@ export class ServiceReportSignService {
       },
     });
     if (!report) throw new NotFoundException('Not found');
-    const buffer = await this.reports.renderReportPdf(report);
+    // Time In / Time Out print in the ORG's zone, not this host's (see fmtTime).
+    const timeZone =
+      (await this.prisma.accountingSetting.findUnique({ where: { organizationId: link.organizationId }, select: { timeZone: true } }).catch(() => null))?.timeZone ?? null;
+    const buffer = await this.reports.renderReportPdf({ ...report, timeZone });
     return { buffer, filename: `service-report-${report.reportNumber ?? 'draft'}.pdf` };
   }
 

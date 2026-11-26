@@ -32,6 +32,7 @@ import CheckBoxOutlineBlankIcon from "@mui/icons-material/CheckBoxOutlineBlank";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import EmailIcon from "@mui/icons-material/Email";
 import { request } from "@/helpers/request";
+import { orgTimeZone } from "@/helpers/orgToday";
 import { GENERIC_CHECKLIST, TEMPLATE_LABELS, templateFor, type EssServiceData } from "@/lib/msr-templates";
 // ONE implementation of the ESS layout, shared with the field app's print and
 // download screens — see the docblock in that file.
@@ -132,11 +133,15 @@ const formatDateTime = (iso?: string | null) => {
   return d.toLocaleString();
 };
 
+// Time In / Time Out are instants stamped by the field app. They print in the
+// ORG's time zone on the paper and in the field app (both come from the server
+// renderer), so this page uses it too — read on a laptop set to another zone it
+// used to disagree with the document it describes (guru 2026-11-26).
 const formatTimeOnly = (iso?: string | null) => {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: orgTimeZone() });
 };
 
 export default function MaintenanceReportDetailPage() {

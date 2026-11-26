@@ -47,12 +47,27 @@ const esc = (v: unknown): string => {
     .replace(/"/g, '&quot;');
 };
 
-const fmtTime = (iso?: string | null): string => {
+/** Mirrors AccountingSetting.timeZone's own default. */
+const DEFAULT_TIME_ZONE = 'Asia/Singapore';
+
+/**
+ * Time In / Time Out, in the ORG's time zone.
+ *
+ * The field app stores these as instants (the moment the technician opened and
+ * submitted the form). Rendering them in the server's zone meant the PDF — drawn
+ * on a UTC host — printed 11:11 for a job the technician did at 19:11 in
+ * Singapore, while the portal's own report page, drawn in the reader's browser,
+ * printed 19:11 for the same row. The paper and the screen disagreed by the
+ * host's offset (guru 2026-11-26). The org's Financial Settings time zone is
+ * the one both should use; absent, the same default that column carries.
+ */
+const fmtTime = (iso?: string | null, timeZone?: string | null): string => {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return String(iso);
-  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: timeZone || DEFAULT_TIME_ZONE });
 };
+
 
 interface ServiceData {
   customerName?: string | null;
@@ -90,6 +105,8 @@ export interface ServiceReportPdfInput {
   photos?: string[] | null;
   /** Letterhead + footer fields (WCT paper). Falls back to orgName / orgLogo. */
   org?: WctOrgProfile | null;
+  /** Org's Financial Settings time zone — Time In / Time Out print in it. */
+  timeZone?: string | null;
 }
 
 /** PDF options for a report: page inset for the multi-page layouts, plus the WCT paper's per-page footer. */
@@ -547,8 +564,8 @@ ${letterhead}
     <div class="section-title">Remarks</div>
     <div class="remarks-box">${esc(sd.remarks) || '&nbsp;'}</div>
     <div class="time-row">
-      <div><span class="label">Time In:</span>${esc(fmtTime(sd.timeIn))}</div>
-      <div><span class="label">Time Out:</span>${esc(fmtTime(sd.timeOut))}</div>
+      <div><span class="label">Time In:</span>${esc(fmtTime(sd.timeIn, input.timeZone))}</div>
+      <div><span class="label">Time Out:</span>${esc(fmtTime(sd.timeOut, input.timeZone))}</div>
     </div>
 ${isEss ? buildEssConclusionHtml(sd.ess ?? null) : ''}
     <div class="sig-grid"${isEss ? ' style="grid-template-columns: 1fr 1fr 1fr;"' : ''}>

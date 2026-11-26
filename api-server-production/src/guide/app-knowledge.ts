@@ -160,7 +160,7 @@ Project page tabs: Active on Site / Past Deployments / Sales & Services / All In
 - Off-hire a deployment: stop-circle icon on an active deployment card (also auto-pauses its linked recurring invoice schedules).
 - "Add DO" on a deployment card attaches an unattached delivery order; "View details" expands deployed items, DOs and monthly invoices.
 - "Create Quotation" on the Quotations tab makes a quotation pre-linked to the project.
-- Field Reports tab shows service reports + delivery scans from the field app (photos, routes).
+- Field Reports tab shows service reports + delivery scans from the field app (photos, routes). A service report's Time In / Time Out are stamped by the field app when the technician opens and submits the form; nothing in the office can edit them, and since 2026-11-26 they PRINT in the organisation's own time zone (Settings -> Accounting setup -> Financial settings), so the paper and the report page agree — before that the PDF printed them in the server's time (UTC), eight hours behind Singapore.
 - SERVICE REPORT LETTERHEAD (2026-11-05, every org): a service / inspection report now carries the company letterhead at the top — logo, company name, address, Tel and Email, website and UEN — the same block a delivery order carries, so a report sent to a customer says who issued it and how to reach them. It is read from the organisation's own details (Admin → Organisation: logo, address, phone, email, website, registration number), so filling those in is what makes it appear; any field left blank simply prints nothing. The same letterhead shows on the report page in the portal, on its Print output, on the PDF emailed to the customer, and on the copy printed from the field app.
 
 === ORDERS ===

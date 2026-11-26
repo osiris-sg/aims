@@ -45,6 +45,8 @@ interface ReportForRender {
   asset: { name: string; skuKey: string } | null;
   inventory: { sku: string; serialNumber: string | null } | null;
   organization: WctOrgProfile;
+  /** Org's Financial Settings time zone — Time In / Time Out print in it. */
+  timeZone?: string | null;
 }
 
 /** The report fields whose edits are recorded old -> new. */
@@ -616,6 +618,7 @@ export class MaintenanceReportsService {
       orgLogo: report.organization.logo,
       photos: report.photos ?? [],
       org: report.organization,
+      timeZone: report.timeZone ?? null,
     });
   }
 
@@ -630,13 +633,17 @@ export class MaintenanceReportsService {
       },
     });
     if (!report) throw new NotFoundException('Service report not found');
+    // Time In / Time Out are instants: the paper prints them in the ORG's zone,
+    // not the render host's (which is UTC on Render) — see fmtTime.
+    const timeZone =
+      (await this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { timeZone: true } }).catch(() => null))?.timeZone ?? null;
     // A WCT report made before its brand was stamped takes the org's setting (BC Air); WCT: none.
     const sd: any = report.serviceData ?? {};
     if (templateFor(sd.templateId) === 'WCT_V1' && !sd.brand) {
       const brand = await wctBrandSetting(this.prisma as any, organizationId);
-      if (brand) return { ...report, serviceData: { ...sd, brand } };
+      if (brand) return { ...report, timeZone, serviceData: { ...sd, brand } };
     }
-    return report;
+    return { ...report, timeZone };
   }
 
   /** GET /maintenance-reports/:id/html → the rendered report (JSON-wrapped). */
@@ -1271,7 +1278,7 @@ export class MaintenanceReportsService {
         zip.addFile(uniqueFileName(name, taken), await this.s3Service.downloadFile(uploaded.key));
         continue;
       }
-      zip.addFile(uniqueFileName(serviceReportFileName(report, tz), taken), await this.renderReportPdf(report));
+      zip.addFile(uniqueFileName(serviceReportFileName(report, tz), taken), await this.renderReportPdf({ ...report, timeZone: tz ?? null }));
     }
     return { buffer: zip.toBuffer(), filename: `Service reports ${orgToday(tz)} (${ids.length}).zip` };
   }
@@ -1370,7 +1377,10 @@ export class MaintenanceReportsService {
 
     let pdfBuffer: Buffer | undefined;
     try {
-      pdfBuffer = await this.renderReportPdf(report);
+      const tz = (
+        await this.prisma.accountingSetting.findUnique({ where: { organizationId: report.organizationId }, select: { timeZone: true } }).catch(() => null)
+      )?.timeZone ?? null;
+      pdfBuffer = await this.renderReportPdf({ ...report, timeZone: tz });
     } catch (err: any) {
       this.logger.error(`MSR ${reportId} PDF generation failed: ${err?.message}`, err?.stack);
       // Continue without attachment — the customer still gets a notification.
