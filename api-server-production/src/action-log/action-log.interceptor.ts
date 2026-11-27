@@ -95,7 +95,7 @@ const VERB_ACTIONS: Record<string, string> = {
   // Per-document Lock (2026-11-20) and the lock dates' edit-unlock stamp.
   'record-lock': 'LOCK', 'record-unlock': 'UNLOCK',
   'run-due': 'RUN', run: 'RUN', 'generate-now': 'RUN', cancel: 'CANCEL', assign: 'ASSIGN',
-  'link-project': 'LINK', link: 'LINK', 'claim-scheduled': 'CLAIM', 'claim-return': 'CLAIM', 'ack-all': 'ACKNOWLEDGE',
+  'link-project': 'LINK', link: 'LINK', 'attach-upload': 'LINK', 'claim-scheduled': 'CLAIM', 'claim-return': 'CLAIM', 'ack-all': 'ACKNOWLEDGE',
   // Delivery group posts (2026-09-30): the post worker claims a post and
   // reports it sent; the office retries a failed or skipped one.
   claim: 'CLAIM', done: 'POSTED', retry: 'RETRY', resolve: 'CONFIRM',

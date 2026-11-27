@@ -211,6 +211,16 @@ export class BillsController {
   }
 
   // ---------- Attachments on the bill itself ----------
+  @Post('attach-upload')
+  @Permissions('bills:update')
+  @ApiOperation({ summary: 'Bulk upload: attach an uploaded file to the supplier invoice already keyed in (same supplier + invoice number), if there is one' })
+  attachUpload(
+    @Req() req: RequestWithOrganization,
+    @Body() body: { supplierId?: string; billNumber?: string; files?: Array<{ fileKey: string; fileName: string; mimeType?: string; label?: string }> },
+  ) {
+    return this.service.attachUploadToExisting(requireOrgId(req), body || {}, req.auth?.userId || 'unknown');
+  }
+
   @Post(':id/attachments')
   @Permissions('bills:update')
   @ApiOperation({ summary: 'Append files (already uploaded via /uploads/image) to the bill' })

@@ -1970,6 +1970,51 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     return created.id;
   }
 
+  /**
+   * Bulk upload, auto-tag (guru 2026-11-27): the office keys a supplier invoice first and uploads
+   * the paper later. An uploaded file whose supplier + invoice number is ALREADY a supplier
+   * invoice is attached to that one instead of becoming a second invoice. The number is compared
+   * with its punctuation and case ignored, against the invoice's own number and its Reference
+   * (imported invoices carry the supplier's number there). Voided invoices and purchase returns
+   * never match. Two candidates: the one with no file yet wins; still two → no match, the user
+   * decides. Nothing about the invoice's amounts changes.
+   */
+  async attachUploadToExisting(
+    organizationId: string,
+    body: { supplierId?: string; billNumber?: string; files?: Array<{ fileKey: string; fileName: string; mimeType?: string; label?: string }> },
+    userId: string,
+  ) {
+    const key = (v: unknown) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, '');
+    const want = key(body.billNumber);
+    const files = (body.files || []).filter((f) => f?.fileKey);
+    if (!body.supplierId || !want || !files.length) return { matched: false };
+    const docs = await this.prisma.document.findMany({
+      where: {
+        organizationId,
+        type: 'BILL',
+        OR: [
+          { config: { path: ['supplierId'], equals: body.supplierId } },
+          { config: { path: ['supplier', 'id'], equals: body.supplierId } },
+        ],
+      },
+      select: { id: true, name: true, config: true, attachments: true },
+    });
+    const hits = docs.filter((d) => {
+      const c: any = d.config || {};
+      if (c.voided || String(c.billStatus || '').toUpperCase() === 'VOID' || c.kind === 'SPR') return false;
+      return key(d.name) === want || key(documentReferenceOf(c)) === want;
+    });
+    const filesOf = (d: { attachments: any }) => (Array.isArray(d.attachments) ? d.attachments : []);
+    const bare = hits.filter((d) => filesOf(d).length === 0);
+    const hit = hits.length === 1 ? hits[0] : bare.length === 1 ? bare[0] : null;
+    if (!hit) return { matched: false, candidates: hits.length };
+    const existing = filesOf(hit);
+    const seen = new Set(existing.flatMap((a: any) => [a.fileKey, String(a.fileName || '').toLowerCase()]));
+    const fresh = files.filter((f) => !seen.has(f.fileKey) && !seen.has(String(f.fileName || '').toLowerCase()));
+    if (fresh.length) await this.addAttachments(organizationId, hit.id, fresh, userId);
+    return { matched: true, billId: hit.id, billNumber: hit.name, added: fresh.length, alreadyHad: existing.length };
+  }
+
   async addAttachments(
     organizationId: string,
     billId: string,

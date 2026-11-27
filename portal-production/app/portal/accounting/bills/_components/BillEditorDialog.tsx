@@ -1,5 +1,6 @@
 "use client";
 
+import { openPaymentVoucherForBill } from "./payBill";
 import { accountFilterOptions } from "@/helpers/accountCodeSearch";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -102,6 +103,9 @@ type BatchItem = {
   form?: FormSnapshot;
   error?: string;
   billId?: string;
+  // Set when the file was attached to an invoice ALREADY keyed in (same supplier + invoice
+  // number) instead of becoming a new one: that invoice's number.
+  attachedTo?: string;
   // Extracted vendor name — lets the close-time auto-save resolve/create a
   // placeholder supplier when no supplierId was matched.
   supplierNameGuess?: string;
@@ -252,12 +256,23 @@ export default function BillEditorDialog({
   // extraction loop; setBatch mirrors it into React for rendering.
   const [batch, setBatch] = useState<BatchItem[] | null>(null);
   const [batchIdx, setBatchIdx] = useState(0);
+  const batchIdxRef = useRef(0);
+  batchIdxRef.current = batchIdx;
   const batchRef = useRef<BatchItem[] | null>(null);
   const batchLoopRunning = useRef(false);
   const batchAbortRef = useRef(false);
   const loadedIdxRef = useRef(-1); // which batch item the visible form belongs to
   // True while close-time auto-save of unreviewed batch items is running.
   const [flushing, setFlushing] = useState(false);
+  // After Save and submit confirms a supplier invoice: offer its Payment Voucher (guru 2026-11-27).
+  const [payPrompt, setPayPrompt] = useState<{ billId: string; billNumber: string } | null>(null);
+  const [payOpening, setPayOpening] = useState(false);
+  const createVoucher = async (billId: string) => {
+    setPayOpening(true);
+    const ok = await openPaymentVoucherForBill(request as any, billId);
+    setPayOpening(false);
+    return ok;
+  };
 
   // Edit after confirm (guru 2026-11-23: "i can edit invoices already but cant edit AP bills"):
   // a POSTED bill with nothing paid against it unlocks behind a warning, like a confirmed
@@ -490,6 +505,16 @@ export default function BillEditorDialog({
         );
         return;
       }
+      // One file from "Upload Supplier Invoices" follows the same auto-tag rule as many: the
+      // invoice is already keyed in → the file goes onto it, and there is nothing to review.
+      if (!editing && uploaded && extracted.supplierIdGuess?.id && extracted.billNumber) {
+        const tagged = await attachToExisting({ supplierId: extracted.supplierIdGuess.id, billNumber: String(extracted.billNumber), attachments: [uploaded] } as FormSnapshot);
+        if (tagged) {
+          toast.success(`${file.name} attached to supplier invoice ${tagged.billNumber}, which was already keyed in`);
+          onSaved();
+          return;
+        }
+      }
       // Pre-fill form.
       if (extracted.supplierIdGuess?.id) setSupplierId(extracted.supplierIdGuess.id);
       if (extracted.billNumber) setBillNumber(extracted.billNumber);
@@ -626,10 +651,48 @@ export default function BillEditorDialog({
         it.supplierNameGuess = res.supplierName;
         it.status = res.ok ? "ready" : "error";
         it.error = res.error;
+        // Auto-tag (guru 2026-11-27): this supplier + invoice number is already keyed in, so the
+        // file goes onto that invoice and no second one is made.
+        if (res.ok) {
+          const tagged = await attachToExisting(res.form);
+          if (batchAbortRef.current || !batchRef.current) return;
+          if (tagged) {
+            it.status = "saved";
+            it.billId = tagged.billId;
+            it.attachedTo = tagged.billNumber;
+            onRefresh?.();
+          }
+        }
         syncBatch();
+        // The file on screen was attached to an existing invoice: move on to one that needs review.
+        if (it.status === "saved" && items[batchIdxRef.current] === it) {
+          const next = items.findIndex((x) => x.status !== "saved");
+          if (next >= 0) gotoBatch(next);
+        }
       }
     } finally {
       batchLoopRunning.current = false;
+      // Every file found its invoice (or was saved): nothing left to review.
+      const items = batchRef.current;
+      if (items && !batchAbortRef.current && items.length && items.every((x) => x.status === "saved")) {
+        const n = items.filter((x) => x.attachedTo).length;
+        toast.success(n === items.length ? `All ${n} files attached to their supplier invoices` : `All ${items.length} supplier invoices saved (${n} attached to existing ones)`);
+        onSaved();
+      }
+    }
+  };
+
+  // The supplier invoice already keyed in for this upload, if any: the file is attached to it.
+  const attachToExisting = async (fm: FormSnapshot): Promise<{ billId: string; billNumber: string } | null> => {
+    if (!fm.supplierId || !fm.billNumber.trim() || !fm.attachments.length) return null;
+    try {
+      const r: any = await request("/bills/attach-upload", {
+        method: "POST",
+        body: JSON.stringify({ supplierId: fm.supplierId, billNumber: fm.billNumber.trim(), files: fm.attachments }),
+      });
+      return r?.matched && r.billId ? { billId: r.billId, billNumber: r.billNumber || fm.billNumber } : null;
+    } catch {
+      return null; // the normal review-and-save path still works
     }
   };
 
@@ -921,9 +984,11 @@ export default function BillEditorDialog({
           toast.warn(`Bill saved but attachment update failed: ${e?.message || "unknown"}`);
         }
       }
+      let confirmedNow = false;
       if (andSubmit && billId) {
         try {
           const after: any = await request(`/bills/${billId}/submit`, { method: "POST" });
+          confirmedNow = after?.status === "POSTED";
           toast.success(after?.status === "PENDING_APPROVAL" ? `${kindLabel} sent for approval` : `${kindLabel} confirmed and posted`);
         } catch (e: any) {
           toast.error(e?.message || "Saved, but submit failed — submit it from the row menu");
@@ -952,6 +1017,10 @@ export default function BillEditorDialog({
           toast.success(`All ${items.length} supplier invoices saved`);
           onSaved();
         }
+      } else if (confirmedNow && billId && kind === "SIN" && totalAmount > 0) {
+        // Confirmed and owing: the next step is usually to pay it.
+        onRefresh?.();
+        setPayPrompt({ billId, billNumber: billNumber.trim() });
       } else {
         onSaved();
       }
@@ -1029,7 +1098,9 @@ export default function BillEditorDialog({
                   <ChevronRightIcon fontSize="small" />
                 </IconButton>
                 <Chip size="small" variant="outlined" label={currentItem?.file.name} sx={{ maxWidth: 240 }} />
-                {currentItem?.status === "saved" && <Chip size="small" color="success" label="Saved" />}
+                {currentItem?.status === "saved" && (
+                  <Chip size="small" color="success" label={currentItem.attachedTo ? `Attached to existing invoice ${currentItem.attachedTo}` : "Saved"} />
+                )}
                 {currentItem?.status === "error" && <Chip size="small" color="warning" label="Extract failed — fill manually" />}
               </>
             )}
@@ -1685,6 +1756,11 @@ export default function BillEditorDialog({
             Review
           </Button>
         )}
+        {editing?.status === "POSTED" && kind === "SIN" && !batch && (
+          <Button variant="outlined" data-tour="bill-create-voucher" disabled={payOpening || saving} onClick={() => void createVoucher(editing.id)}>
+            Create Payment Voucher
+          </Button>
+        )}
         {!isReadOnly && (
           <Button
             variant={canSubmitHere ? "outlined" : "contained"}
@@ -1712,6 +1788,25 @@ export default function BillEditorDialog({
           </Tooltip>
         )}
       </DialogActions>
+
+      <Dialog open={!!payPrompt} onClose={() => { setPayPrompt(null); onSaved(); }} maxWidth="xs" fullWidth>
+        <DialogTitle>{payPrompt?.billNumber} confirmed</DialogTitle>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => { setPayPrompt(null); onSaved(); }}>Done</Button>
+          <Button
+            variant="contained"
+            autoFocus
+            data-tour="bill-create-voucher"
+            disabled={payOpening}
+            onClick={async () => {
+              if (!payPrompt) return;
+              if (await createVoucher(payPrompt.billId)) { setPayPrompt(null); onSaved(); }
+            }}
+          >
+            Create Payment Voucher
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <PostingPreviewDialog
         open={previewOpen}
