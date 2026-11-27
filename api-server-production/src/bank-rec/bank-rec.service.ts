@@ -8,7 +8,7 @@ import { PaymentsService } from '../payments/payments.service';
 import { BillsService } from '../bills/bills.service';
 import { XeroSyncService } from '../xero-sync/xero-sync.service';
 import { isOrgFeatureEnabled } from '../common/org-features';
-import { candidateRef, compactText, documentTokensOf, journalsBehindDocument, sameDayGroups } from './match-helpers';
+import { candidateRef, compactText, documentTokensOf, journalsBehindDocument, sameDayGroups, statementClosingBalance } from './match-helpers';
 import { docRef, isPrefixed } from '../common/doc-ref';
 import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
 
@@ -354,7 +354,9 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
       data: {
         periodStart,
         periodEnd,
-        endingBalance: parsed.endingBalance ?? lines[lines.length - 1]?.runningBalance ?? null,
+        // The bank's running balance on the last line is the closing balance; the extractor's figure only
+        // stands for statements without a balance column (UOB Oct 2026 came back "4", guru 2026-11-27).
+        endingBalance: statementClosingBalance(parsed.endingBalance ?? null, lines).value,
         status: 'READY',
         error: null,
         lines: {
@@ -374,6 +376,38 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
   }
 
   // Get an import with its lines and (for matched lines) the JE line they're matched to.
+  /**
+   * The receipt / voucher a journal line with NO source document stands behind (a Xero-import journal: the minted
+   * receipt names it in its repair note, or carries its amount on the same day). Only the receipts and vouchers on
+   * THIS bank, dated inside the span of those journals — so the row reads "REC UOBOR2610-002", never
+   * "JV-XERO-30911" (guru 2026-11-27).
+   */
+  private async documentsBehind(
+    organizationId: string,
+    bankAccountId: string,
+    lines: Array<{ id: string; debit: number; credit: number; journalEntry: { journalNumber: string | null; entryDate: Date; sourceDocumentId?: string | null } }>,
+  ): Promise<Map<string, { id: string; name: string; type: string; documentTemplateId: string | null; status: any; config: any }>> {
+    const out = new Map<string, { id: string; name: string; type: string; documentTemplateId: string | null; status: any; config: any }>();
+    const noSrc = lines.filter((j) => !j.journalEntry.sourceDocumentId);
+    if (!noSrc.length) return out;
+    const bank = await this.prisma.chartOfAccount.findFirst({ where: { id: bankAccountId }, select: { code: true } });
+    if (!bank?.code) return out;
+    const days = noSrc.map((j) => j.journalEntry.entryDate.toISOString().slice(0, 10)).sort();
+    const minted = await this.prisma.$queryRawUnsafe<Array<{ id: string; name: string; type: string; documentTemplateId: string | null; status: any; config: any }>>(
+      `SELECT id, name, type, "documentTemplateId", status, config FROM "Document"
+       WHERE "organizationId" = $1 AND type IN ('OFFICIAL_RECEIPT', 'PAYMENT_VOUCHER')
+         AND (config->>'date') BETWEEN $2 AND $3
+         AND (config->>'debitAccountCode' = $4 OR config->>'bankAccountCode' = $4 OR config->>'creditAccountCode' = $4)
+       LIMIT 2000`,
+      organizationId,
+      days[0],
+      days[days.length - 1],
+      bank.code,
+    );
+    for (const d of minted) for (const j of journalsBehindDocument(d, noSrc)) if (!out.has(j.id)) out.set(j.id, d);
+    return out;
+  }
+
   async getImport(organizationId: string, importId: string) {
     const imp = await this.prisma.bankStatementImport.findFirst({
       where: { id: importId, organizationId },
@@ -400,7 +434,7 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
             where: { id: { in: matchedIds } },
             include: {
               journalEntry: {
-                select: { id: true, journalNumber: true, entryDate: true, type: true, sourceDocumentId: true },
+                select: { id: true, journalNumber: true, entryDate: true, type: true, sourceDocumentId: true, reference: true },
               },
             },
           })
@@ -421,14 +455,19 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
         })
       : [];
     const docById = new Map(docs.map((d) => [d.id, this.docSummary(d as any)]));
+    // A matched Xero-import journal (no source document) shows the receipt / voucher it stands behind.
+    const behind = await this.documentsBehind(organizationId, imp.bankAccountId, matched as any);
 
     const describe = (jl: any) => {
       if (!jl) return null;
-      const doc = jl.journalEntry?.sourceDocumentId ? docById.get(jl.journalEntry.sourceDocumentId) ?? null : null;
+      const behindDoc = behind.get(jl.id);
+      const doc = (jl.journalEntry?.sourceDocumentId ? docById.get(jl.journalEntry.sourceDocumentId) ?? null : null) || (behindDoc ? this.docSummary(behindDoc as any) : null);
       return {
         journalLineId: jl.id,
         journalId: jl.journalEntry?.id ?? null,
         journalNumber: jl.journalEntry?.journalNumber ?? null,
+        // The row's name: the prefixed DOCUMENT (REC / P/V / INV …); J/V only for a manual journal.
+        ref: candidateRef({ journalNumber: jl.journalEntry?.journalNumber ?? null, reference: jl.journalEntry?.reference ?? null, type: jl.journalEntry?.type ?? null }, doc ? { type: doc.type, name: doc.number } : null, { docRef, isPrefixed }),
         entryDate: jl.journalEntry?.entryDate ?? null,
         journalType: jl.journalEntry?.type ?? null,
         amount: (jl.debit || 0) - (jl.credit || 0),
@@ -1198,13 +1237,18 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
     //
     // Hence the direct comparison, with the unmatched lines reported as
     // information rather than folded into the arithmetic (guru 2026-11-04).
-    const hasEnding = imp.endingBalance !== null && imp.endingBalance !== undefined;
+    // The closing balance: a figure entered by hand, else the bank's running balance on the last statement
+    // line (so an import whose extracted figure was wrong heals itself), else the extracted figure.
+    const closing = statementClosingBalance(imp.endingBalance, imp.lines as any, { manual: !!(imp.columnMapping as any)?.endingBalanceManual });
+    const ending = closing.value;
+    const hasEnding = ending !== null;
     return {
       importId,
       bankAccountId: imp.bankAccountId,
       periodStart: imp.periodStart,
       periodEnd: imp.periodEnd,
-      bankEndingBalance: imp.endingBalance ?? null,
+      bankEndingBalance: ending,
+      bankEndingBalanceSource: closing.source,
       glBalance,
       matchedCount: imp.lines.filter((l) => l.status === 'MATCHED').length,
       suggestedCount: imp.lines.filter((l) => l.status === 'SUGGESTED').length,
@@ -1216,8 +1260,8 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
       // Reconciled when the books equal the statement — NOT when every line
       // happens to be linked. Linking is bookkeeping hygiene; agreement of the
       // two balances is the actual reconciliation.
-      reconciles: hasEnding ? Math.abs(glBalance - (imp.endingBalance as number)) < 0.01 : null,
-      diff: hasEnding ? ROUND((imp.endingBalance as number) - glBalance) : null,
+      reconciles: hasEnding ? Math.abs(glBalance - (ending as number)) < 0.01 : null,
+      diff: hasEnding ? ROUND((ending as number) - glBalance) : null,
     };
   }
 
@@ -1428,26 +1472,7 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
     // receipt names it in its repair note, or carries its amount on the same day) — so the row reads
     // "REC UOBOR2610-002", never "JV-XERO-30911" (guru 2026-11-27). Only the receipts and vouchers on THIS bank,
     // dated inside the span of those journals.
-    const behindDoc = new Map<string, { id: string; name: string; type: string; config: any }>();
-    const noSrc = open.filter((j) => !j.journalEntry.sourceDocumentId);
-    if (noSrc.length) {
-      const bank = await this.prisma.chartOfAccount.findFirst({ where: { id: line.bankAccountId }, select: { code: true } });
-      const days = noSrc.map((j) => j.journalEntry.entryDate.toISOString().slice(0, 10)).sort();
-      const minted = bank?.code
-        ? await this.prisma.$queryRawUnsafe<Array<{ id: string; name: string; type: string; config: any }>>(
-            `SELECT id, name, type, config FROM "Document"
-             WHERE "organizationId" = $1 AND type IN ('OFFICIAL_RECEIPT', 'PAYMENT_VOUCHER')
-               AND (config->>'date') BETWEEN $2 AND $3
-               AND (config->>'debitAccountCode' = $4 OR config->>'bankAccountCode' = $4 OR config->>'creditAccountCode' = $4)
-             LIMIT 2000`,
-            organizationId,
-            days[0],
-            days[days.length - 1],
-            bank.code,
-          )
-        : [];
-      for (const d of minted) for (const j of journalsBehindDocument(d, noSrc)) if (!behindDoc.has(j.id)) behindDoc.set(j.id, d);
-    }
+    const behindDoc = await this.documentsBehind(organizationId, line.bankAccountId, open);
 
     const wantDebit = line.amount > 0; // bank money-in matches JE debit on the bank account
     const term = (search || '').trim().toLowerCase();
@@ -1538,9 +1563,14 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
   async setEndingBalance(organizationId: string, importId: string, endingBalance: number | null) {
     const imp = await this.prisma.bankStatementImport.findFirst({ where: { id: importId, organizationId } });
     if (!imp) throw new NotFoundException();
+    // A figure entered by hand wins over the statement's running balance (match-helpers statementClosingBalance);
+    // clearing it hands the decision back to the statement.
+    const mapping: any = imp.columnMapping && typeof imp.columnMapping === 'object' ? { ...(imp.columnMapping as any) } : {};
+    if (endingBalance === null) delete mapping.endingBalanceManual;
+    else mapping.endingBalanceManual = true;
     const updated = await this.prisma.bankStatementImport.update({
       where: { id: importId },
-      data: { endingBalance },
+      data: { endingBalance, columnMapping: Object.keys(mapping).length ? mapping : undefined },
     });
     this.logRec(organizationId, undefined, 'ENDING_BALANCE_SET', `Import ${importId.slice(0, 8)}`, endingBalance === null ? 'Ending balance cleared' : `Ending balance set to ${endingBalance.toFixed(2)}`, importId);
     return updated;

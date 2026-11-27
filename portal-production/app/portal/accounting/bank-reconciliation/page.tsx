@@ -96,6 +96,8 @@ type StatementLine = {
 type ImportDetail = ImportRow & { lines: StatementLine[] };
 type Recon = {
   bankEndingBalance: number | null;
+  /** Where the closing balance came from: the bank's running balance on the last line, the extractor, or typed by hand. */
+  bankEndingBalanceSource?: "entered" | "running-balance" | "extracted" | null;
   glBalance: number;
   matchedCount: number;
   postedNewCount: number;
@@ -421,8 +423,9 @@ export default function BankReconciliationPage() {
       l.status === "SUGGESTED" ? "SUGGESTED (AI)" : (l.status || "").replace("_", " "),
     match: (l: any) => {
       const multi: any[] = l.matchedJournalLines || [];
-      if (multi.length > 1) return `${multi.length} journals (batch)`;
-      return l.matchedJournalLine?.journalEntry?.journalNumber || null;
+      const docs = new Set(multi.map((m: any) => m?.document?.id || m?.journalLineId));
+      if (docs.size > 1) return `${docs.size} documents (batch)`;
+      return multi[0]?.ref || multi[0]?.document?.number || l.matchedJournalLine?.journalEntry?.journalNumber || null;
     },
   });
 
@@ -526,7 +529,23 @@ export default function BankReconciliationPage() {
           );
         }
 
-        // One row per settled document: what it is, who it's with, and a way in.
+        // One row per settled DOCUMENT: a deposit the books carry as several journals (a Xero batch payment
+        // imported per invoice) still reads as its one receipt (guru 2026-11-27: "it's supposed to match to the OR").
+        const byDoc = new Map<string, any>();
+        for (const m of multi) {
+          const k = m?.document?.id || m?.journalLineId;
+          const prev = byDoc.get(k);
+          byDoc.set(k, prev ? { ...prev, amount: (Number(prev.amount) || 0) + (Number(m.amount) || 0), journalCount: (prev.journalCount || 1) + 1 } : { ...m, journalCount: 1 });
+        }
+        const rows = [...byDoc.values()];
+        const docHref = (doc: any) =>
+          doc.type === "OFFICIAL_RECEIPT"
+            ? `/portal/accounting/receipts/${doc.id}`
+            : doc.type === "PAYMENT_VOUCHER"
+              ? `/portal/accounting/payment-vouchers/${doc.id}`
+              : doc.type === "JOURNAL_VOUCHER"
+                ? `/portal/accounting/journal-vouchers/${doc.id}`
+                : `/portal/documents/${doc.type}/${doc.templateId}/${doc.id}`;
         const entry = (m: any, key: string) => {
           const doc = m?.document;
           return (
@@ -537,14 +556,10 @@ export default function BankReconciliationPage() {
                     size="small"
                     variant="outlined"
                     color="success"
-                    label={doc.number || doc.type}
+                    label={m?.ref || doc.number || doc.type}
                     onClick={(e: any) => {
                       e.stopPropagation();
-                      window.open(
-                        withActiveOrg(`/portal/documents/${doc.type}/${doc.templateId}/${doc.id}`),
-                        "_blank",
-                        "noopener",
-                      );
+                      window.open(withActiveOrg(docHref(doc)), "_blank", "noopener");
                     }}
                     sx={{ fontSize: "0.68rem", height: 20, cursor: "pointer" }}
                   />
@@ -557,7 +572,7 @@ export default function BankReconciliationPage() {
               ) : (
                 // Manual journals / bank charges have no source document.
                 <Box component="span" sx={{ color: "text.secondary", fontVariantNumeric: "tabular-nums" }}>
-                  {m?.journalNumber || "journal"}
+                  {m?.ref || m?.journalNumber || "journal"}
                 </Box>
               )}
               <Box component="span" sx={{ color: "text.disabled", fontSize: "0.7rem", flexShrink: 0 }}>
@@ -569,18 +584,18 @@ export default function BankReconciliationPage() {
 
         return (
           <Box sx={{ fontSize: "0.8125rem", minWidth: 0 }}>
-            {multi.length > 1 ? (
+            {rows.length > 1 ? (
               <>
                 <Box sx={{ color: "text.secondary", fontWeight: 700, fontSize: "0.7rem" }}>
-                  {multi.length} documents (batch)
+                  {rows.length} documents (batch)
                 </Box>
-                {multi.slice(0, 3).map((m, i) => entry(m, String(i)))}
-                {multi.length > 3 && (
-                  <Box sx={{ color: "text.disabled", fontSize: "0.7rem" }}>+{multi.length - 3} more</Box>
+                {rows.slice(0, 3).map((m, i) => entry(m, String(i)))}
+                {rows.length > 3 && (
+                  <Box sx={{ color: "text.disabled", fontSize: "0.7rem" }}>+{rows.length - 3} more</Box>
                 )}
               </>
-            ) : multi.length === 1 ? (
-              entry(multi[0], "single")
+            ) : rows.length === 1 ? (
+              entry(rows[0], "single")
             ) : null}
             {line.status === "PENDING" && line.suggestionReason && (
               <Tooltip title={line.suggestionReason}>
@@ -866,7 +881,25 @@ export default function BankReconciliationPage() {
                   Closing balance on the statement
                 </Typography>
                 <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                  what the bank printed at the end of the period
+                  {recon.bankEndingBalanceSource === "running-balance"
+                    ? "the bank's running balance on the last statement line"
+                    : recon.bankEndingBalanceSource === "entered"
+                      ? "entered by hand"
+                      : recon.bankEndingBalanceSource === "extracted"
+                        ? "read from the statement (no balance column)"
+                        : "what the bank printed at the end of the period"}
+                  {" · "}
+                  <Box
+                    component="span"
+                    role="button"
+                    sx={{ color: "primary.main", cursor: "pointer", textDecoration: "underline" }}
+                    onClick={() => {
+                      setEndingDraft(recon.bankEndingBalance !== null && recon.bankEndingBalance !== undefined ? String(recon.bankEndingBalance) : "");
+                      setEndingEditOpen(true);
+                    }}
+                  >
+                    {recon.bankEndingBalanceSource === "entered" ? "change" : "correct it"}
+                  </Box>
                 </Typography>
               </Box>
               <Typography
