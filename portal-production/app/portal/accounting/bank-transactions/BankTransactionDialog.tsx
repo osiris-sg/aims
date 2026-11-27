@@ -7,6 +7,7 @@
 // lines (account + amount) with the same tax treatment controls as a supplier
 // invoice, attachments, and Save posts ONE journal straight to the bank ledger.
 
+import { accountFilterOptions } from "@/helpers/accountCodeSearch";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Autocomplete,
@@ -378,6 +379,7 @@ export default function BankTransactionDialog({
                       value={accounts.find((a) => a.id === l.accountId) || null}
                       onChange={(_, v) => setLine(i, { accountId: v?.id || null })}
                       getOptionLabel={(o) => `${o.code} — ${o.name}`}
+                      filterOptions={accountFilterOptions}
                       isOptionEqualToValue={(o, v) => o.id === v.id}
                       renderInput={(params) => <TextField {...params} placeholder="Account" required />}
                       disabled={readOnly}

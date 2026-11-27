@@ -1,5 +1,6 @@
 "use client";
 
+import { accountFilterOptions } from "@/helpers/accountCodeSearch";
 import React, { useMemo } from "react";
 import { Autocomplete, TextField } from "@mui/material";
 
@@ -31,6 +32,7 @@ export default function GLAccountSelect({ value, accounts, onChange, label, help
       options={options}
       groupBy={(o) => o.group}
       getOptionLabel={(o) => `${o.code} — ${o.name}`}
+      filterOptions={accountFilterOptions}
       isOptionEqualToValue={(o, v) => o.code === v.code}
       value={selected}
       onChange={(_, o) => onChange(o ? o.code : "")}

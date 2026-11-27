@@ -1,5 +1,6 @@
 "use client";
 
+import { accountFilterOptions } from "@/helpers/accountCodeSearch";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Autocomplete, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
@@ -626,6 +627,7 @@ export default function RecurringInvoicesView() {
                             value={accounts.find((a: any) => a.code === r.accountCode) || null}
                             onChange={(_, v: any) => setRow(i, { accountCode: v?.code || "" })}
                             getOptionLabel={(o: any) => `${o.code} — ${o.name}`}
+                            filterOptions={accountFilterOptions}
                             renderOption={(props, o: any) => (<li {...props} key={o.id}>{o.code} — {o.name}</li>)}
                             renderInput={(params) => <TextField {...params} placeholder="Auto" />}
                             sx={{ minWidth: 180 }}

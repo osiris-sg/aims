@@ -1,5 +1,6 @@
 "use client";
 
+import { accountFilterOptions } from "@/helpers/accountCodeSearch";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -372,6 +373,7 @@ export default function XeroIntegrationPage() {
                           value={accounts.find((a) => a.id === m.aimsAccountId) || null}
                           onChange={(_, v) => setMapping(m, v?.id || null)}
                           getOptionLabel={(o) => `${o.code} — ${o.name}`}
+                          filterOptions={accountFilterOptions}
                           renderInput={(params) => (
                             <TextField {...params} placeholder="Pick AIMS account…" sx={{ minWidth: 280 }} />
                           )}

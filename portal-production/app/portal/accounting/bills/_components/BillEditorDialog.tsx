@@ -1,5 +1,6 @@
 "use client";
 
+import { accountFilterOptions } from "@/helpers/accountCodeSearch";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -1441,6 +1442,7 @@ export default function BillEditorDialog({
                       }
                       onChange={(_, v) => setLine(l.uid, { accountId: v?.id || null, accountCode: null, accountName: null })}
                       getOptionLabel={(o) => (o.code || o.name ? `${o.code}${o.code && o.name ? " — " : ""}${o.name}` : "")}
+                      filterOptions={accountFilterOptions}
                       isOptionEqualToValue={(o, v) => o.id === v.id}
                       renderInput={(params) => (
                         <TextField

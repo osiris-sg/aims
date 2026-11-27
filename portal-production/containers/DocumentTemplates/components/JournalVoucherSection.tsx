@@ -17,6 +17,7 @@
 // unchanged. Saving posts / updates ONE manual journal whose number is the
 // voucher number.
 
+import { accountCodeKey, findAccountByTypedCode } from "@/helpers/accountCodeSearch";
 import React, { useEffect, useRef, useState } from "react";
 import MoneyInput from "@/components/MoneyInput";
 import {
@@ -227,7 +228,7 @@ function AccountCodeCell({ value, accounts, disabled, onCommit }: { value: strin
   // Once the code lands, the cursor moves on to the row's next empty box
   // (Remarks, then the money) instead of staying on the code (guru 2026-11-18).
   const jump = () => setTimeout(() => focusNextEmptyInRow(inputRef.current), 0);
-  const findExact = (v: string) => accounts.find((a) => String(a.code).toLowerCase() === v.trim().toLowerCase());
+  const findExact = (v: string) => findAccountByTypedCode(accounts, v);
   return (
     <>
       <TextField
@@ -244,7 +245,7 @@ function AccountCodeCell({ value, accounts, disabled, onCommit }: { value: strin
             onCommit(match);
             // Jump only when no longer code starts with what was typed, so
             // "100" still lets the user go on to key "1001"; Enter jumps anyway.
-            const longer = accounts.some((a) => a.code !== match.code && String(a.code).toLowerCase().startsWith(v.trim().toLowerCase()));
+            const longer = accounts.some((a) => a.code !== match.code && (String(a.code).toLowerCase().startsWith(v.trim().toLowerCase()) || accountCodeKey(a.code).startsWith(accountCodeKey(v))));
             if (!longer) jump();
           }
         }}

@@ -11,6 +11,7 @@
 // Receipt state rides in formData.orData so the editor's dirty tracking,
 // exit prompt and Save path all work unchanged.
 
+import { accountMatchesSearch, findAccountByTypedCode } from "@/helpers/accountCodeSearch";
 import React, { useRef, useEffect, useMemo, useState } from "react";
 import MoneyInput from "@/components/MoneyInput";
 import RateInput from "@/components/RateInput";
@@ -302,10 +303,7 @@ export function AccountSelectDialog({
   const [searchTerm, setSearchTerm] = useState("");
   const filtered = useMemo(() => {
     if (!searchTerm.trim()) return accounts;
-    const term = searchTerm.toLowerCase();
-    return accounts.filter((a) =>
-      [a.code, a.name, a.accountType].some((v) => String(v ?? "").toLowerCase().includes(term)),
-    );
+    return accounts.filter((a) => accountMatchesSearch(a, searchTerm, [a.accountType]));
   }, [accounts, searchTerm]);
   const handleClose = () => {
     setSearchTerm("");
@@ -430,7 +428,7 @@ export function OrCreditInput({ formData, setFormData }: RowProps) {
         onChange={(e) => {
           const v = e.target.value;
           setInput(v);
-          const match = accounts.find((a) => String(a.code).toLowerCase() === v.trim().toLowerCase());
+          const match = findAccountByTypedCode(accounts, v);
           if (match && match.code !== code) commit(match);
         }}
         onBlur={() => setInput(code)}
@@ -516,7 +514,7 @@ export function OrDebitInput({ formData, setFormData }: RowProps) {
         onChange={(e) => {
           const v = e.target.value;
           setInput(v);
-          const match = banks.find((b) => String(b.code).toLowerCase() === v.trim().toLowerCase());
+          const match = findAccountByTypedCode(banks, v);
           if (match && match.code !== code) commit(match);
         }}
         onBlur={() => setInput(code)}

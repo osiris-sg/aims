@@ -1,5 +1,6 @@
 "use client";
 
+import { accountFilterOptions } from "@/helpers/accountCodeSearch";
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -191,6 +192,7 @@ export default function PostingPreviewDialog({
                                   setCodeByLine((m) => ({ ...m, [l.lineIndex as number]: v?.code || null }))
                                 }
                                 getOptionLabel={(o) => `${o.code} — ${o.name}`}
+                                filterOptions={accountFilterOptions}
                                 isOptionEqualToValue={(o, v) => o.code === v.code}
                                 renderInput={(params) => <TextField {...params} placeholder="Pick account" />}
                                 sx={{ minWidth: 240 }}

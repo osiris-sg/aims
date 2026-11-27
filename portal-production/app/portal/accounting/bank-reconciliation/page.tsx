@@ -1,5 +1,6 @@
 "use client";
 
+import { accountFilterOptions } from "@/helpers/accountCodeSearch";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -1765,6 +1766,7 @@ function PostAsNewDialog({
               value={pnlAccounts.find((a) => a.id === contraAccountId) || null}
               onChange={(_, v) => setContraAccountId(v?.id || null)}
               getOptionLabel={(o: any) => `${o.code} — ${o.name}`}
+              filterOptions={accountFilterOptions}
               renderInput={(params) => <TextField {...params} label="Categorize as (contra account)" required disabled={busy} />}
             />
             <Tooltip title="LLM suggests the best fit">

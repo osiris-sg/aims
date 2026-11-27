@@ -9,6 +9,7 @@
 // to "All". While nothing is ticked the report still shows all accounts —
 // the selection takes effect from the first tick.
 
+import { accountMatchesSearch } from "@/helpers/accountCodeSearch";
 import React, { useMemo, useState } from "react";
 import {
   Box, Button, Checkbox, Divider, InputAdornment, Menu, MenuItem, TextField, Typography,
@@ -38,9 +39,7 @@ export default function AccountsSelect({
   const allIds = useMemo(() => accounts.map((a) => a.id), [accounts]);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return accounts;
-    return accounts.filter((a) => `${a.code} ${a.name}`.toLowerCase().includes(q));
+    return accounts.filter((a) => accountMatchesSearch(a, search));
   }, [accounts, search]);
 
   const display = selected.length === 0

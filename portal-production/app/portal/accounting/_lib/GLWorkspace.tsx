@@ -8,6 +8,7 @@
 // (running balance for a period). Reports live in a View Reports dialog —
 // same pattern as ARWorkspace / APWorkspace.
 
+import { accountMatchesSearch } from "@/helpers/accountCodeSearch";
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import TableTotalsRow from "./TableTotalsRow";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -224,9 +225,7 @@ export default function GLWorkspace() {
     [rows],
   );
   const visibleRows = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    if (!term) return netRows;
-    return netRows.filter((r) => [r.code, r.name].some((v) => String(v ?? "").toLowerCase().includes(term)));
+    return netRows.filter((r) => accountMatchesSearch(r, search));
   }, [netRows, search]);
   const totals = useMemo(
     () => ({

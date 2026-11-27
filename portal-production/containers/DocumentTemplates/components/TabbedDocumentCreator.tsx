@@ -1,5 +1,6 @@
 "use client";
 
+import { accountFilterOptions } from "@/helpers/accountCodeSearch";
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Box,
@@ -7304,6 +7305,7 @@ export default function TabbedDocumentCreator({
                 disabled={glMapSaving}
                 options={(glAccounts ?? []).slice().sort((a, b) => glRank(a) - glRank(b) || a.code.localeCompare(b.code))}
                 getOptionLabel={(a) => `${a.code} ${a.name}`}
+                filterOptions={accountFilterOptions}
                 value={(glAccounts ?? []).find((a) => a.code === glMapRow?.accountCode) || null}
                 onChange={(_, acc) => { if (acc) void assignGlToItem(acc); }}
                 loading={glAccounts === null}
@@ -7792,6 +7794,7 @@ export default function TabbedDocumentCreator({
                                   sx={{ minWidth: 280, flex: "0 1 360px" }}
                                   options={(glAccounts ?? []).slice().sort((a, b) => glRank(a) - glRank(b) || a.code.localeCompare(b.code))}
                                   getOptionLabel={(a: any) => (a ? `${a.code} — ${a.name}` : "")}
+                                  filterOptions={accountFilterOptions}
                                   groupBy={(a: any) => (glRank(a) === 0 ? "Sales / revenue" : "Other accounts")}
                                   value={(glAccounts ?? []).find((a) => a.code === formData.glAccountCode) || null}
                                   onChange={(_, acc: any) =>
@@ -8652,7 +8655,10 @@ export default function TabbedDocumentCreator({
                           // Table minWidth) and scrolls sideways if the window is
                           // narrower than that, instead of squeezing Description to
                           // a sliver (guru 2026-11-26).
-                          overflow: { xs: "auto", md: isReceiving ? "auto" : "visible" },
+                          // Below lg (split screen, guru 2026-11-26) the grid keeps an
+                          // 820px minimum and scrolls sideways too, so Description
+                          // never collapses to a few letters per line.
+                          overflow: { xs: "auto", md: "auto", lg: isReceiving ? "auto" : "visible" },
                           // Xero-style bordered grid container
                           border: `1px solid ${TABLE_GRID_COLOR}`,
                           borderRadius: 1,
@@ -8661,7 +8667,7 @@ export default function TabbedDocumentCreator({
                         <Table
                           sx={{
                             tableLayout: 'fixed',
-                            minWidth: { xs: 720, md: isReceiving ? 1240 : 0 },
+                            minWidth: { xs: 720, md: 820, lg: isReceiving ? 1240 : 0 },
                             // No up/down spinner on any number box in the grid (guru
                             // 2026-11-25): the arrows ate the digits' space and nobody
                             // steps a price by 1. Typing and arrow keys still work.

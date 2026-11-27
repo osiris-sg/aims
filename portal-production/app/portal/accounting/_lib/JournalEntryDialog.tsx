@@ -1,5 +1,6 @@
 "use client";
 
+import { accountFilterOptions } from "@/helpers/accountCodeSearch";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Autocomplete,
@@ -297,6 +298,7 @@ export default function JournalEntryDialog({
                         loading={loadingAccounts}
                         onChange={(_, v) => updateLine(line.uid, { accountId: v?.id ?? null })}
                         getOptionLabel={(o) => `${o.code} — ${o.name}`}
+                        filterOptions={accountFilterOptions}
                         renderInput={(params) => (
                           <TextField {...params} placeholder="Pick an account" disabled={!!saving} />
                         )}

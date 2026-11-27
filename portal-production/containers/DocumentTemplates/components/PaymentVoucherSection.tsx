@@ -24,6 +24,7 @@
 // prompt and Save path work unchanged. Accounting: Cr bank total / Dr each
 // line (creditor control per allocated invoice, ± realised FX).
 
+import { accountCodeKey, findAccountByTypedCode } from "@/helpers/accountCodeSearch";
 import React, { useRef, useEffect, useMemo, useState } from "react";
 import MoneyInput from "@/components/MoneyInput";
 import RateInput from "@/components/RateInput";
@@ -251,7 +252,7 @@ export function PvBankInput({ formData, setFormData }: RowProps) {
         onChange={(e) => {
           const v = e.target.value;
           setInput(v);
-          const match = banks.find((b) => String(b.code).toLowerCase() === v.trim().toLowerCase());
+          const match = findAccountByTypedCode(banks, v);
           if (match && match.code !== code) commit(match);
         }}
         onBlur={() => setInput(code)}
@@ -392,7 +393,7 @@ function AccountCodeCell({
   // Once the code lands, the cursor moves on to the row's next empty box
   // (Remarks, then the money) instead of staying on the code (guru 2026-11-18).
   const jump = () => setTimeout(() => focusNextEmptyInRow(inputRef.current), 0);
-  const findExact = (v: string) => accounts.find((a) => String(a.code).toLowerCase() === v.trim().toLowerCase());
+  const findExact = (v: string) => findAccountByTypedCode(accounts, v);
   return (
     <>
       <TextField
@@ -409,7 +410,7 @@ function AccountCodeCell({
             onCommit(match);
             // Jump only when no longer code starts with what was typed, so
             // "100" still lets the user go on to key "1001"; Enter jumps anyway.
-            const longer = accounts.some((a) => a.code !== match.code && String(a.code).toLowerCase().startsWith(v.trim().toLowerCase()));
+            const longer = accounts.some((a) => a.code !== match.code && (String(a.code).toLowerCase().startsWith(v.trim().toLowerCase()) || accountCodeKey(a.code).startsWith(accountCodeKey(v))));
             if (!longer) jump();
           }
         }}
