@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AdvancesModule } from '../advances/advances.module';
 import { PayablesModule } from '../payables/payables.module';
+import { JournalVouchersModule } from '../journal-vouchers/journal-vouchers.module';
 import { AppointmentsModule } from '../appointments/appointments.module';
 import { RevenueItemsModule } from '../revenue-items/revenue-items.module';
 import { MarketingModule } from '../marketing/marketing.module';
@@ -52,6 +53,7 @@ import { AuthModule } from '../auth/auth.module';
   imports: [
     AdvancesModule,
     PayablesModule, // match_bank_payment / settle_payables tools
+    JournalVouchersModule, // create_journal_voucher tool
     AppointmentsModule, // my_appointments / booking_link tools
     AuthModule, // 'ClerkClient' itself comes from the global ClerkModule
     CommonModule, // AuditService

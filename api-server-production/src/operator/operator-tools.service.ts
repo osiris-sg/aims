@@ -5,6 +5,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
 import { AdvancesService } from '../advances/advances.service';
 import { PayablesService } from '../payables/payables.service';
+import { JournalVouchersService } from '../journal-vouchers/journal-vouchers.service';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { XeroSyncService } from '../xero-sync/xero-sync.service';
 import { BankRecService } from '../bank-rec/bank-rec.service';
@@ -160,7 +161,73 @@ export class OperatorToolsService {
     private readonly payables: PayablesService,
     private readonly appointments: AppointmentsService,
     private readonly actionLog: ActionLogService,
+    private readonly journalVouchers: JournalVouchersService,
   ) {}
+
+  /** create_journal_voucher: the voucher is created and saved the way the Journal Voucher screen does it
+   *  (JournalVouchersService: a balanced voucher posts, an unbalanced one is kept with its reason), then the
+   *  editor opens in the side panel. */
+  private async createJournalVoucher(ctx: OperatorContext, args: any): Promise<ToolOutcome> {
+    const raw: any[] = Array.isArray(args?.lines) ? args.lines : [];
+    if (!raw.length) return { result: { error: 'Give at least one line (account + debit or credit).' } };
+    const accounts = await this.prisma.chartOfAccount.findMany({
+      where: { organizationId: ctx.organizationId, isActive: true },
+      select: { code: true, name: true },
+    });
+    const byCode = new Map(accounts.map((a) => [String(a.code).toLowerCase(), a]));
+    const lines: Array<{ accountCode: string; debit: number; credit: number; remarks: string | null }> = [];
+    for (let i = 0; i < raw.length; i++) {
+      const l = raw[i] || {};
+      const code = String(l.accountCode || '').trim();
+      let acc = code ? byCode.get(code.toLowerCase()) : undefined;
+      if (!acc) {
+        const q = String(l.account || code || '').trim().toLowerCase();
+        if (!q) return { result: { error: `Line ${i + 1}: give an account code or name.` } };
+        const hits = accounts.filter((a) => String(a.name).toLowerCase().includes(q) || String(a.code).toLowerCase() === q);
+        if (hits.length === 1) acc = hits[0];
+        else if (hits.length > 1) {
+          return { result: { error: `Line ${i + 1}: "${l.account || code}" matches several accounts — ask the user which one.`, matches: hits.slice(0, 12).map((a) => `${a.code} ${a.name}`) } };
+        } else return { result: { error: `Line ${i + 1}: no active account matches "${l.account || code}". Ask the user for the account code.` } };
+      }
+      const debit = Math.max(0, round2(l.debit));
+      const credit = Math.max(0, round2(l.credit));
+      if (!debit && !credit) return { result: { error: `Line ${i + 1} (${acc.code} ${acc.name}): give a debit or a credit amount.` } };
+      // One side per line, the way the screen keeps it.
+      lines.push({ accountCode: acc.code, debit: debit && credit ? Math.max(debit - credit, 0) : debit, credit: debit && credit ? Math.max(credit - debit, 0) : credit, remarks: l.remarks ? String(l.remarks).trim().slice(0, 500) : null });
+    }
+    const voucher: any = await this.journalVouchers.create(ctx.organizationId, ctx.actor);
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(args?.date || '')) ? String(args.date) : voucher.date || new Date().toISOString().slice(0, 10);
+    const saved: any = await this.journalVouchers.save(
+      ctx.organizationId,
+      voucher.id,
+      {
+        date,
+        notes: args?.narrative ? String(args.narrative).trim().slice(0, 2000) : null,
+        // description stays null: the service fills it with the account name (the screen's read-only Description).
+        lines: lines.map((l) => ({ accountCode: l.accountCode, description: null, remarks: l.remarks, debit: l.debit, credit: l.credit })),
+      },
+      ctx.actor,
+    );
+    const posted = saved?.status === 'confirmed' && !saved?.incompleteReason;
+    this.log(ctx, 'CREATED', 'journal-voucher', voucher.id, undefined, `Journal voucher ${saved?.voucherNumber || ''} created via Operator (${ctx.channel})`);
+    const path = `/portal/accounting/journal-vouchers/${voucher.id}`;
+    return {
+      result: {
+        documentId: voucher.id,
+        voucherNumber: saved?.voucherNumber || voucher.voucherNumber,
+        date,
+        status: saved?.status,
+        posted,
+        incompleteReason: saved?.incompleteReason || null,
+        lines: lines.map((l) => ({ accountCode: l.accountCode, account: byCode.get(l.accountCode.toLowerCase())?.name, debit: l.debit, credit: l.credit, remarks: l.remarks })),
+        totalDebit: round2(lines.reduce((s, l) => s + l.debit, 0)),
+        totalCredit: round2(lines.reduce((s, l) => s + l.credit, 0)),
+        editor: path,
+        note: posted ? 'Posted to the ledger; it is open in the editor beside the chat.' : `Saved but NOT posted (${saved?.incompleteReason || 'incomplete'}); it is open in the editor for the user to finish.`,
+      },
+      ui: { type: 'screen', path, title: `J/V ${saved?.voucherNumber || ''}`.trim() },
+    };
+  }
 
   /** Bulk mode: extract-and-queue one uploaded invoice into the portal's
    *  mass-intake review pane (guru 2026-10-11). */
@@ -2301,6 +2368,41 @@ export class OperatorToolsService {
       // ── Web dashboard chat only ─────────────────────────────────────────
       // These present something in the chat home's side panel. They are
       // hidden on chat apps (no panel there), see definitions().
+      {
+        // guru 2026-11-26 ("when I asked them to create a JV it didn't open the JV editor page at the start, and it
+        // wrote to the Description field, not Remarks"): a J/V request used to fall through to api_write on
+        // /journal-vouchers with a hand-built body. Now it is this tool: the voucher is created the way the
+        // Journal Voucher screen creates it, the user's narrative goes to the right-hand Remarks (To-Do List)
+        // and a line's own remark to its Remarks cell, every line's Description stays the ACCOUNT NAME (the
+        // screen fills it from the code and keeps it read-only), and the editor opens in the side panel at once.
+        name: 'create_journal_voucher',
+        description:
+          'Create a JOURNAL VOUCHER (J/V, a manual journal: Dr / Cr lines by account code) and open it in the Journal Voucher editor in the side panel. Use for ANY "create a JV / journal voucher / manual journal / adjusting entry / reclassify / accrue / write off" request — never api_write on /journal or /journal-vouchers. Each line needs an account: pass the CODE (e.g. 610, 820, CA001) when the user gave one, else the account NAME and the tool finds it; ask the user which code when the tool reports several matches. The user\u2019s narrative ("what this voucher is for") goes in "narrative", a line-specific note in that line\u2019s "remarks"; NEVER put the narrative in a line description — the Description of a line is the account\u2019s own name and is filled by the screen. Debits must equal credits; if they do not, the voucher still opens in the editor marked "Not posted" with the reason, for the user to finish. A balanced voucher is posted to the ledger on creation, the same as a complete save on the screen (Delete takes it out of the books).',
+        permissions: ['journal:create'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            date: { type: 'string', description: 'YYYY-MM-DD; default today in the org\u2019s time zone' },
+            narrative: { type: 'string', description: 'What this voucher is for, in the user\u2019s words (goes to the voucher\u2019s Remarks)' },
+            lines: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  accountCode: { type: 'string', description: 'Chart-of-accounts code, if the user gave one' },
+                  account: { type: 'string', description: 'Account name (or part of it) when no code was given' },
+                  debit: { type: 'number' },
+                  credit: { type: 'number' },
+                  remarks: { type: 'string', description: 'A note for this line only (optional)' },
+                },
+              },
+              minItems: 1,
+            },
+          },
+          required: ['lines'],
+        },
+        run: async (ctx, args) => this.createJournalVoucher(ctx, args),
+      },
       {
         name: 'open_screen',
         description:
