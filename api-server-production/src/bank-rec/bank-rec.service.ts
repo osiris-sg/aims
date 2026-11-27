@@ -8,6 +8,8 @@ import { PaymentsService } from '../payments/payments.service';
 import { BillsService } from '../bills/bills.service';
 import { XeroSyncService } from '../xero-sync/xero-sync.service';
 import { isOrgFeatureEnabled } from '../common/org-features';
+import { candidateRef, compactText, documentTokensOf, journalsBehindDocument, sameDayGroups } from './match-helpers';
+import { docRef, isPrefixed } from '../common/doc-ref';
 import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
 
 // Per-org gate for the Xero bank checkpoint (admin panel toggle).
@@ -495,7 +497,7 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
         accountId: imp.bankAccountId,
         journalEntry: { organizationId, status: 'POSTED', entryDate: { gte: fromDate, lte: toDate } },
       },
-      include: { journalEntry: { select: { id: true, entryDate: true, reference: true } } },
+      include: { journalEntry: { select: { id: true, entryDate: true, reference: true, journalNumber: true, sourceDocumentId: true } } },
     });
 
     // Exclude JE lines already claimed anywhere (single FK or match rows).
@@ -543,6 +545,47 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
       matchedCount += 1;
     }
 
+    // ---- Phase 1b: the statement line NAMES a document (guru 2026-11-27: "UOBOR2610002" on a 200,000 UOB
+    // deposit is receipt UOBOR2610-002, whose own journal was voided as a duplicate of the Xero import). The
+    // journals that document stands behind (journalsBehindDocument, shared with the Match search) are matched
+    // when they add up to the line — however many there are: Xero posts a batch payment as one journal per
+    // invoice, with no reference and no contact, so neither Phase 1 nor the contact-guarded batch pass sees them.
+    const namedMatched = new Set<string>();
+    const tokenByLine = new Map(stillPending.map((l) => [l.id, documentTokensOf(`${l.reference || ''} ${l.description || ''}`)]));
+    const allTokens = [...new Set([...tokenByLine.values()].flat())];
+    if (allTokens.length) {
+      const named = await this.prisma.$queryRawUnsafe<Array<{ id: string; name: string; config: any }>>(
+        `SELECT id, name, config FROM "Document" WHERE "organizationId" = $1 AND regexp_replace(lower(name), '[^a-z0-9]', '', 'g') = ANY($2::text[]) LIMIT 500`,
+        organizationId,
+        allTokens,
+      );
+      const byCompact = new Map(named.map((d) => [compactText(d.name), d]));
+      for (const line of stillPending) {
+        const docs = (tokenByLine.get(line.id) || []).map((t) => byCompact.get(t)).filter(Boolean) as Array<{ id: string; name: string; config: any }>;
+        for (const d of docs) {
+          const side = (j: { debit: number; credit: number }) => (line.amount > 0 ? j.debit : j.credit);
+          const picked = journalsBehindDocument(d, jeLines.filter((j) => !taken.has(j.id))).filter((j) => side(j) > 0);
+          const sum = ROUND(picked.reduce((s, j) => s + side(j), 0));
+          if (!picked.length || Math.abs(sum - Math.abs(line.amount)) > 0.005) continue;
+          await this.prisma.bankStatementLine.update({
+            where: { id: line.id },
+            data: {
+              status: 'MATCHED',
+              matchedJournalLineId: picked.length === 1 ? picked[0].id : null,
+              matchedAt: new Date(),
+              matches: { create: picked.map((j) => ({ organizationId, journalLineId: j.id })) },
+            },
+          });
+          picked.forEach((j) => taken.add(j.id));
+          namedMatched.add(line.id);
+          matchedCount += 1;
+          this.logRec(organizationId, undefined, 'AUTO_MATCH', this.lineLabel(line), `Matched to ${picked.length} journal line${picked.length === 1 ? '' : 's'} behind ${d.name}`, line.id);
+          break;
+        }
+      }
+    }
+    const pendingForBatch = stillPending.filter((l) => !namedMatched.has(l.id));
+
     // ---- Phase 2: BATCH payments (guru 2026-08-03) — one statement line
     // settling SEVERAL journal lines (e.g. a customer paying 4 invoices in
     // one transfer). Subset-sum over open same-side JE lines near the date.
@@ -589,7 +632,7 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
       return normTokens(contact).some((tok) => d.includes(tok));
     };
 
-    for (const line of stillPending) {
+    for (const line of pendingForBatch) {
       const target = Math.abs(line.amount);
       const contactGroups = new Map<string, Array<{ id: string; amt: number }>>();
       for (const j of jeLines) {
@@ -1381,13 +1424,58 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
       : [];
     const cpByEntry = new Map((custPays as any[]).map((p) => [p.journalEntryId as string, p]));
 
+    // The receipt / voucher a journal with NO source document stands behind (a Xero-import journal: the minted
+    // receipt names it in its repair note, or carries its amount on the same day) — so the row reads
+    // "REC UOBOR2610-002", never "JV-XERO-30911" (guru 2026-11-27). Only the receipts and vouchers on THIS bank,
+    // dated inside the span of those journals.
+    const behindDoc = new Map<string, { id: string; name: string; type: string; config: any }>();
+    const noSrc = open.filter((j) => !j.journalEntry.sourceDocumentId);
+    if (noSrc.length) {
+      const bank = await this.prisma.chartOfAccount.findFirst({ where: { id: line.bankAccountId }, select: { code: true } });
+      const days = noSrc.map((j) => j.journalEntry.entryDate.toISOString().slice(0, 10)).sort();
+      const minted = bank?.code
+        ? await this.prisma.$queryRawUnsafe<Array<{ id: string; name: string; type: string; config: any }>>(
+            `SELECT id, name, type, config FROM "Document"
+             WHERE "organizationId" = $1 AND type IN ('OFFICIAL_RECEIPT', 'PAYMENT_VOUCHER')
+               AND (config->>'date') BETWEEN $2 AND $3
+               AND (config->>'debitAccountCode' = $4 OR config->>'bankAccountCode' = $4 OR config->>'creditAccountCode' = $4)
+             LIMIT 2000`,
+            organizationId,
+            days[0],
+            days[days.length - 1],
+            bank.code,
+          )
+        : [];
+      for (const d of minted) for (const j of journalsBehindDocument(d, noSrc)) if (!behindDoc.has(j.id)) behindDoc.set(j.id, d);
+    }
+
     const wantDebit = line.amount > 0; // bank money-in matches JE debit on the bank account
     const term = (search || '').trim().toLowerCase();
+    const termCompact = compactText(term);
+
+    // A search that names a DOCUMENT (a receipt, voucher, invoice number — with or without its hyphens) also
+    // finds the journals that document stands behind: the journal posted from it, the journals its config names
+    // (a repaired Xero-minted receipt: "the GL entry for this deposit is JV-XERO-30911 + JV-XERO-30912"), and a
+    // Xero-import journal of the same day carrying one of its amounts (guru 2026-11-27, UOBOR2610-002: the
+    // receipt's own journal was voided as a duplicate of the Xero import, which has no reference at all).
+    const viaDoc = new Map<string, string>(); // journal line id → "via UOBOR2610-002"
+    if (termCompact.length >= 4) {
+      const variants = [...new Set([search!.trim(), search!.trim().replace(/[-\s]/g, '')])];
+      const named = await this.prisma.document.findMany({
+        where: { organizationId, OR: variants.map((v) => ({ name: { contains: v, mode: 'insensitive' as const } })) },
+        select: { id: true, name: true, config: true },
+        take: 5,
+      });
+      for (const d of named) {
+        if (compactText(d.name) !== termCompact && !compactText(d.name).includes(termCompact)) continue;
+        for (const j of journalsBehindDocument(d, open)) viaDoc.set(j.id, `via ${d.name}`);
+      }
+    }
 
     const shaped = open
       .map((j) => {
         const je = j.journalEntry;
-        const doc: any = je.sourceDocumentId ? docById.get(je.sourceDocumentId) : null;
+        const doc: any = (je.sourceDocumentId ? docById.get(je.sourceDocumentId) : null) || behindDoc.get(j.id) || null;
         const cfg: any = doc?.config || {};
         const bp = bpByEntry.get(je.id);
         const cp: any = cpByEntry.get(je.id);
@@ -1398,6 +1486,8 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
           takenBy: taken.has(j.id) ? takenByLine.get(j.id) || 'another statement line' : null,
           journalLineId: j.id,
           journalNumber: je.journalNumber,
+          // The row's name: the prefixed DOCUMENT (REC / P/V / INV …); J/V only for a manual journal.
+          ref: candidateRef({ journalNumber: je.journalNumber, reference: je.reference, type: je.type }, doc, { docRef, isPrefixed }),
           entryDate: je.entryDate,
           reference: je.reference,
           description: j.description || je.description,
@@ -1409,21 +1499,38 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
           docName: doc?.name || cp?.document?.name || null,
           contactName,
           dateDiffDays: Math.round(Math.abs(je.entryDate.getTime() - line.date.getTime()) / DAY_MS),
+          // "via <doc>" only when the row is not already named after that document.
+          matchedBy: viaDoc.get(j.id) && !(doc?.name && String(viaDoc.get(j.id)).endsWith(doc.name)) ? viaDoc.get(j.id)! : null,
+          groupKey: null as string | null,
+          groupSize: null as number | null,
+          groupTotal: null as number | null,
         };
       })
       .filter((c) => {
         if (!term) return true;
-        return [c.reference, c.description, c.journalNumber, c.docName, c.contactName, String(c.debit || ''), String(c.credit || '')]
-          .some((v) => String(v ?? '').toLowerCase().includes(term));
-      })
-      // Rank: right side + exact amount first, then amount match, then date proximity.
-      .sort((a, b) => {
-        const score = (x: typeof a) => (x.takenBy ? 4 : 0) + (x.sideMatches && x.amountMatches ? 0 : x.amountMatches ? 1 : x.sideMatches ? 2 : 3);
-        return score(a) - score(b) || a.dateDiffDays - b.dateDiffDays;
-      })
-      .slice(0, 120);
+        if (c.matchedBy) return true;
+        // Hyphens and spaces do not count: "UOBOR2610-002" finds "UOBOR2610002" and the other way round.
+        return [c.ref, c.reference, c.description, c.journalNumber, c.docName, c.contactName, String(c.debit || ''), String(c.credit || '')]
+          .some((v) => String(v ?? '').toLowerCase().includes(term) || (termCompact.length >= 3 && compactText(v).includes(termCompact)));
+      });
 
-    return { line, candidates: shaped };
+    // One deposit, several journals (a Xero batch payment imported per invoice, a cheque paying two bills):
+    // same-day lines on the right side that add up to the statement amount are offered as a group.
+    const groups = sameDayGroups(
+      shaped.filter((c) => c.sideMatches && !c.takenBy && !c.amountMatches).map((c) => ({ id: c.journalLineId, date: c.entryDate.toISOString(), amount: c.debit > 0 ? c.debit : c.credit })),
+      line.amount,
+    );
+    for (const c of shaped) {
+      const g = groups.get(c.journalLineId);
+      if (g) { c.groupKey = g.key; c.groupSize = g.size; c.groupTotal = g.total; }
+    }
+    // Rank: right side + exact amount first, then a group that adds up, then amount match, then date proximity.
+    shaped.sort((a, b) => {
+      const score = (x: typeof a) => (x.takenBy ? 4 : 0) + (x.sideMatches && x.amountMatches ? 0 : x.groupKey ? 0.5 : x.amountMatches ? 1 : x.sideMatches ? 2 : 3);
+      return score(a) - score(b) || (a.groupKey && a.groupKey === b.groupKey ? 0 : a.dateDiffDays - b.dateDiffDays);
+    });
+
+    return { line, candidates: shaped.slice(0, 120) };
   }
 
   // Manual ending-balance override for imports whose statement carried no

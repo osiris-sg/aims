@@ -8,6 +8,7 @@
 // Create (post as new entry with an AI account suggestion). Deliberately
 // not copied: Transfer/Discuss tabs, bank feeds, auto-reconcile toggle.
 // The classic table survives as the "All lines" view on the same page.
+import { accountFilterOptions } from "@/helpers/accountCodeSearch";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -61,6 +62,8 @@ type Candidate = {
   journalLineId: string;
   entryDate: string;
   dateDiffDays: number;
+  /** The prefixed document behind the journal (REC UOBOR2610-002, P/V …); J/V only for a manual journal. */
+  ref?: string | null;
   reference?: string | null;
   journalNumber?: string | null;
   contactName?: string | null;
@@ -72,6 +75,12 @@ type Candidate = {
   amountMatches?: boolean;
   sideMatches?: boolean;
   takenBy?: string | null;
+  /** The server matched it through a document the search named ("via UOBOR2610-002"). */
+  matchedBy?: string | null;
+  /** Same-day lines that add up to the statement amount share a key (one deposit, several journals). */
+  groupKey?: string | null;
+  groupSize?: number | null;
+  groupTotal?: number | null;
 };
 
 // Open invoice/bill the line can SETTLE (creates the payment on reconcile).
@@ -442,13 +451,22 @@ export default function ReconcileView({
         const sugTotal = Math.round(sugLines.reduce((s, m) => s + (m.debit || m.credit || 0), 0) * 100) / 100;
         const sugDrift = Math.round((target - sugTotal) * 100) / 100;
 
+        const compact = (v: unknown) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
         const filteredCands = (cands || []).filter((c) => {
           const q = candSearch.trim().toLowerCase();
           if (!q) return true;
-          return [c.reference, c.journalNumber, c.contactName, c.description, c.docName]
+          // The server already matched it through a document the search named; hyphens and spaces never count.
+          if (c.matchedBy) return true;
+          const qc = compact(q);
+          return [c.ref, c.reference, c.journalNumber, c.contactName, c.description, c.docName]
             .filter(Boolean)
-            .some((v) => String(v).toLowerCase().includes(q));
+            .some((v) => String(v).toLowerCase().includes(q) || (qc.length >= 3 && compact(v).includes(qc)));
         });
+        const selectGroup = (key: string) => {
+          const ids = (cands || []).filter((c) => c.groupKey === key && !c.takenBy).map((c) => c.journalLineId);
+          setDocSelected([]);
+          setSelected(new Set(ids));
+        };
 
         return (
           <Paper key={line.id} variant="outlined" sx={{ overflow: "hidden", ...(isActive ? { borderColor: "primary.main" } : {}) }}>
@@ -643,12 +661,24 @@ export default function ReconcileView({
                                   </Box>
                                   <Box sx={{ flex: 1, minWidth: 0 }}>
                                     <Typography variant="caption" sx={{ fontFamily: "monospace", fontWeight: 600, display: "block" }} noWrap>
-                                      {c.reference || c.journalNumber}
+                                      {c.ref || c.reference || c.journalNumber}
                                     </Typography>
                                     <Typography variant="caption" color="text.secondary" noWrap sx={{ display: "block" }}>
-                                      {c.takenBy ? `already matched: ${c.takenBy}` : c.contactName || c.description || (c.docName ? `${c.docType || ""} ${c.docName}` : "")}
+                                      {c.takenBy ? `already matched: ${c.takenBy}` : [c.contactName || c.description || (c.docName ? `${c.docType || ""} ${c.docName}` : ""), c.matchedBy].filter(Boolean).join(" · ")}
                                     </Typography>
                                   </Box>
+                                  {c.groupKey && !c.takenBy ? (
+                                    <Tooltip title={`${c.groupSize} journals of this day add up to ${fmt(c.groupTotal || 0)} — select them together`}>
+                                      <Chip
+                                        size="small"
+                                        color="success"
+                                        variant="outlined"
+                                        label={`+${(c.groupSize || 2) - 1} = ${fmt(c.groupTotal || 0)}`}
+                                        onClick={(e) => { e.stopPropagation(); selectGroup(c.groupKey!); }}
+                                        sx={{ flexShrink: 0, height: 20, "& .MuiChip-label": { px: 0.75, fontSize: "0.7rem" } }}
+                                      />
+                                    </Tooltip>
+                                  ) : null}
                                   <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: c.amountMatches ? 700 : 400, flexShrink: 0 }}>
                                     {fmt(amt)}
                                   </Typography>
@@ -783,6 +813,7 @@ export default function ReconcileView({
                             value={pnlAccounts.find((a) => a.id === contraAccountId) || null}
                             onChange={(_, v) => setContraAccountId(v?.id || null)}
                             getOptionLabel={(o: any) => `${o.code} — ${o.name}`}
+                            filterOptions={accountFilterOptions}
                             renderInput={(params) => <TextField {...params} label="Categorize as (account)" />}
                           />
                           <Tooltip title="AI suggests the account">
