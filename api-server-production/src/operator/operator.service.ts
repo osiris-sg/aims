@@ -144,6 +144,7 @@ const TOOL_STATUS: Record<string, string> = {
   find_supplier: '🔎 Looking up the supplier...',
   list_bills: '📂 Fetching bills...',
   create_bill: '📝 Recording the bill...',
+  create_journal_voucher: '📝 Creating the journal voucher...',
   post_bill: '🔒 Checking the bill...',
   create_delivery_order: '📝 Creating the delivery order...',
   create_credit_note: '📝 Creating the credit note...',
@@ -1853,7 +1854,7 @@ export class OperatorService {
   async patchThreadMeta(
     channel: OperatorChannel,
     channelUserId: string,
-    meta: { title?: string; organizationId?: string; lastPanel?: any; scope?: string },
+    meta: { title?: string; titleByUser?: boolean; organizationId?: string; lastPanel?: any; scope?: string },
     // quiet: housekeeping (closing the side panel) must not bump the thread
     // to the top of the list, so its updatedAt is kept.
     opts: { quiet?: boolean } = {},
@@ -1918,7 +1919,7 @@ export class OperatorService {
       .findUnique({ where: { channel_channelUserId: { channel, channelUserId } }, select: { state: true } })
       .catch(() => null);
     const prev: any = (stored?.state as any) || {};
-    state = { ...state, transcript: prev.transcript, title: prev.title, organizationId: prev.organizationId, lastPanel: prev.lastPanel, ...(prev.scope ? { scope: prev.scope } : {}) } as SessionState;
+    state = { ...state, transcript: prev.transcript, title: prev.title, organizationId: prev.organizationId, lastPanel: prev.lastPanel, ...(prev.scope ? { scope: prev.scope } : {}), ...(prev.titleByUser ? { titleByUser: true } : {}) } as SessionState;
     await this.prisma.operatorSession
       .upsert({
         where: { channel_channelUserId: { channel, channelUserId } },

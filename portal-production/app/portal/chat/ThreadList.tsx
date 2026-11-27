@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputBase, List, ListItemButton, Menu, MenuItem, Skeleton, Stack, Tooltip, Typography } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
@@ -33,6 +33,7 @@ const dayLabel = (iso: string) => {
 export default function ThreadList({ threads, loading, error, onRetry, activeId, onOpen, onRename, onDelete, onCollapse }: Props) {
   const [menu, setMenu] = useState<{ pos: { left: number; top: number }; t: ThreadSummary } | null>(null);
   const [editing, setEditing] = useState<{ id: string; title: string } | null>(null);
+  const renameNext = useRef<ThreadSummary | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ThreadSummary | null>(null);
 
   const wa = threads.filter((t) => t.channel === "whatsapp");
@@ -70,6 +71,8 @@ export default function ThreadList({ threads, loading, error, onRetry, activeId,
           {editing?.id === t.id ? (
             <InputBase
               autoFocus
+              // Select the old name so typing replaces it.
+              onFocus={(e) => (e.target as HTMLInputElement).select()}
               value={editing.title}
               onChange={(e) => setEditing({ id: t.id, title: e.target.value })}
               onClick={(e) => e.stopPropagation()}
@@ -179,10 +182,22 @@ export default function ThreadList({ threads, loading, error, onRetry, activeId,
         onClose={() => setMenu(null)}
         anchorReference="anchorPosition"
         anchorPosition={menu?.pos}
+        // A closing menu hands focus back to the three-dots button. That blurred the rename box
+        // the instant it appeared, and a blur cancels the rename: "Rename" looked dead
+        // (guru 2026-11-27). So the menu keeps its hands off focus, and the box opens only once
+        // the menu is fully gone.
+        disableRestoreFocus
+        TransitionProps={{
+          onExited: () => {
+            const t = renameNext.current;
+            renameNext.current = null;
+            if (t) setEditing({ id: t.id, title: t.title });
+          },
+        }}
       >
         <MenuItem
           onClick={() => {
-            if (menu) setEditing({ id: menu.t.id, title: menu.t.title });
+            renameNext.current = menu?.t ?? null;
             setMenu(null);
           }}
         >

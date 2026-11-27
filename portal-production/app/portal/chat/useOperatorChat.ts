@@ -360,8 +360,13 @@ export function useOperatorChat(
     async (id: string, title: string) => {
       const token = await getToken();
       if (!token) return;
-      await request({ path: `/operator/web/threads/${encodeURIComponent(id)}`, method: "PATCH" }, { title }, token);
-      loadThreads();
+      // Show the new name at once; the reload below puts the stored one back if the save failed.
+      setThreads((prev) => prev.map((t) => (t.id === id ? { ...t, title } : t)));
+      try {
+        await request({ path: `/operator/web/threads/${encodeURIComponent(id)}`, method: "PATCH" }, { title }, token);
+      } finally {
+        loadThreads();
+      }
     },
     [getToken, loadThreads],
   );

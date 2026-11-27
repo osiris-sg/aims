@@ -189,8 +189,12 @@ export class OperatorWebController {
           .filter((t) => t.role === 'assistant' && t.text)
           .slice(-1)[0]?.text;
         const title = await this.operator.suggestTitle(firstLine, reply, { organizationId: org.id, userId: req.user!.id, userName: ctx.actor.name ?? null });
-        await this.operator.patchThreadMeta('web', session.channelUserId, { title });
-        emit({ type: 'title', id: threadId, title });
+        // The user may have renamed the chat while the reply was being written: their name stays.
+        const now = await this.operator.readThread('web', session.channelUserId);
+        if (!(now?.state as any)?.titleByUser) {
+          await this.operator.patchThreadMeta('web', session.channelUserId, { title });
+          emit({ type: 'title', id: threadId, title });
+        }
       }
     } catch (e: any) {
       this.logger.error(`web chat failed: ${e?.message}`);
@@ -328,7 +332,9 @@ export class OperatorWebController {
     }
     const title = String(body?.title || '').trim().slice(0, 60);
     if (!title) return { error: 'Title required' };
-    await this.operator.patchThreadMeta(session.channel, session.channelUserId, { title });
+    // titleByUser: the automatic title of a first exchange never replaces a name the user typed.
+    // quiet: renaming is not activity, the conversation keeps its place in the list.
+    await this.operator.patchThreadMeta(session.channel, session.channelUserId, { title, titleByUser: true }, { quiet: true });
     return { ok: true, title };
   }
 
