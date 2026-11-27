@@ -254,13 +254,68 @@ export class PaymentVouchersService {
     };
   }
 
-  async create(organizationId: string, actor?: Actor) {
+  /**
+   * The start of a voucher that pays ONE supplier invoice (guru 2026-11-27: a button on the
+   * supplier invoice that jumps straight to its Payment Voucher). Same line the Offset Supplier
+   * Invoices dialog writes: the creditor control account, the supplier, this invoice ticked for
+   * what is still owing. The bank is left for the user, so the voucher stays out of the books
+   * until they key it. A supplier in another currency gets the supplier only: the rate is theirs
+   * to set in the dialog.
+   */
+  private async billPrefill(organizationId: string, billId: string, base: string, creditorCode: string) {
+    const bill = await this.prisma.document.findFirst({ where: { id: billId, organizationId, type: 'BILL' }, select: { id: true, name: true, config: true } });
+    if (!bill) throw new NotFoundException('Supplier invoice not found');
+    const c: any = bill.config || {};
+    const supplierId = c.supplierId || c.supplier?.id;
+    if (!supplierId) throw new BadRequestException(`${bill.name} has no supplier`);
+    const [supplier, open, control] = await Promise.all([
+      this.prisma.supplier.findFirst({ where: { id: supplierId, organizationId }, select: { id: true, name: true, supplierCode: true, currency: true } }),
+      this.openBills(organizationId, supplierId),
+      this.prisma.chartOfAccount.findFirst({ where: { organizationId, code: creditorCode }, select: { name: true } }),
+    ]);
+    if (!supplier) throw new BadRequestException(`${bill.name}: its supplier no longer exists`);
+    const row = open.find((r) => r.documentId === bill.id && r.kind === 'bill');
+    if (!row) throw new BadRequestException(`${bill.name} has nothing to pay: it is not confirmed yet, or it is already paid`);
+    const head = { supplierId: supplier.id, supplierName: supplier.name, supplierCode: supplier.supplierCode || null, payee: supplier.name };
+    const currency = String(supplier.currency || base).toUpperCase();
+    if (currency !== base || (row.currency && String(row.currency).toUpperCase() !== base)) return { ...head, lines: [], allocations: [], voucherAmount: 0 };
+    const amount = ROUND(row.outstanding);
+    const allocation = { documentId: bill.id, amount, reference: row.reference, date: row.date, description: row.remarks || 'SUPPLIER INVOICE' };
+    const line = {
+      id: `creditor-${supplier.id}`,
+      accountCode: creditorCode,
+      accountName: control?.name || '',
+      description: (control?.name || 'TRADE CREDITORS').toUpperCase(),
+      remarks: `${supplier.supplierCode ? `${supplier.supplierCode} — ` : ''}${supplier.name}`.trim(),
+      amount,
+      offset: {
+        party: 'supplier' as const,
+        supplierId: supplier.id,
+        supplierCode: supplier.supplierCode || null,
+        supplierName: supplier.name,
+        customerId: null,
+        currency,
+        rate: 1,
+        voucherAmount: amount,
+        supplierAmount: amount,
+        allocations: [allocation],
+        updateFx: true,
+        fxAccountCode: null,
+      },
+    };
+    return { ...head, lines: [line], allocations: [{ ...allocation, supplierId: supplier.id }], voucherAmount: amount };
+  }
+
+  async create(organizationId: string, actor?: Actor, opts?: { billId?: string }) {
     const [templateId, number, setting] = await Promise.all([
       this.getOrCreateTemplate(organizationId),
       this.nextVoucherNumber(organizationId),
       this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { controlAccounts: true, baseCurrency: true, timeZone: true } }),
     ]);
     const controls = (setting?.controlAccounts as any) || {};
+    const pre = opts?.billId
+      ? await this.billPrefill(organizationId, opts.billId, String(setting?.baseCurrency || 'SGD').toUpperCase(), controls.creditorControl || 'CL001')
+      : null;
     const doc = await this.prisma.document.create({
       data: {
         organizationId,
@@ -288,6 +343,7 @@ export class PaymentVouchersService {
           creditAccountCode: null,
           voucherAmount: 0,
           allocations: [],
+          ...(pre || {}),
         } as any,
       },
     });

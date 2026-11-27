@@ -224,6 +224,11 @@ export function PvBankInput({ formData, setFormData }: RowProps) {
   useEffect(() => {
     if (prefilled.current || code || !unsaved || !banks.length) return;
     prefilled.current = true;
+    // A voucher opened from a supplier invoice ("Create Payment Voucher") arrives with its line
+    // already filled. A remembered bank would make it complete, and the autosave would post the
+    // payment the moment it opened: one click paying an invoice from a guessed bank
+    // (found in testing 2026-11-27). There the bank is always keyed by the user.
+    if (Array.isArray(pd.lines) && pd.lines.length) return;
     const last = readLastBank("pv", organization?.id);
     const acc = last ? banks.find((b) => b.code === last) : undefined;
     if (acc) commit(acc);

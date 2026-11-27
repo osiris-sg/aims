@@ -34,9 +34,9 @@ export class PaymentVouchersController {
 
   @Post()
   @Permissions('payments:create')
-  @ApiOperation({ summary: 'Create a blank Payment Voucher (next PV- number)' })
-  create(@Req() req: RequestWithOrganization) {
-    return this.service.create(requireOrgId(req), actorFrom(req));
+  @ApiOperation({ summary: 'Create a blank Payment Voucher (next PV- number); with billId, one already set to pay that supplier invoice' })
+  create(@Req() req: RequestWithOrganization, @Body() body?: { billId?: string }) {
+    return this.service.create(requireOrgId(req), actorFrom(req), body?.billId ? { billId: String(body.billId) } : undefined);
   }
 
   @Get()

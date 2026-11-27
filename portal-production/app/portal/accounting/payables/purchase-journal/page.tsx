@@ -1,5 +1,6 @@
 "use client";
 
+import { openPaymentVoucherForBill } from "@/app/portal/accounting/bills/_components/payBill";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { withActiveOrg } from "@/helpers/request";
@@ -456,6 +457,8 @@ export default function BillsPage() {
           : []),
         // "Record payment" RETIRED 2026-11-23 (guru: payments only from the P/V side): a bill is
         // paid on a Payment Voucher (AP home → Payment Voucher → Offset Supplier Invoices).
+        // 2026-11-27: the shortcut to that voucher, for an invoice awaiting payment (new tab).
+        ...(b.status === "POSTED" ? [{ label: "Create Payment Voucher", onClick: () => void openPaymentVoucherForBill(request as any, b.id) }] : []),
         ...(b.status !== "VOID" ? [{ label: "Void", destructive: true, onClick: () => voidIt(b) }] : []),
       ];
     }),
