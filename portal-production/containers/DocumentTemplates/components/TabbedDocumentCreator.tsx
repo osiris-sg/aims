@@ -1125,12 +1125,7 @@ export default function TabbedDocumentCreator({
     const key = String(existingData?.id || documentId || "");
     if (readOnlyToastFor.current === key) return;
     readOnlyToastFor.current = key;
-    toast.info(
-      <span>
-        <strong>{readOnlyReason.title}</strong> {readOnlyReason.detail}
-      </span>,
-      { autoClose: 8000 },
-    );
+    toast.info(readOnlyReason.title, { autoClose: 6000 });
   }, [readOnlyReason, existingData?.id, documentId]);
   const [statusPopoverPos, setStatusPopoverPos] = useState<{ left: number; top: number } | null>(null);
   // DO first: a saved DO that belongs to an order in the manual order flow.
@@ -7525,8 +7520,8 @@ export default function TabbedDocumentCreator({
                 }}
               >
                 <LockOutlinedIcon fontSize="small" sx={{ color: `${readOnlyReason.tone}.main`, flexShrink: 0 }} />
-                <Typography variant="body2" sx={{ flex: 1, color: "inherit" }}>
-                  <strong>{readOnlyReason.title}</strong> {readOnlyReason.detail}
+                <Typography variant="body2" sx={{ flex: 1, color: "inherit", fontWeight: 600 }}>
+                  {readOnlyReason.title}
                 </Typography>
                 {readOnlyReason.action && (
                   <Button size="small" variant="contained" color={readOnlyReason.tone} disableElevation onClick={runReadOnlyAction} sx={{ flexShrink: 0 }}>
@@ -11204,7 +11199,6 @@ export default function TabbedDocumentCreator({
         {readOnlyReason && (
           <Stack spacing={1}>
             <Typography variant="subtitle2">{readOnlyReason.title}</Typography>
-            <Typography variant="body2" sx={{ color: "text.secondary" }}>{readOnlyReason.detail}</Typography>
             {(existingData as any)?.lastUsedBy && (
               <Typography variant="caption" sx={{ color: "text.secondary" }}>
                 Last used by {(existingData as any).lastUsedBy}{(existingData as any).lastUsedAt ? ` on ${whenLabel((existingData as any).lastUsedAt)}` : ""}
