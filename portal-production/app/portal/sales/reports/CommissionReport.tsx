@@ -33,13 +33,19 @@ const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
 const lastMonth = () => { const n = new Date(); return { from: iso(new Date(n.getFullYear(), n.getMonth() - 1, 1)), to: iso(new Date(n.getFullYear(), n.getMonth(), 0)) }; };
 
 type Person = { name: string; userId?: string | null; aliases?: string[]; rates?: Record<string, number | string>; allJobs?: boolean };
-type Settings = { rates: Record<string, number | string>; minMarginPct: number | string; people: Person[] };
+type Settings = { rates: Record<string, number | string>; minMarginPct: number | string; holdTypes?: string[]; skipNumbers?: string[] | string; deductCost?: Array<{ company: string; above: number | string }>; people: Person[] };
+type JobProof = {
+  quotation: string; value: number; company: string; customer: string; received: number; target: number; paidOn: string | null; invoiced: number; cost: number; margin: number | null;
+  invoices: Array<{ number: string; net: number; gross: number; received: number; owing: number }>;
+  payments: Array<{ date: string; receipt: string; invoice: string; amount: number; net: number }>;
+  supplierInvoices: Array<{ number: string; supplier: string; date: string; reference: string; amount: number; company: string }>;
+};
 type Row = {
-  key: string; person: string; date: string; receipt: string; chequeNo: string; customer: string; quotation: string; invoice: string; invoiceId: string; company: string;
+  key: string; person: string; date: string; receipt: string; chequeNo: string; customer: string; quotation: string; invoice: string; invoiceId: string; jobId: string; company: string; held: boolean; basis: number;
   type: string; typeGuessed: boolean; amount: number; rate: number; commission: number; excluded: boolean; note: string;
   override: { rate: number | null; exclude: boolean; type: string | null };
 };
-type Report = { from: string; to: string; settings: Settings; group?: boolean; companies?: string[]; people: Array<{ name: string; totalSales: number; totalCommission: number; byCompany?: Record<string, number>; rows: Row[] }>; totals: { payments: number; commission: number }; unknownNames: string[] };
+type Report = { from: string; to: string; settings: Settings; group?: boolean; companies?: string[]; people: Array<{ name: string; totalSales: number; totalCommission: number; byCompany?: Record<string, number>; heldSales?: number; rows: Row[] }>; jobs?: Record<string, JobProof>; totals: { payments: number; commission: number }; unknownNames: string[] };
 
 const numBox = { width: 68, "& input": { textAlign: "right" as const, py: 0.5, px: 0.75, fontSize: "0.82rem" } };
 const head = { fontWeight: 700, fontSize: "0.72rem", color: "text.secondary", whiteSpace: "nowrap" as const, py: 0.75 };
@@ -54,6 +60,8 @@ export default function CommissionReport() {
   const [ratesOpen, setRatesOpen] = useState(false);
   const [draft, setDraft] = useState<Settings | null>(null);
   const [saving, setSaving] = useState(false);
+  // The proof behind one job: its quotation, invoices, payments and supplier invoices.
+  const [proof, setProof] = useState<string | null>(null);
   // The organization's user accounts: a salesperson row is tied to one of them.
   const [accounts, setAccounts] = useState<Array<{ userId: string; name: string; aliases: string[] }>>([]);
 
@@ -128,6 +136,7 @@ export default function CommissionReport() {
     }
   };
   const NOBODY = "(No salesperson)";
+  const job = proof ? data?.jobs?.[proof] || null : null;
   // A group report (a parent company with its child companies) names the company on every row.
   const companies = data?.group ? data.companies || [] : [];
   const names = (data?.settings?.people || []).map((p) => p.name).filter(Boolean);
@@ -145,7 +154,7 @@ export default function CommissionReport() {
       tables: [
         { heading: "Summary", headers: ["Sales Person", "Total Sales Amount", ...cos, "Total Commission"], rows: summary, boldRows: [summary.length - 1] },
         ...data.people.map((p) => {
-          const live = p.rows.filter((r) => !r.excluded);
+          const live = p.rows.filter((r) => !r.excluded && !r.held);
           const co = (r: Row) => (cos.length ? [r.company] : []);
           const rows = live.map((r) => [...co(r), money(r.amount), r.chequeNo || r.receipt, r.customer, r.quotation, r.invoice, r.type === UNTYPED ? "" : r.type, String(r.rate), money(r.commission)]);
           rows.push([...(cos.length ? [""] : []), money(p.totalSales), "", "", "", "", "", "Total Commission ($)", money(p.totalCommission)]);
@@ -184,13 +193,14 @@ export default function CommissionReport() {
                 {data.unknownNames.map((n) => <Chip key={n} size="small" label={n} variant="outlined" color="warning" />)}
               </Stack>
             )}
-            <Table size="small" sx={{ maxWidth: companies.length ? 560 + companies.length * 170 : 560 }}>
+            <Table size="small" sx={{ maxWidth: companies.length ? 760 + companies.length * 170 : 760 }}>
               <TableHead>
                 <TableRow>
                   <TableCell sx={head}>Sales Person</TableCell>
                   <TableCell sx={head} align="right">Total Sales Amount</TableCell>
                   {companies.map((c) => <TableCell key={c} sx={head} align="right">{c}</TableCell>)}
                   <TableCell sx={head} align="right">Total Commission</TableCell>
+                  <TableCell sx={head} align="right">Waiting for full payment</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -200,6 +210,7 @@ export default function CommissionReport() {
                     <TableCell sx={cell} align="right">{money(p.totalSales)}</TableCell>
                     {companies.map((c) => <TableCell key={c} sx={cell} align="right">{money(p.byCompany?.[c] || 0)}</TableCell>)}
                     <TableCell sx={cell} align="right">{money(p.totalCommission)}</TableCell>
+                    <TableCell sx={{ ...cell, color: "text.secondary" }} align="right">{p.heldSales ? money(p.heldSales) : "—"}</TableCell>
                   </TableRow>
                 ))}
                 <TableRow>
@@ -207,6 +218,7 @@ export default function CommissionReport() {
                   <TableCell sx={{ ...cell, fontWeight: 700 }} align="right">{money(data.people.reduce((s, p) => s + p.totalSales, 0))}</TableCell>
                   {companies.map((c) => <TableCell key={c} sx={{ ...cell, fontWeight: 700 }} align="right">{money(data.people.reduce((s, p) => s + (p.byCompany?.[c] || 0), 0))}</TableCell>)}
                   <TableCell sx={{ ...cell, fontWeight: 700 }} align="right">{money(data.totals.commission)}</TableCell>
+                  <TableCell />
                 </TableRow>
               </TableBody>
             </Table>
@@ -236,7 +248,7 @@ export default function CommissionReport() {
                       {p.rows.map((r) => {
                         const was = r.override;
                         return (
-                          <TableRow key={r.key} sx={{ opacity: r.excluded ? 0.45 : 1 }}>
+                          <TableRow key={r.key} sx={{ opacity: r.excluded ? 0.45 : r.held ? 0.7 : 1 }}>
                             <TableCell padding="checkbox">
                               <Tooltip title={r.excluded ? "Left out. Tick to pay commission on it." : "Untick to leave this payment out"}>
                                 <Checkbox size="small" checked={!r.excluded} onChange={(e) => void saveRow(r, { exclude: !e.target.checked }, was)} />
@@ -247,7 +259,14 @@ export default function CommissionReport() {
                             <TableCell sx={cell} align="right">{money(r.amount)}</TableCell>
                             <TableCell sx={cell}>{r.chequeNo ? `${r.receipt} · ${r.chequeNo}` : r.receipt}</TableCell>
                             <TableCell sx={cell}>{r.customer}</TableCell>
-                            <TableCell sx={cell}>{r.quotation || "—"}</TableCell>
+                            <TableCell sx={cell}>
+                              <Tooltip title="Show the proof for this job: invoices, payments, supplier invoices">
+                                <Box component="button" type="button" data-tour="commission-job-proof" onClick={() => setProof(r.jobId)}
+                                  sx={{ all: "unset", cursor: "pointer", color: "primary.main", fontSize: "0.82rem", "&:hover": { textDecoration: "underline" }, "&:focus-visible": { outline: "2px solid", outlineColor: "primary.main" } }}>
+                                  {r.quotation || "No quotation"}
+                                </Box>
+                              </Tooltip>
+                            </TableCell>
                             <TableCell sx={cell}>{r.invoice}</TableCell>
                             <TableCell sx={cell}>
                               <TextField
@@ -273,7 +292,7 @@ export default function CommissionReport() {
                                 onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
                               />
                             </TableCell>
-                            <TableCell sx={{ ...cell, fontWeight: 600 }} align="right">{money(r.commission)}</TableCell>
+                            <TableCell sx={{ ...cell, fontWeight: 600 }} align="right">{r.held ? <Chip size="small" variant="outlined" label="Waiting" /> : money(r.commission)}</TableCell>
                             <TableCell sx={{ ...cell, color: "text.secondary" }}>
                               {p.name === NOBODY ? (
                                 <TextField
@@ -307,6 +326,68 @@ export default function CommissionReport() {
         )}
       </ReportShell>
 
+      <Dialog open={!!proof && !!job} onClose={() => setProof(null)} maxWidth="md" fullWidth>
+        {job && (
+          <>
+            <DialogTitle>{job.quotation || "No quotation"} · {job.customer}</DialogTitle>
+            <DialogContent>
+              <Stack spacing={2.5}>
+                <Stack direction="row" spacing={4} flexWrap="wrap" useFlexGap>
+                  {[
+                    ["Quotation value", money(job.value)],
+                    ["Invoiced", money(job.invoiced)],
+                    ["Received", money(job.received)],
+                    ["Fully paid", job.paidOn ? fmtDate(job.paidOn) : "Not yet"],
+                    ["Supplier cost", job.cost ? money(job.cost) : "None on record"],
+                    ["Margin", job.margin === null ? "—" : `${job.margin}%`],
+                  ].map(([k, v]) => (
+                    <Box key={k}><Typography variant="caption" color="text.secondary">{k}</Typography><Typography sx={{ fontWeight: 600 }}>{v}</Typography></Box>
+                  ))}
+                </Stack>
+                <Box>
+                  <Typography sx={{ fontWeight: 600, mb: 0.5 }}>Invoices</Typography>
+                  <Table size="small">
+                    <TableHead><TableRow><TableCell sx={head}>Invoice</TableCell><TableCell sx={head} align="right">Before GST</TableCell><TableCell sx={head} align="right">With GST</TableCell><TableCell sx={head} align="right">Received</TableCell><TableCell sx={head} align="right">Owing</TableCell></TableRow></TableHead>
+                    <TableBody>
+                      {job.invoices.map((i) => (
+                        <TableRow key={i.number}><TableCell sx={cell}>{i.number}</TableCell><TableCell sx={cell} align="right">{money(i.net)}</TableCell><TableCell sx={cell} align="right">{money(i.gross)}</TableCell><TableCell sx={cell} align="right">{money(i.received)}</TableCell><TableCell sx={cell} align="right">{money(i.owing)}</TableCell></TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Box>
+                <Box>
+                  <Typography sx={{ fontWeight: 600, mb: 0.5 }}>Payments received</Typography>
+                  <Table size="small">
+                    <TableHead><TableRow><TableCell sx={head}>Date</TableCell><TableCell sx={head}>Receipt</TableCell><TableCell sx={head}>Invoice</TableCell><TableCell sx={head} align="right">Received</TableCell><TableCell sx={head} align="right">Before GST</TableCell></TableRow></TableHead>
+                    <TableBody>
+                      {job.payments.map((p, i) => (
+                        <TableRow key={i}><TableCell sx={cell}>{fmtDate(p.date)}</TableCell><TableCell sx={cell}>{p.receipt}</TableCell><TableCell sx={cell}>{p.invoice}</TableCell><TableCell sx={cell} align="right">{money(p.amount)}</TableCell><TableCell sx={cell} align="right">{money(p.net)}</TableCell></TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Box>
+                <Box>
+                  <Typography sx={{ fontWeight: 600, mb: 0.5 }}>Supplier invoices tagged to this job</Typography>
+                  {job.supplierInvoices.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">None. The job's cost is not on record, so the margin is not tested.</Typography>
+                  ) : (
+                    <Table size="small">
+                      <TableHead><TableRow><TableCell sx={head}>Supplier invoice</TableCell><TableCell sx={head}>Supplier</TableCell><TableCell sx={head}>Date</TableCell><TableCell sx={head}>Reference</TableCell><TableCell sx={head} align="right">Cost before GST</TableCell></TableRow></TableHead>
+                      <TableBody>
+                        {job.supplierInvoices.map((b) => (
+                          <TableRow key={b.number}><TableCell sx={cell}>{b.number}</TableCell><TableCell sx={cell}>{b.supplier}</TableCell><TableCell sx={cell}>{b.date ? fmtDate(b.date) : ""}</TableCell><TableCell sx={cell}>{b.reference}</TableCell><TableCell sx={cell} align="right">{money(b.amount)}</TableCell></TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </Box>
+              </Stack>
+            </DialogContent>
+            <DialogActions sx={{ px: 3, pb: 2 }}><Button onClick={() => setProof(null)}>Close</Button></DialogActions>
+          </>
+        )}
+      </Dialog>
+
       <Dialog open={ratesOpen} onClose={() => setRatesOpen(false)} maxWidth="lg" fullWidth>
         <DialogTitle>Commission rates</DialogTitle>
         <DialogContent>
@@ -320,6 +401,33 @@ export default function CommissionReport() {
                 ))}
                 <TextField size="small" label="Minimum margin %" value={draft.minMarginPct} sx={{ width: 150 }} inputProps={{ inputMode: "decimal" }}
                   onChange={(e) => setDraft({ ...draft, minMarginPct: e.target.value })} />
+              </Stack>
+              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                <Typography sx={{ fontWeight: 600, minWidth: 150 }}>Paid only when the whole quotation is fully paid</Typography>
+                {TYPES.map((t) => {
+                  const on = (draft.holdTypes || []).includes(t);
+                  return (
+                    <Box key={t} component="label" sx={{ display: "inline-flex", alignItems: "center", cursor: "pointer", fontSize: "0.85rem" }}>
+                      <Checkbox size="small" checked={on} onChange={(e) => setDraft({ ...draft, holdTypes: e.target.checked ? [...(draft.holdTypes || []), t] : (draft.holdTypes || []).filter((x) => x !== t) })} />
+                      {t}
+                    </Box>
+                  );
+                })}
+              </Stack>
+              <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
+                <TextField size="small" label="No commission on invoice numbers starting with" placeholder="SIBA" sx={{ width: 330 }}
+                  value={Array.isArray(draft.skipNumbers) ? draft.skipNumbers.join(", ") : draft.skipNumbers || ""}
+                  onChange={(e) => setDraft({ ...draft, skipNumbers: e.target.value })} />
+                {(draft.deductCost || []).map((r, i) => (
+                  <Stack key={i} direction="row" spacing={1} alignItems="center">
+                    <TextField size="small" label="Deduct cost in company" placeholder="Racking" sx={{ width: 190 }} value={r.company}
+                      onChange={(e) => setDraft({ ...draft, deductCost: (draft.deductCost || []).map((x, k) => (k === i ? { ...x, company: e.target.value } : x)) })} />
+                    <TextField size="small" label="for jobs over" sx={{ width: 130 }} value={r.above} inputProps={{ inputMode: "decimal" }}
+                      onChange={(e) => setDraft({ ...draft, deductCost: (draft.deductCost || []).map((x, k) => (k === i ? { ...x, above: e.target.value } : x)) })} />
+                    <IconButton size="small" aria-label="Remove rule" onClick={() => setDraft({ ...draft, deductCost: (draft.deductCost || []).filter((_, k) => k !== i) })}><DeleteOutlineIcon fontSize="small" /></IconButton>
+                  </Stack>
+                ))}
+                <Button size="small" startIcon={<AddIcon />} onClick={() => setDraft({ ...draft, deductCost: [...(draft.deductCost || []), { company: "", above: 200000 }] })}>Deduct cost on big jobs</Button>
               </Stack>
               <Box sx={{ overflowX: "auto" }}>
                 <Table size="small" sx={{ minWidth: 820 }}>

@@ -27,6 +27,8 @@ const INVOICE_TYPES = ['INVOICE', 'TI', 'TI2'];
 const DO_TYPES = ['DELIVERY_ORDER', 'DO'];
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+/** A supplier invoice counted as a job's cost. */
+interface JobBill { number: string; supplier: string; date: string; reference: string; amount: number; company: string }
 
 @Injectable()
 export class CommissionService {
@@ -180,63 +182,140 @@ export class CommissionService {
     const [settings, assign, overrides, scope] = await Promise.all([
       this.readField(organizationId, 'settings').then(cleanSettings),
       this.readField(organizationId, 'assign').then((m) => (m || {}) as Record<string, string>),
-      this.overridesFor(organizationId, from, to),
+      // A job fully paid in this period brings its EARLIER payments onto the report, so their row choices are needed too.
+      this.overridesFor(organizationId, '0000-01', to),
       this.scope(organizationId),
     ]);
     const payments: PaymentIn[] = [];
     const invoices = new Map<string, InvoiceIn>();
     const costs = new Map<string, number>();
+    const bills = new Map<string, JobBill[]>();
     for (const org of scope.orgs) {
       const part = await runAsOrg(org.id, () => this.loadOrg(org, from, to, assign, settings.people));
       payments.push(...part.payments);
       for (const [k, v] of part.invoices) invoices.set(k, v);
       for (const [k, v] of part.costs) costs.set(k, (costs.get(k) || 0) + v);
+      for (const [k, v] of part.bills) bills.set(k, [...(bills.get(k) || []), ...v]);
     }
     // Each company has its own chart, so a line's job type is settled while its company is read.
     const typeOfAccount = (code: string) => (code.startsWith('type:') ? code.slice(5) : null);
-    const out = computeCommission({ payments, invoices, costs, settings, overrides, typeOfAccount });
-    return { from, to, settings, group: scope.group, companies: scope.orgs.map((o) => o.name), ...out };
+    const out = computeCommission({ payments, from, to, invoices, costs, settings, overrides, typeOfAccount });
+    return { from, to, settings, group: scope.group, companies: scope.orgs.map((o) => o.name), ...out, jobs: this.jobProofs(out, payments, invoices, costs, bills) };
+  }
+
+  /**
+   * The proof behind each job on the report (guru 2026-11-28: "show the quotation / invoices under
+   * each salesperson, that it is being paid, and the supplier invoices tagged to them, so the person
+   * generating has quick proof the numbers are correct"): the quotation and its value, every
+   * invoice raised against it with what is paid and owing, every payment received, and the supplier
+   * invoices counted as its cost.
+   */
+  private jobProofs(out: ReturnType<typeof computeCommission>, payments: PaymentIn[], invoices: Map<string, InvoiceIn>, costs: Map<string, number>, bills: Map<string, JobBill[]>) {
+    const R = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+    const wanted = new Set<string>();
+    for (const p of out.people) for (const r of p.rows) wanted.add(r.jobId);
+    const jobOf = (inv: InvoiceIn) => (inv.quotation ? `q:${inv.quotation.id}` : `i:${inv.id}`);
+    const proofs: Record<string, any> = {};
+    for (const inv of invoices.values()) {
+      const id = jobOf(inv);
+      if (!wanted.has(id)) continue;
+      const job = (proofs[id] ||= {
+        quotation: inv.quotation?.number || '', value: inv.quotation?.net || inv.net, company: inv.company || '', customer: inv.customer,
+        invoices: [] as any[], payments: [] as any[], supplierInvoices: inv.quotation ? bills.get(inv.quotation.id) || [] : [],
+        cost: R(inv.quotation ? costs.get(inv.quotation.id) || 0 : 0), ...(out.jobs[id] || { received: 0, paidOn: null }),
+      });
+      const mine = payments.filter((p) => p.invoiceId === inv.id);
+      const paidGross = R(mine.reduce((t, p) => t + p.amount, 0));
+      job.invoices.push({ number: inv.number, net: R(inv.net), gross: R(inv.gross), received: paidGross, owing: R(Math.max(0, inv.gross - paidGross)) });
+      for (const p of mine) job.payments.push({ date: p.date, receipt: p.number, invoice: inv.number, amount: R(p.amount), net: inv.gross > 0 && inv.net > 0 ? R((p.amount * inv.net) / inv.gross) : R(p.amount) });
+    }
+    for (const j of Object.values(proofs)) {
+      j.invoices.sort((x: any, y: any) => String(x.number).localeCompare(String(y.number)));
+      j.payments.sort((x: any, y: any) => String(x.date).localeCompare(String(y.date)));
+      j.invoiced = R(j.invoices.reduce((t: number, x: any) => t + x.net, 0));
+      j.margin = j.cost > 0 && j.value > 0 ? R(((j.value - j.cost) / j.value) * 100) : null;
+    }
+    return proofs;
   }
 
   private async loadOrg(org: { id: string; name: string }, from: string, to: string, assign: Record<string, string>, people: CommissionPerson[]) {
     const organizationId = org.id;
     const ui = await this.prisma.organizationUIConfig.findUnique({ where: { organizationId }, select: { features: true } });
     const typeOfAccount = await this.accountTypes(organizationId, ui?.features || {});
+    const endOfTo = new Date(new Date(`${to}T00:00:00+08:00`).getTime() + 86400_000);
+    // A void or a half-keyed receipt is not money received.
+    const LIVE = `COALESCE(r.config->>'voided', '') <> 'true' AND COALESCE(r.config->>'incompleteReason', '') = ''`;
 
-    // ── payments in the period ──
-    const receipts: any[] = await this.prisma.$queryRawUnsafe(
-      `SELECT id::text AS id, name, config FROM "Document"
-        WHERE "organizationId" = $1 AND type = 'OFFICIAL_RECEIPT' AND config->>'date' >= $2 AND config->>'date' <= $3`,
+    // ── the invoices paid in the period ──
+    const inPeriod: any[] = await this.prisma.$queryRawUnsafe(
+      `SELECT DISTINCT x->>'documentId' AS doc FROM "Document" r, jsonb_array_elements(COALESCE(r.config->'allocations', '[]'::jsonb)) x
+        WHERE r."organizationId" = $1 AND r.type = 'OFFICIAL_RECEIPT' AND r.config->>'date' >= $2 AND r.config->>'date' <= $3 AND ${LIVE}`,
       organizationId, from, to,
     );
-    const payments: PaymentIn[] = [];
-    for (const r of receipts) {
-      const c: any = r.config || {};
-      if (c.voided || c.incompleteReason) continue; // a void or a half-keyed receipt is not money received
-      for (const a of Array.isArray(c.allocations) ? c.allocations : []) {
-        const amount = Number(a?.amount) || 0;
-        if (a?.documentId && amount > 0) payments.push({ key: r.id, number: r.name || '', date: String(c.date).slice(0, 10), chequeNo: c.chequeNo || null, invoiceId: String(a.documentId), amount });
+    const directNow = await this.prisma.payment.findMany({
+      where: { organizationId, receiptId: null, paymentDate: { gte: new Date(`${from}T00:00:00+08:00`), lt: endOfTo } },
+      select: { documentId: true },
+    });
+    const periodIds = Array.from(new Set([...inPeriod.map((r) => String(r.doc)), ...directNow.map((p) => p.documentId)].filter(Boolean)));
+
+    // ── their jobs: the order each invoice sits on names its quotation, and lists the job's other invoices ──
+    // (guru 2026-11-28: "it's linked to the order which a quotation is linked to")
+    const quoteIdOf = new Map<string, string>(); // invoice id → quotation id
+    const posOfQuote = new Map<string, Set<string>>(); // quotation id → purchase order ids on its orders
+    const jobIds = new Set(periodIds);
+    if (periodIds.length) {
+      const onOrders: any[] = await this.prisma.$queryRawUnsafe(
+        `SELECT DISTINCT o."sourceQuotationId"::text AS quote FROM "Order" o, jsonb_array_elements(COALESCE(o."linkedDocuments"->'invoice', '[]'::jsonb)) i
+          WHERE o."organizationId" = $1 AND o."sourceQuotationId" IS NOT NULL AND upper(COALESCE(o.status, '')) <> 'CANCELLED' AND i->>'id' = ANY($2::text[])`,
+        organizationId, periodIds,
+      );
+      const quoteIdsNow = onOrders.map((r) => String(r.quote));
+      if (quoteIdsNow.length) {
+        const whole: any[] = await this.prisma.$queryRawUnsafe(
+          `SELECT o."sourceQuotationId"::text AS quote, i->>'id' AS inv, o."linkedDocuments"->'po' AS po
+             FROM "Order" o LEFT JOIN LATERAL jsonb_array_elements(COALESCE(o."linkedDocuments"->'invoice', '[]'::jsonb)) i ON true
+            WHERE o."organizationId" = $1 AND upper(COALESCE(o.status, '')) <> 'CANCELLED' AND o."sourceQuotationId"::text = ANY($2::text[])`,
+          organizationId, quoteIdsNow,
+        );
+        for (const r of whole) {
+          if (r.inv) { if (!quoteIdOf.has(r.inv)) quoteIdOf.set(r.inv, r.quote); jobIds.add(String(r.inv)); }
+          const set = posOfQuote.get(r.quote) || new Set<string>();
+          for (const po of Array.isArray(r.po) ? r.po : []) if (po?.id) set.add(String(po.id));
+          posOfQuote.set(r.quote, set);
+        }
       }
     }
-    const direct = await this.prisma.payment.findMany({
-      where: { organizationId, receiptId: null, paymentDate: { gte: new Date(`${from}T00:00:00+08:00`), lt: new Date(new Date(`${to}T00:00:00+08:00`).getTime() + 86400_000) } },
-      select: { id: true, documentId: true, amount: true, paymentDate: true, reference: true },
-    });
-    for (const p of direct) {
-      if (!(p.amount > 0)) continue;
-      const date = new Date(p.paymentDate.getTime() + 8 * 3600_000).toISOString().slice(0, 10);
-      payments.push({ key: p.id, number: 'Payment', date, chequeNo: p.reference || null, invoiceId: p.documentId, amount: p.amount });
+    const invoiceIds = Array.from(jobIds);
+
+    // ── every payment of those invoices up to the end of the period (a job is paid for as a whole) ──
+    const payments: PaymentIn[] = [];
+    if (invoiceIds.length) {
+      const recs: any[] = await this.prisma.$queryRawUnsafe(
+        `SELECT r.id::text AS id, r.name, r.config->>'date' AS date, r.config->>'chequeNo' AS cheque, x->>'documentId' AS doc, (x->>'amount')::float8 AS amount
+           FROM "Document" r, jsonb_array_elements(COALESCE(r.config->'allocations', '[]'::jsonb)) x
+          WHERE r."organizationId" = $1 AND r.type = 'OFFICIAL_RECEIPT' AND r.config->>'date' <= $2 AND ${LIVE} AND x->>'documentId' = ANY($3::text[])`,
+        organizationId, to, invoiceIds,
+      );
+      for (const r of recs) if (r.amount > 0) payments.push({ key: r.id, number: r.name || '', date: String(r.date).slice(0, 10), chequeNo: r.cheque || null, invoiceId: String(r.doc), amount: Number(r.amount) });
+      const direct = await this.prisma.payment.findMany({
+        where: { organizationId, receiptId: null, documentId: { in: invoiceIds }, paymentDate: { lt: endOfTo } },
+        select: { id: true, documentId: true, amount: true, paymentDate: true, reference: true },
+      });
+      for (const p of direct) {
+        if (!(p.amount > 0)) continue;
+        payments.push({ key: p.id, number: 'Payment', date: new Date(p.paymentDate.getTime() + 8 * 3600_000).toISOString().slice(0, 10), chequeNo: p.reference || null, invoiceId: p.documentId, amount: p.amount });
+      }
     }
 
-    // ── the invoices they paid, and each one's quotation ──
-    const invoiceIds = Array.from(new Set(payments.map((p) => p.invoiceId)));
     const invDocs = invoiceIds.length
       ? await this.prisma.document.findMany({ where: { organizationId, id: { in: invoiceIds }, type: { in: INVOICE_TYPES } }, select: { id: true, name: true, config: true } })
       : [];
+    // With no order: the invoice's source document, else its delivery order's.
     const quoteNoOf = new Map<string, string>(); // invoice id → quotation number
     const doNoOf = new Map<string, string>(); // invoice id → delivery order number
     const isQuote = (n: string, type?: string) => /quot/i.test(type || '') || /^Q[-\d]/i.test(n);
     for (const d of invDocs) {
+      if (quoteIdOf.has(d.id)) continue;
       const c: any = d.config || {};
       const src = str(c.sourceDocumentNumber);
       if (src && isQuote(src, str(c.sourceDocumentType))) quoteNoOf.set(d.id, src);
@@ -254,25 +333,6 @@ export class CommissionService {
       if (n && d.name) quoteOfDo.set(d.name, n);
     }
     for (const [inv, doNo] of doNoOf) { const n = quoteOfDo.get(doNo); if (n) quoteNoOf.set(inv, n); }
-    // The order is the surest link (guru 2026-11-28: "it's linked to the order which a quotation is
-    // linked to"): invoice → the order listing it → the order's quotation and its purchase orders.
-    const quoteIdOf = new Map<string, string>(); // invoice id → quotation id
-    const posOfQuote = new Map<string, Set<string>>(); // quotation id → purchase order ids on its orders
-    if (invoiceIds.length) {
-      const onOrders: any[] = await this.prisma.$queryRawUnsafe(
-        `SELECT i->>'id' AS inv, o."sourceQuotationId"::text AS quote, o."linkedDocuments"->'po' AS po
-           FROM "Order" o, jsonb_array_elements(COALESCE(o."linkedDocuments"->'invoice', '[]'::jsonb)) i
-          WHERE o."organizationId" = $1 AND o."sourceQuotationId" IS NOT NULL AND upper(COALESCE(o.status, '')) <> 'CANCELLED'
-            AND i->>'id' = ANY($2::text[])`,
-        organizationId, invoiceIds,
-      );
-      for (const r of onOrders) {
-        if (!quoteIdOf.has(r.inv)) quoteIdOf.set(r.inv, r.quote);
-        const set = posOfQuote.get(r.quote) || new Set<string>();
-        for (const po of Array.isArray(r.po) ? r.po : []) if (po?.id) set.add(String(po.id));
-        posOfQuote.set(r.quote, set);
-      }
-    }
     const quoteNos = Array.from(new Set(quoteNoOf.values()));
     const quoteIds = Array.from(new Set(quoteIdOf.values()));
     const quotes = quoteNos.length || quoteIds.length
@@ -281,32 +341,37 @@ export class CommissionService {
     const quoteByNo = new Map(quotes.map((d) => [d.name || '', d]));
     const quoteById = new Map(quotes.map((d) => [d.id, d]));
 
-    // ── supplier cost tagged to those quotations ──
+    // ── supplier cost of those jobs: invoices raised from the order's purchase orders, and lines tagged to the quotation ──
     const costs = new Map<string, number>();
+    const bills = new Map<string, JobBill[]>();
     if (quotes.length) {
-      const bills: any[] = await this.prisma.$queryRawUnsafe(
-        `SELECT config FROM "Document" WHERE "organizationId" = $1 AND type = 'BILL'
+      const rows: any[] = await this.prisma.$queryRawUnsafe(
+        `SELECT name, config FROM "Document" WHERE "organizationId" = $1 AND type = 'BILL'
             AND (config::text LIKE '%"quotationId"%' OR COALESCE(config->>'sourcePoId', '') <> '')`,
         organizationId,
       );
       const wanted = new Set(quotes.map((d) => d.id));
       const quoteOfPo = new Map<string, string>();
       for (const [quote, pos] of posOfQuote) for (const po of pos) quoteOfPo.set(po, quote);
-      for (const b of bills) {
+      const add = (quote: string, b: any, amount: number) => {
+        const c: any = b.config || {};
+        costs.set(quote, (costs.get(quote) || 0) + amount);
+        const list = bills.get(quote) || [];
+        const same = list.find((x) => x.number === (b.name || ''));
+        if (same) same.amount = Math.round((same.amount + amount) * 100) / 100;
+        else list.push({ number: b.name || '', supplier: str(c.supplier?.name) || str(c.supplierName), date: String(c.billDate || c.date || '').slice(0, 10), reference: str(c.referenceNo) || str(c.reference), amount: Math.round(amount * 100) / 100, company: org.name });
+        bills.set(quote, list);
+      };
+      for (const b of rows) {
         const c: any = b.config || {};
         if (c.voided || String(c.billStatus || '').toUpperCase() === 'VOID') continue;
         const sign = c.kind === 'SPR' ? -1 : 1; // a purchase return gives cost back
         // A supplier invoice raised from a purchase order of the job's order: the whole of it is that job's cost.
         const viaPo = quoteOfPo.get(String(c.sourcePoId || ''));
-        if (viaPo) {
-          const net = c.subtotal != null ? Number(c.subtotal) || 0 : (Number(c.totalAmount) || 0) - (Number(c.taxAmount) || 0);
-          costs.set(viaPo, (costs.get(viaPo) || 0) + sign * net);
-          continue;
-        }
+        if (viaPo) { add(viaPo, b, sign * (c.subtotal != null ? Number(c.subtotal) || 0 : (Number(c.totalAmount) || 0) - (Number(c.taxAmount) || 0))); continue; }
         for (const l of Array.isArray(c.lines) ? c.lines : []) {
           if (!l?.quotationId || !wanted.has(String(l.quotationId))) continue;
-          const net = (Number(l.amount) || 0) - (c.amountsAre === 'INCLUSIVE' ? Number(l.taxAmount) || 0 : 0);
-          costs.set(String(l.quotationId), (costs.get(String(l.quotationId)) || 0) + sign * net);
+          add(String(l.quotationId), b, sign * ((Number(l.amount) || 0) - (c.amountsAre === 'INCLUSIVE' ? Number(l.taxAmount) || 0 : 0)));
         }
       }
     }
@@ -339,7 +404,6 @@ export class CommissionService {
         quotation: quote ? { id: quote.id, number: quote.name || '', net: qc.subTotal != null ? Number(qc.subTotal) || 0 : 0 } : null,
       });
     }
-
-    return { payments, invoices, costs };
+    return { payments, invoices, costs, bills };
   }
 }

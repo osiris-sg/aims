@@ -102,6 +102,61 @@ describe('commission report', () => {
     expect(henry.rows.map((x: any) => x.company)).toEqual(['BC Air', 'WCT (S) Systems']);
   });
 
+  describe('CD is paid as it comes in; other jobs when the whole quotation is fully paid', () => {
+    // Marhaba Food Industries, quotation -13896: 4,000 received in March, 7,000 in July (the office's July sheet lists both).
+    const quo = { id: 'q9', number: 'Q-013896', net: 11000 };
+    const aa = (id: string, number: string, net: number) => invoice({ id, number, customer: 'Marhaba', net, gross: net * 1.09, quotation: quo, lines: [{ amount: net, accountCode: '4-3000' }] });
+    const invs = new Map([['m1', aa('m1', 'I003002', 4000)], ['m2', aa('m2', 'I003128', 7000)]]);
+    const march = { key: 'r1', number: 'CR1', date: '2026-03-12', invoiceId: 'm1', amount: 4360 };
+    const july = { key: 'r2', number: 'CR2', date: '2026-07-20', invoiceId: 'm2', amount: 7630 };
+    const calc = (from: string, to: string, payments: any[], extra: any = {}) => computeCommission({ payments, from, to, invoices: invs, costs: new Map(), settings, typeOfAccount, ...extra });
+
+    it('March: the first payment is shown as waiting and earns nothing yet', () => {
+      const r = calc('2026-03-01', '2026-03-31', [march]);
+      expect(row(r, 'Henry')).toMatchObject({ amount: 4000, commission: 0, held: true });
+      expect(row(r, 'Henry').note).toContain('Waiting: job not fully paid (4,000 of 11,000 received)');
+      expect(r.people.find((p: any) => p.name === 'Henry')).toMatchObject({ totalSales: 0, totalCommission: 0, heldSales: 4000 });
+    });
+    it('July: the job is fully paid, so BOTH payments are paid now', () => {
+      const r = calc('2026-07-01', '2026-07-31', [march, july]);
+      const henry: any = r.people.find((p: any) => p.name === 'Henry');
+      expect(henry.rows.map((x: any) => [x.invoice, x.amount, x.commission, x.held])).toEqual([['I003002', 4000, 200, false], ['I003128', 7000, 350, false]]);
+      expect(henry.rows[0].note).toContain('Received 12/03/2026; job fully paid 20/07/2026');
+      expect(henry.totalCommission).toBe(550);
+      expect(r.jobs['q:q9']).toMatchObject({ received: 11000, target: 11000, paidOn: '2026-07-20' });
+    });
+    it('August: nothing of that job is paid a second time', () => {
+      expect(calc('2026-08-01', '2026-08-31', [march, july]).people).toEqual([]);
+    });
+    it('a CD payment is paid in its own month whether or not the job is finished', () => {
+      const cd = invoice({ id: 'c1', quotation: { id: 'q8', number: 'Q-1', net: 5000 } }); // 1,500 of a 5,000 job
+      const r = computeCommission({ payments: [{ key: 'r3', number: 'CR3', date: '2026-07-05', invoiceId: 'c1', amount: 1635 }], from: '2026-07-01', to: '2026-07-31', invoices: new Map([['c1', cd]]), costs: new Map(), settings, typeOfAccount });
+      expect(row(r, 'Henry')).toMatchObject({ type: 'CD', commission: 120, held: false });
+    });
+    it('the office can still choose which types wait', () => {
+      const r = calc('2026-03-01', '2026-03-31', [march], { settings: { ...settings, holdTypes: [] } });
+      expect(row(r, 'Henry')).toMatchObject({ commission: 200, held: false });
+    });
+  });
+
+  it('invoice numbers the office lists earn nothing (another business\'s series)', () => {
+    const r = run(invoice({ number: 'SIBA-26-00079' }), {}, { settings: cleanSettings({ ...settings, skipNumbers: 'siba' }) });
+    expect(r.people).toEqual([]);
+  });
+
+  it('a big job in a named company is paid on the payment less its cost', () => {
+    const s = cleanSettings({ ...settings, deductCost: [{ company: 'Racking', above: 200000 }] });
+    const big = invoice({ company: 'WCT Racking Pte Ltd', net: 250000, gross: 272500, quotation: { id: 'qr', number: 'Q-R1', net: 250000 }, lines: [{ amount: 250000, accountCode: '4-2000' }] });
+    const r = run(big, {}, { settings: s, costs: new Map([['qr', 200000]]) }); // 20% left after cost
+    expect(row(r, 'Henry')).toMatchObject({ amount: 250000, basis: 50000, rate: 8, commission: 4000 });
+    expect(row(r, 'Henry').note).toContain('cost 200,000 deducted');
+    // the same job at 150,000 is under the line: paid on the whole payment
+    const small = invoice({ company: 'WCT Racking Pte Ltd', net: 150000, gross: 163500, quotation: { id: 'qs', number: 'Q-R2', net: 150000 }, lines: [{ amount: 150000, accountCode: '4-2000' }] });
+    expect(row(run(small, {}, { settings: s, costs: new Map([['qs', 100000]]) }), 'Henry')).toMatchObject({ basis: 150000, commission: 12000 });
+    // no cost on record: said so, nothing deducted
+    expect(row(run(big, {}, { settings: s }), 'Henry').note).toContain('no supplier cost on record');
+  });
+
   it('names: aliases, first names, shared names, and names nobody is set up for', () => {
     expect(salespeopleOf('Henry Hoo', settings.people)).toEqual(['Henry']);
     expect(salespeopleOf('henry', settings.people)).toEqual(['Henry']);

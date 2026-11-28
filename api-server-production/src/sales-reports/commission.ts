@@ -30,11 +30,26 @@ export interface CommissionPerson {
 export interface CommissionSettings {
   rates: Record<string, number>;
   minMarginPct: number;
+  /**
+   * Job types paid only when the WHOLE JOB (the quotation) is fully paid, and then on every payment
+   * of the job at once, earlier months included. The office's rule (confirmed by guru 2026-11-28,
+   * "whole quotation"): CD is paid on each payment as it comes in; everything else waits.
+   */
+  holdTypes: string[];
+  /** Invoices whose number starts with one of these earn no commission (e.g. another business's series). */
+  skipNumbers: string[];
+  /**
+   * Big jobs paid on profit, not on sales (guru 2026-11-28: "Racking, if the job is more than 200k
+   * then need to deduct costing"): in a company whose name contains `company`, a job worth more than
+   * `above` earns commission on each payment LESS the job's supplier cost, in proportion.
+   */
+  deductCost: Array<{ company: string; above: number }>;
   people: CommissionPerson[];
 }
 export interface RowOverride { rate?: number | null; exclude?: boolean; type?: string | null }
 
-export const defaultSettings = (): CommissionSettings => ({ rates: { ...STANDARD_RATES }, minMarginPct: 30, people: [] });
+export const HOLD_TYPES_DEFAULT = ['AA', 'MV', 'VO', 'TS'];
+export const defaultSettings = (): CommissionSettings => ({ rates: { ...STANDARD_RATES }, minMarginPct: 30, holdTypes: [...HOLD_TYPES_DEFAULT], skipNumbers: [], deductCost: [], people: [] });
 
 const R = (n: unknown) => Math.round(((Number(n) || 0) + Number.EPSILON) * 100) / 100;
 const norm = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -61,7 +76,13 @@ export function cleanSettings(raw: any): CommissionSettings {
       allJobs: p?.allJobs === true,
     });
   }
-  return { rates, minMarginPct: Math.max(0, Math.min(100, num(raw?.minMarginPct, d.minMarginPct))), people };
+  const holdTypes = Array.isArray(raw?.holdTypes) ? (JOB_TYPES as readonly string[]).filter((t) => raw.holdTypes.includes(t)) : d.holdTypes;
+  const skipNumbers = (Array.isArray(raw?.skipNumbers) ? raw.skipNumbers : String(raw?.skipNumbers ?? '').split(','))
+    .map((x: unknown) => String(x ?? '').trim().toUpperCase()).filter(Boolean).slice(0, 20);
+  const deductCost = (Array.isArray(raw?.deductCost) ? raw.deductCost : [])
+    .map((r: any) => ({ company: String(r?.company ?? '').replace(/\s+/g, ' ').trim().slice(0, 80), above: Math.max(0, num(r?.above, 0)) }))
+    .filter((r: { company: string }) => r.company).slice(0, 10);
+  return { rates, minMarginPct: Math.max(0, Math.min(100, num(raw?.minMarginPct, d.minMarginPct))), holdTypes, skipNumbers, deductCost, people };
 }
 
 /**
@@ -165,20 +186,30 @@ export interface CommissionRow {
   quotation: string;
   invoice: string;
   invoiceId: string;
+  /** The job (its quotation, else the invoice itself): the key of its proof. */
+  jobId: string;
   company: string;
   type: string;
   typeGuessed: boolean;
   amount: number; // this type's share of the payment, before GST
+  /** What the rate is applied to: the amount, or the amount less the job's cost where that rule applies. */
+  basis: number;
   rate: number;
   commission: number;
   excluded: boolean;
+  /** Waiting for the job to be fully paid: shown, earns nothing yet, not in the totals. */
+  held: boolean;
   note: string;
   /** The office's saved choice for this row, as stored (so one change does not wipe another). */
   override: { rate: number | null; exclude: boolean; type: string | null };
 }
 
 export function computeCommission(input: {
+  /** Every payment of the jobs concerned up to the end of the period (earlier months included). */
   payments: PaymentIn[];
+  /** The period being paid: a payment outside it shows only when its job was fully paid inside it. */
+  from?: string;
+  to?: string;
   invoices: Map<string, InvoiceIn>;
   /** Supplier cost booked against a quotation (before GST), by quotation id. */
   costs: Map<string, number>;
@@ -188,6 +219,10 @@ export function computeCommission(input: {
 }) {
   const { settings } = input;
   const overrides = input.overrides || {};
+  const from = input.from || '0000-00-00';
+  const to = input.to || '9999-99-99';
+  const inPeriod = (d: string) => d >= from && d <= to;
+  const hold = new Set(settings.holdTypes || []);
   const rateFor = (person: string, type: string) => {
     const p = settings.people.find((x) => norm(x.name) === norm(person));
     const own = p?.rates?.[type];
@@ -195,13 +230,34 @@ export function computeCommission(input: {
   };
   const everyJob = settings.people.filter((p) => p.allJobs);
   const rows: CommissionRow[] = [];
-  let skipped = 0;
+  const dmy = (d: string) => d.split('-').reverse().join('/');
+  // The payment before GST, in the invoice's own proportion.
+  const netOf = (pay: PaymentIn, inv: InvoiceIn) => (inv.gross > 0 && inv.net > 0 ? R((pay.amount * inv.net) / inv.gross) : R(pay.amount));
 
-  for (const pay of input.payments) {
-    const inv = input.invoices.get(pay.invoiceId);
-    if (!inv || !(pay.amount > 0)) { skipped++; continue; }
-    // The payment before GST, in the invoice's own proportion.
-    const net = inv.gross > 0 && inv.net > 0 ? R((pay.amount * inv.net) / inv.gross) : R(pay.amount);
+  const usable = input.payments
+    .filter((p) => p.amount > 0 && input.invoices.has(p.invoiceId))
+    .filter((p) => !(settings.skipNumbers || []).some((x) => String(input.invoices.get(p.invoiceId)!.number).toUpperCase().startsWith(x)))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // ── when each job became fully paid ──
+  // A job is the quotation (every invoice raised against it); an invoice with no quotation is its
+  // own job. Fully paid = what has been received, before GST, reaches the quotation's value.
+  const jobOf = (inv: InvoiceIn) => (inv.quotation ? `q:${inv.quotation.id}` : `i:${inv.id}`);
+  const jobs = new Map<string, { target: number; received: number; paidOn: string | null }>();
+  for (const pay of usable) {
+    const inv = input.invoices.get(pay.invoiceId)!;
+    const id = jobOf(inv);
+    const job = jobs.get(id) || { target: inv.quotation && inv.quotation.net > 0 ? inv.quotation.net : inv.net, received: 0, paidOn: null };
+    job.received = R(job.received + netOf(pay, inv));
+    // A dollar or half a percent short is rounding, not money still owed.
+    if (!job.paidOn && job.target > 0 && job.received >= job.target - Math.max(1, job.target * 0.005)) job.paidOn = pay.date;
+    jobs.set(id, job);
+  }
+
+  for (const pay of usable) {
+    const inv = input.invoices.get(pay.invoiceId)!;
+    const net = netOf(pay, inv);
+    const job = jobs.get(jobOf(inv))!;
     const split = splitByType(inv.lines, inv.subject, input.typeOfAccount);
     const lineTotal = split.shares.reduce((s, x) => s + x.amount, 0);
     const shares = lineTotal > 0 ? split.shares : [{ type: UNTYPED, amount: 1 }];
@@ -212,6 +268,12 @@ export function computeCommission(input: {
     const revenue = inv.quotation?.net || inv.net;
     const margin = cost > 0 && revenue > 0 ? R(((revenue - cost) / revenue) * 100) : null;
     const lowMargin = margin !== null && margin < settings.minMarginPct;
+    // A big job paid on profit: each payment carries its share of the job's cost.
+    const profitRule = (settings.deductCost || []).find((r) => norm(inv.company).includes(norm(r.company)) && job.target > r.above);
+    const keep = profitRule && cost > 0 && job.target > 0 ? Math.max(0, 1 - cost / job.target) : 1;
+    const costNote = !profitRule ? '' : cost > 0
+      ? `Job ${R(job.target).toLocaleString('en-SG')} is over ${R(profitRule.above).toLocaleString('en-SG')}: cost ${R(cost).toLocaleString('en-SG')} deducted`
+      : `Job is over ${R(profitRule.above).toLocaleString('en-SG')} but has no supplier cost on record: nothing deducted`;
 
     const owners = salespeopleOf(inv.salesPerson, settings.people);
     const earners: Array<{ name: string; why: string }> = owners.length
@@ -224,42 +286,66 @@ export function computeCommission(input: {
     shares.forEach((sh, i) => {
       const part = i === shares.length - 1 ? R(left) : R((net * sh.amount) / total);
       left = R(left - part);
+      // The job type is a fact about the payment, not about who earns on it: one choice, kept
+      // under "*", serves every person's row of this share.
+      const sharedPick = overrides[`${pay.key}|${inv.id}|${sh.type}|*`]?.type;
+      const typeFor = (o: RowOverride) => {
+        const picked = sharedPick || o.type;
+        return { picked, type: picked && (JOB_TYPES as readonly string[]).includes(String(picked)) ? String(picked) : sh.type };
+      };
+      // Does this share show in this period, and is it payable yet?
+      const waits = hold.has(typeFor({}).type);
+      const releasedNow = !!job.paidOn && inPeriod(job.paidOn);
+      let held = false;
+      let when = '';
+      if (!waits) {
+        if (!inPeriod(pay.date)) return; // paid on each payment: only this period's payments
+      } else if (releasedNow) {
+        // The job was fully paid in this period: every payment of it is paid now, earlier ones too.
+        if (!inPeriod(pay.date)) when = `Received ${dmy(pay.date)}; job fully paid ${dmy(job.paidOn!)}`;
+      } else {
+        if (!inPeriod(pay.date)) return; // an old payment of a job that was not completed in this period
+        if (!job.paidOn) { held = true; when = `Waiting: job not fully paid (${R(job.received).toLocaleString('en-SG')} of ${R(job.target).toLocaleString('en-SG')} received)`; }
+        // paid in full in an EARLIER period and more came in now: nothing to wait for, pay it.
+      }
       for (const e of earners) {
         const key = `${pay.key}|${inv.id}|${sh.type}|${norm(e.name)}`;
         const o = overrides[key] || {};
-        // The job type is a fact about the payment, not about who earns on it: one choice, kept
-        // under "*", serves every person's row of this share.
-        const picked = overrides[`${pay.key}|${inv.id}|${sh.type}|*`]?.type || o.type;
-        const type = picked && (JOB_TYPES as readonly string[]).includes(String(picked)) ? String(picked) : sh.type;
+        const { picked, type } = typeFor(o);
         const unassigned = e.name === '(No salesperson)';
         const rate = o.rate !== undefined && o.rate !== null ? Number(o.rate) : unassigned || type === UNTYPED ? 0 : rateFor(e.name, type);
         const excluded = o.exclude === true;
         // A typed-in rate is the office's own decision and stands, margin or not.
-        const blocked = lowMargin && (o.rate === undefined || o.rate === null);
-        const notes = [e.why, margin !== null ? `Margin ${margin}%${lowMargin ? ` is under ${settings.minMarginPct}%` : ''}` : '', type === UNTYPED ? 'Job type not known: pick one' : ''].filter(Boolean);
+        const blocked = lowMargin && !profitRule && (o.rate === undefined || o.rate === null);
+        const notes = [when, e.why, costNote, margin !== null && !profitRule ? `Margin ${margin}%${lowMargin ? ` is under ${settings.minMarginPct}%` : ''}` : '', type === UNTYPED ? 'Job type not known: pick one' : ''].filter(Boolean);
         rows.push({
           key, person: e.name, date: pay.date, receipt: pay.number, chequeNo: pay.chequeNo || '', customer: inv.customer,
-          quotation: inv.quotation?.number || '', invoice: inv.number, invoiceId: inv.id, company: inv.company || '', type, typeGuessed: !picked && split.guessed.has(sh.type),
-          amount: part, rate: R(rate), commission: excluded || blocked ? 0 : R((part * rate) / 100), excluded, note: notes.join(' · '),
+          quotation: inv.quotation?.number || '', invoice: inv.number, invoiceId: inv.id, jobId: jobOf(inv), company: inv.company || '', type, typeGuessed: !picked && split.guessed.has(sh.type),
+          amount: part, basis: R(part * keep), rate: R(rate), commission: excluded || blocked || held ? 0 : R((part * keep * rate) / 100), excluded, held, note: notes.join(' · '),
           override: { rate: o.rate !== undefined && o.rate !== null ? Number(o.rate) : null, exclude: excluded, type: picked ? String(picked) : null },
         });
       }
     });
   }
 
-  const order = (a: CommissionRow, b: CommissionRow) => a.company.localeCompare(b.company) || a.customer.localeCompare(b.customer) || a.invoice.localeCompare(b.invoice) || a.type.localeCompare(b.type);
+  const order = (a: CommissionRow, b: CommissionRow) => a.company.localeCompare(b.company) || a.customer.localeCompare(b.customer) || a.invoice.localeCompare(b.invoice) || a.date.localeCompare(b.date) || a.type.localeCompare(b.type);
   const names = Array.from(new Set(rows.map((r) => r.person)));
   names.sort((a, b) => (a.startsWith('(') ? 1 : 0) - (b.startsWith('(') ? 1 : 0) || a.localeCompare(b));
   const people = names.map((name) => {
     const mine = rows.filter((r) => r.person === name).sort(order);
-    const live = mine.filter((r) => !r.excluded);
+    const live = mine.filter((r) => !r.excluded && !r.held);
     const byCompany: Record<string, number> = {};
     for (const r of live) byCompany[r.company] = R((byCompany[r.company] || 0) + r.commission);
-    return { name, totalSales: R(live.reduce((s, r) => s + r.amount, 0)), totalCommission: R(live.reduce((s, r) => s + r.commission, 0)), byCompany, rows: mine };
+    return {
+      name, totalSales: R(live.reduce((s, r) => s + r.amount, 0)), totalCommission: R(live.reduce((s, r) => s + r.commission, 0)),
+      heldSales: R(mine.filter((r) => r.held && !r.excluded).reduce((s, r) => s + r.amount, 0)), byCompany, rows: mine,
+    };
   });
   return {
     people,
-    totals: { payments: input.payments.length - skipped, commission: R(people.reduce((s, p) => s + p.totalCommission, 0)) },
+    // Per job: what has been received (before GST) against its value, and the day it was fully paid.
+    jobs: Object.fromEntries(Array.from(jobs.entries()).map(([id, j]) => [id, { received: j.received, target: j.target, paidOn: j.paidOn }])),
+    totals: { payments: new Set(rows.map((r) => `${r.receipt}|${r.invoiceId}|${r.date}`)).size, commission: R(people.reduce((s, p) => s + p.totalCommission, 0)) },
     // Names on documents that nobody in the rates table answers to.
     unknownNames: names.filter((n) => !n.startsWith('(') && !settings.people.some((p) => norm(p.name) === norm(n))),
   };
