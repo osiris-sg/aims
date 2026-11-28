@@ -6,6 +6,9 @@ import { PrismaService } from '../common/prisma.service';
 import { AdvancesService } from '../advances/advances.service';
 import { PayablesService } from '../payables/payables.service';
 import { JournalVouchersService } from '../journal-vouchers/journal-vouchers.service';
+import { PaymentVouchersService } from '../payment-vouchers/payment-vouchers.service';
+import { ledgerActivity } from './ledger-activity';
+import { prepareOfficialReceipt, preparePaymentVoucher } from './voucher-tools';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { XeroSyncService } from '../xero-sync/xero-sync.service';
 import { BankRecService } from '../bank-rec/bank-rec.service';
@@ -162,6 +165,7 @@ export class OperatorToolsService {
     private readonly appointments: AppointmentsService,
     private readonly actionLog: ActionLogService,
     private readonly journalVouchers: JournalVouchersService,
+    private readonly paymentVouchers: PaymentVouchersService,
   ) {}
 
   /** create_journal_voucher: the voucher is created and saved the way the Journal Voucher screen does it
@@ -2051,6 +2055,82 @@ export class OperatorToolsService {
       },
 
       {
+        // guru 2026-11-28: asked how much salary was paid in a month, AIMEE opened the salary COST accounts,
+        // found nothing and guessed why; the payments were on the salary PAYABLE accounts. One look across the
+        // whole ledger by topic, with the other side of each entry, answers it however a client books.
+        name: 'ledger_activity',
+        description:
+          'Search the WHOLE general ledger for a topic over a period, in one call. Use it FIRST for any "how much did we pay / spend / receive for X", "what happened on X", "show X in <month>" question about the books (salary, CPF, rent, a supplier, a loan, GST…): never answer such a question from one or two accounts you picked yourself. Pass words for the topic, including the other names it goes by (e.g. "salary wages payroll overtime bonus", "cpf levy sdl"); it matches account NAMES and the descriptions of entries, on every account. It returns totals per account (cost accounts AND liability / payable accounts), the OTHER SIDE of those entries with bank and cash accounts flagged, the money that left / came into bank and cash, and the largest lines with their memo. Every posted entry the organization has is searchable, including earlier financial years.',
+        permissions: ['journal:read'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            words: { type: 'string', description: 'Topic words, space separated, including synonyms. Each word of 3+ letters is matched on its own.' },
+            accountCodes: { type: 'array', items: { type: 'string' }, description: 'Optional: specific account codes to include (with or without the dash).' },
+            from: { type: 'string', description: 'YYYY-MM-DD, first day of the period' },
+            to: { type: 'string', description: 'YYYY-MM-DD, last day of the period' },
+            maxLines: { type: 'number', description: 'How many of the largest lines to list (default 40, max 120)' },
+          },
+          required: ['from', 'to'],
+        },
+        run: async (ctx, args) => ({ result: await ledgerActivity(this.prisma, ctx.organizationId, args || {}) }),
+      },
+      {
+        name: 'create_payment_voucher',
+        description:
+          'Prepare a PAYMENT VOUCHER (P/V: money paid OUT of a bank or cash account) and show the user a Confirm card; the voucher is created and posted only when they confirm. Use for ANY "create a PV / payment voucher / pay supplier X / pay invoice Y / pay salary / pay CPF" request, never api_write on /payment-vouchers. Two ways to say what is paid, and they can be combined: (a) supplierInvoices = invoice numbers of ONE supplier (give "supplier"); the amount defaults to what is still owing; (b) lines = an account (code or name) and an amount each, for anything that is not a supplier invoice (a salary payable, an expense paid directly). The bank / cash account it is paid FROM must come from the user: if they did not name it, ask (the tool lists the banks). "payee" is who receives the money (a person or company), not a description; the description goes in "remarks".',
+        permissions: ['payments:create'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            date: { type: 'string', description: 'YYYY-MM-DD; default today in the org\u2019s time zone' },
+            bankAccountCode: { type: 'string', description: 'Code of the bank / cash account paid from, if the user gave one' },
+            bank: { type: 'string', description: 'Name (or part) of the bank / cash account when no code was given' },
+            payee: { type: 'string', description: 'Who receives the money. Defaults to the supplier when supplierInvoices is used.' },
+            remarks: { type: 'string', description: 'What the payment is for' },
+            supplier: { type: 'string', description: 'Supplier id or name, when paying supplier invoices' },
+            supplierInvoices: { type: 'array', items: { type: 'object', properties: { number: { type: 'string' }, amount: { type: 'number', description: 'Omit to pay what is still owing' } }, required: ['number'] } },
+            lines: { type: 'array', items: { type: 'object', properties: { accountCode: { type: 'string' }, account: { type: 'string', description: 'Account name when no code was given' }, amount: { type: 'number' }, remarks: { type: 'string' } } } },
+          },
+        },
+        run: async (ctx, args) => {
+          const plan = await preparePaymentVoucher({ prisma: this.prisma, openBills: (id) => this.paymentVouchers.openBills(ctx.organizationId, id) }, ctx.organizationId, args || {});
+          if (!('ok' in plan)) return { result: plan };
+          return {
+            result: { needsConfirmation: true, summary: plan.summary },
+            pending: { kind: 'create_payment_voucher', summary: plan.summary, args: plan.args as any, createdAt: new Date().toISOString() },
+          };
+        },
+      },
+      {
+        name: 'create_official_receipt',
+        description:
+          'Prepare an OFFICIAL RECEIPT (O/R: money received from a customer INTO a bank or cash account against their invoices) and show the user a Confirm card; the receipt is created and posted only when they confirm. Use for ANY "create an OR / official receipt / customer X paid invoices A and B" request, never api_write on /receipts. Give the customer, the invoice numbers it pays (amount per invoice defaults to what is still owing), and the bank / cash account the money went INTO: if the user did not name the bank, ask (the tool lists them). For one invoice paid with no receipt document needed, record_payment still works.',
+        permissions: ['payments:create'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            date: { type: 'string', description: 'YYYY-MM-DD; default today in the org\u2019s time zone' },
+            customer: { type: 'string', description: 'Customer id or name' },
+            bankAccountCode: { type: 'string', description: 'Code of the bank / cash account the money went into, if the user gave one' },
+            bank: { type: 'string', description: 'Name (or part) of that account when no code was given' },
+            amount: { type: 'number', description: 'Total received; omit to use the sum of the invoices' },
+            invoices: { type: 'array', items: { type: 'object', properties: { number: { type: 'string' }, amount: { type: 'number', description: 'Omit to pay what is still owing' } }, required: ['number'] } },
+            chequeNo: { type: 'string' },
+            remarks: { type: 'string' },
+          },
+          required: ['customer', 'invoices'],
+        },
+        run: async (ctx, args) => {
+          const plan = await prepareOfficialReceipt({ prisma: this.prisma, openInvoices: (id) => this.receipts.openInvoices(ctx.organizationId, id) }, ctx.organizationId, args || {});
+          if (!('ok' in plan)) return { result: plan };
+          return {
+            result: { needsConfirmation: true, summary: plan.summary },
+            pending: { kind: 'create_official_receipt', summary: plan.summary, args: plan.args as any, createdAt: new Date().toISOString() },
+          };
+        },
+      },
+      {
         name: 'aged_receivables',
         description: 'Aged receivables summary for the organization: who owes what, bucketed by age.',
         permissions: ['documents:read'],
@@ -3389,6 +3469,57 @@ export class OperatorToolsService {
       );
       this.log(ctx, 'STATUS_CHANGED', 'document', doc.id, doc.name, `Invoice confirmed + posted via Operator (${ctx.channel})`);
       return { ok: true, message: `✅ Invoice ${doc.name} confirmed — now Awaiting Payment.` };
+    }
+
+    if (pending.kind === 'create_payment_voucher') {
+      const a: any = pending.args || {};
+      const creditor = a.supplierId && a.picks?.length ? await this.paymentVouchers.creditorLineFor(ctx.organizationId, a.supplierId, a.picks) : null;
+      const voucher: any = await this.paymentVouchers.create(ctx.organizationId, ctx.actor);
+      try {
+        const saved: any = await this.paymentVouchers.save(
+          ctx.organizationId,
+          voucher.id,
+          {
+            date: a.date || voucher.date,
+            bankAccountCode: a.bankAccountCode,
+            payee: a.payee,
+            remarks: a.remarks || null,
+            lines: [...(creditor ? creditor.lines : []), ...(a.lines || []).map((l: any) => ({ accountCode: l.accountCode, description: null, remarks: l.remarks || null, amount: Number(l.amount) }))],
+          } as any,
+          ctx.actor,
+        );
+        const posted = saved?.status === 'confirmed' && !saved?.incompleteReason;
+        this.log(ctx, 'PAYMENT', 'payment-voucher', voucher.id, saved?.voucherNumber, `Payment voucher ${saved?.voucherNumber || ''} created via Operator (${ctx.channel})`);
+        const number = saved?.voucherNumber || voucher.voucherNumber;
+        return posted
+          ? { ok: true, message: `✅ Payment Voucher ${number} created and posted: ${a.payee}, ${a.total}. Open it in Accounting > Accounts Payable > Payment Voucher.` }
+          : { ok: true, message: `Payment Voucher ${number} is saved but NOT posted (${saved?.incompleteReason || 'incomplete'}). Open it in Accounting > Accounts Payable > Payment Voucher to finish it.` };
+      } catch (e: any) {
+        // Nothing half-made is left behind: the blank voucher goes.
+        await this.paymentVouchers.remove(ctx.organizationId, voucher.id, ctx.actor).catch(() => undefined);
+        return { ok: false, message: `The payment voucher was not created: ${e?.message || 'unknown error'}` };
+      }
+    }
+
+    if (pending.kind === 'create_official_receipt') {
+      const a: any = pending.args || {};
+      const receipt: any = await this.receipts.create(ctx.organizationId, ctx.actor);
+      try {
+        const saved: any = await this.receipts.save(
+          ctx.organizationId,
+          receipt.id,
+          { date: a.date || receipt.date, customerId: a.customerId, debitAccountCode: a.debitAccountCode, receiptAmount: Number(a.receiptAmount), chequeNo: a.chequeNo || null, remarks: a.remarks || null, allocations: a.allocations || [] } as any,
+          ctx.actor,
+        );
+        const number = saved?.receiptNumber || receipt.receiptNumber;
+        this.log(ctx, 'PAYMENT', 'official-receipt', receipt.id, number, `Official receipt ${number || ''} created via Operator (${ctx.channel})`);
+        return saved?.incompleteReason
+          ? { ok: true, message: `Official Receipt ${number} is saved but NOT posted (${saved.incompleteReason}). Open it in Accounting > Accounts Receivable > Official Receipt to finish it.` }
+          : { ok: true, message: `✅ Official Receipt ${number} created and posted: ${a.customerName}, ${a.receiptAmount}.` };
+      } catch (e: any) {
+        await this.receipts.remove(ctx.organizationId, receipt.id, ctx.actor).catch(() => undefined);
+        return { ok: false, message: `The receipt was not created: ${e?.message || 'unknown error'}` };
+      }
     }
 
     if (pending.kind === 'record_payment') {

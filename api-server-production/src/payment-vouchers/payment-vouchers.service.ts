@@ -268,19 +268,53 @@ export class PaymentVouchersService {
     const c: any = bill.config || {};
     const supplierId = c.supplierId || c.supplier?.id;
     if (!supplierId) throw new BadRequestException(`${bill.name} has no supplier`);
+    return this.creditorLineFor(organizationId, supplierId, [{ documentId: bill.id }], { base, creditorCode, foreignGivesHeadOnly: true });
+  }
+
+  /**
+   * The creditor line a voucher carries to pay a supplier's invoices: the same line the Offset
+   * Supplier Invoices dialog writes. Each pick is an open invoice of this supplier; no amount =
+   * what is still owing. Used by the "Create Payment Voucher" button and by AIMEE's
+   * create_payment_voucher. A supplier in another currency is refused (or, for the button, gets
+   * the supplier only): the rate is the user's to set in the dialog.
+   */
+  async creditorLineFor(
+    organizationId: string,
+    supplierId: string,
+    picks: Array<{ documentId: string; amount?: number | null }>,
+    opts?: { base?: string; creditorCode?: string; foreignGivesHeadOnly?: boolean },
+  ) {
+    let base = opts?.base;
+    let creditorCode = opts?.creditorCode;
+    if (!base || !creditorCode) {
+      const setting = await this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { controlAccounts: true, baseCurrency: true } });
+      base = base || String(setting?.baseCurrency || 'SGD').toUpperCase();
+      creditorCode = creditorCode || (setting?.controlAccounts as any)?.creditorControl || 'CL001';
+    }
     const [supplier, open, control] = await Promise.all([
       this.prisma.supplier.findFirst({ where: { id: supplierId, organizationId }, select: { id: true, name: true, supplierCode: true, currency: true } }),
       this.openBills(organizationId, supplierId),
       this.prisma.chartOfAccount.findFirst({ where: { organizationId, code: creditorCode }, select: { name: true } }),
     ]);
-    if (!supplier) throw new BadRequestException(`${bill.name}: its supplier no longer exists`);
-    const row = open.find((r) => r.documentId === bill.id && r.kind === 'bill');
-    if (!row) throw new BadRequestException(`${bill.name} has nothing to pay: it is not confirmed yet, or it is already paid`);
+    if (!supplier) throw new BadRequestException('Supplier not found');
     const head = { supplierId: supplier.id, supplierName: supplier.name, supplierCode: supplier.supplierCode || null, payee: supplier.name };
     const currency = String(supplier.currency || base).toUpperCase();
-    if (currency !== base || (row.currency && String(row.currency).toUpperCase() !== base)) return { ...head, lines: [], allocations: [], voucherAmount: 0 };
-    const amount = ROUND(row.outstanding);
-    const allocation = { documentId: bill.id, amount, reference: row.reference, date: row.date, description: row.remarks || 'SUPPLIER INVOICE' };
+    const allocations: Array<{ documentId: string; amount: number; reference: string; date: string | null; description: string }> = [];
+    let foreign = currency !== base;
+    for (const pick of picks) {
+      const row = open.find((r) => r.documentId === pick.documentId && r.kind === 'bill');
+      if (!row) throw new BadRequestException('A supplier invoice picked has nothing to pay: it is not confirmed yet, or it is already paid');
+      if (row.currency && String(row.currency).toUpperCase() !== base) foreign = true;
+      const amount = ROUND(pick.amount == null ? row.outstanding : Number(pick.amount));
+      if (!(amount > 0)) throw new BadRequestException(`${row.reference}: the amount to pay must be more than 0`);
+      if (amount > row.outstanding + 0.005) throw new BadRequestException(`${row.reference}: ${amount} is more than the ${row.outstanding} still owing`);
+      allocations.push({ documentId: row.documentId, amount, reference: row.reference, date: row.date, description: row.remarks || 'SUPPLIER INVOICE' });
+    }
+    if (foreign) {
+      if (opts?.foreignGivesHeadOnly) return { ...head, lines: [], allocations: [], voucherAmount: 0 };
+      throw new BadRequestException(`${supplier.name} is paid in ${currency}: tick the invoices on the Payment Voucher screen, where the rate is set`);
+    }
+    const amount = ROUND(allocations.reduce((t, a) => t + a.amount, 0));
     const line = {
       id: `creditor-${supplier.id}`,
       accountCode: creditorCode,
@@ -298,12 +332,12 @@ export class PaymentVouchersService {
         rate: 1,
         voucherAmount: amount,
         supplierAmount: amount,
-        allocations: [allocation],
+        allocations,
         updateFx: true,
         fxAccountCode: null,
       },
     };
-    return { ...head, lines: [line], allocations: [{ ...allocation, supplierId: supplier.id }], voucherAmount: amount };
+    return { ...head, lines: [line], allocations: allocations.map((x) => ({ ...x, supplierId: supplier.id })), voucherAmount: amount };
   }
 
   async create(organizationId: string, actor?: Actor, opts?: { billId?: string }) {

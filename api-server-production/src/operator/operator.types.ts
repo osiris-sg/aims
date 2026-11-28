@@ -187,6 +187,8 @@ export interface PendingAction {
     | 'send_for_signature'
     | 'confirm_delivery'
     | 'api_write'
+    | 'create_payment_voucher'
+    | 'create_official_receipt'
     | 'request_advance'
     | 'shipments';
   documentId?: string;
