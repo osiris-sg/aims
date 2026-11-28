@@ -4,7 +4,8 @@
  * hard-coded ids.
  *
  * Tenancy stays per org. The ONLY cross-org read is a feature named in
- * ORG_GROUP_SHARED_FEATURES, and only when the parent org's own setting for it
+ * ORG_GROUP_SHARED_FEATURES (the jobs calendar; the commission report since 2026-11-28),
+ * and only when the parent org's own setting for it
  * is on (default off):
  *  - downward only: a parent reads its direct children; a child never reads its
  *    parent or its siblings; an org with no children reads only itself;
@@ -18,12 +19,14 @@
 import { isOrgFeatureEnabled } from '../common/org-features';
 
 /** Features that may read across an org group. The jobs calendar is the first and only one. */
-export const ORG_GROUP_SHARED_FEATURES = ['jobsCalendar'] as const;
+// commissionReport (guru 2026-11-28): the parent's Commission Report covers its child companies, read only.
+export const ORG_GROUP_SHARED_FEATURES = ['jobsCalendar', 'commissionReport'] as const;
 export type OrgGroupFeature = (typeof ORG_GROUP_SHARED_FEATURES)[number];
 
 /** The per-org setting (OrganizationUIConfig.features) that turns each shared feature on for a parent org. */
 export const GROUP_CALENDAR_FLAG = 'enableGroupCalendar';
-export const ORG_GROUP_FEATURE_FLAG: Record<OrgGroupFeature, string> = { jobsCalendar: GROUP_CALENDAR_FLAG };
+export const GROUP_COMMISSION_FLAG = 'enableGroupCommissionReport';
+export const ORG_GROUP_FEATURE_FLAG: Record<OrgGroupFeature, string> = { jobsCalendar: GROUP_CALENDAR_FLAG, commissionReport: GROUP_COMMISSION_FLAG };
 
 export interface GroupOrg {
   id: string;

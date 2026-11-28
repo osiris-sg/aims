@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
-import { childOrgsOf, groupFamily, groupJobCompanies, groupJobTargetError, groupReadScope, memberOrgIds, ORG_GROUP_SHARED_FEATURES, GROUP_CALENDAR_FLAG, NO_COMPANY_ACCESS_MESSAGE, OUTSIDE_GROUP_MESSAGE } from './org-group';
+import { childOrgsOf, groupFamily, groupJobCompanies, groupJobTargetError, groupReadScope, memberOrgIds, ORG_GROUP_SHARED_FEATURES, GROUP_CALENDAR_FLAG, GROUP_COMMISSION_FLAG, NO_COMPANY_ACCESS_MESSAGE, OUTSIDE_GROUP_MESSAGE } from './org-group';
 import { JobsCalendarService } from '../dashboard/jobs-calendar.service';
 import { CalendarNotesService } from '../dashboard/calendar-notes.service';
 import { DeliveriesService } from '../deliveries/deliveries.service';
@@ -148,9 +148,12 @@ const TO = '2026-11-22';
 const HREF_KEYS = ['href', 'orderHref', 'doHref', 'quotationHref', 'siteclockUrl'];
 
 describe('org group scope', () => {
-  it('only the jobs calendar is allowlisted, and the flag is off by default for new orgs', () => {
-    expect([...ORG_GROUP_SHARED_FEATURES]).toEqual(['jobsCalendar']);
+  // The allowlist is deliberate and short. commissionReport joined it on 2026-11-28 at the owner's request
+  // (one commission report for the parent and its child companies); anything else still needs a decision.
+  it('only the jobs calendar and the commission report are allowlisted, and both flags are off by default for new orgs', () => {
+    expect([...ORG_GROUP_SHARED_FEATURES]).toEqual(['jobsCalendar', 'commissionReport']);
     expect(DEFAULT_ORG_FEATURES[GROUP_CALENDAR_FLAG]).toBe(false);
+    expect(DEFAULT_ORG_FEATURES[GROUP_COMMISSION_FLAG]).toBe(false);
   });
 
   it('a feature outside the allowlist reads only the request org', async () => {

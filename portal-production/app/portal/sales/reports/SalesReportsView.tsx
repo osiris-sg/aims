@@ -31,6 +31,9 @@ import DetailedSalesReport from "./DetailedSalesReport";
 import DocumentListingReport, { type ListingType } from "./DocumentListingReport";
 import LastSoldReport from "./LastSoldReport";
 import SlowMovingReport from "./SlowMovingReport";
+import CommissionReport from "./CommissionReport";
+import PaidIcon from "@mui/icons-material/Paid";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 type ReportEntry = {
   key: string;
@@ -40,6 +43,8 @@ type ReportEntry = {
   icon: React.ElementType;
   color: string;
   render?: () => React.ReactNode;
+  /** Shown only to orgs with this feature flag on. */
+  flag?: "isCommissionReportEnabled";
 };
 
 const summary = (dimension: SalesDimension) => () => <SalesSummaryReport dimension={dimension} />;
@@ -62,14 +67,18 @@ const REPORTS: ReportEntry[] = [
   { key: "det-category", icon: SummarizeIcon, color: "secondary.main", label: "Detailed Sales Analysis By Category", description: "Every sales line grouped by category.", section: "Summary & Analysis", render: detailed("category") },
 
   { key: "last-sold", icon: HistoryIcon, color: "primary.main", label: "Last Sold Report", description: "Each item's most recent sale.", section: "Items", render: () => <LastSoldReport /> },
+  // Commission from customer payments (guru 2026-11-28, flag enableCommissionReport: the WCT group).
+  { key: "commission", flag: "isCommissionReportEnabled", icon: PaidIcon, color: "success.main", label: "Commission Report", description: "Commission per salesperson from customer payments received.", section: "Summary & Analysis", render: () => <CommissionReport /> },
   { key: "slow-moving", icon: HourglassBottomIcon, color: "error.main", label: "Slow Moving Items Analysis", description: "Items with little or no recent sales.", section: "Items", render: () => <SlowMovingReport /> },
 ];
 
 
 export default function SalesReportsView() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const features = useOrganizationFeatures() as any;
+  const reports = useMemo(() => REPORTS.filter((r) => !r.flag || features?.[r.flag] === true), [features]);
 
-  const selected = useMemo(() => REPORTS.find((r) => r.key === selectedKey) || null, [selectedKey]);
+  const selected = useMemo(() => reports.find((r) => r.key === selectedKey) || null, [reports, selectedKey]);
 
   if (selected) {
     return (
@@ -92,7 +101,7 @@ export default function SalesReportsView() {
       </Typography>
 
       <Grid container spacing={3}>
-        {REPORTS.map((r) => {
+        {reports.map((r) => {
           const Icon = r.icon;
           return (
             <Grid item xs={12} sm={6} md={4} key={r.key}>

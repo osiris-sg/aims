@@ -15,6 +15,10 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // TS) and never to an account code; the org's table is features.serviceTypes
   // (revenue-items/service-types.ts). On a quotation the only add button is Add service.
   enableServiceTypes: false,
+  // Sales → Reports → Commission Report (guru 2026-11-28, WCT group): commission from customer payments.
+  enableCommissionReport: false,
+  // On a PARENT company: its Commission Report also covers its child companies (read only). Default OFF.
+  enableGroupCommissionReport: false,
   // Integrations / mode toggles (opt-in)
   enableXeroIntegration: false,
   enableEditInventorySku: false,
