@@ -162,8 +162,12 @@ export default function PageTable(props: Props) {
 
   const onSubmit = () => {};
   return (
-    <form onSubmit={handleSubmit(onSubmit)} style={{ height: "100%" }}>
-      <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--double-gap)", height: "100%" }}>
+    // The PAGE scrolls (guru 2026-11-28: "when we scroll down can see more, show whole page"): the
+    // list is as tall as its rows and the pager sits under the last one, inside MainCard's scroll
+    // area. Until now the table was a bounded flex child with its own inner scrollbar, so the list
+    // stopped at the bottom of the screen whatever the page size.
+    <form onSubmit={handleSubmit(onSubmit)} style={{ minHeight: "100%" }}>
+      <Box sx={{ display: "flex", flexDirection: "column", gap: "var(--double-gap)", minHeight: "100%" }}>
         <Grid2 container spacing={2} alignItems="center">
           <Grid2 size={{ xs: 12, md: 4 }}>
             <Box>
@@ -236,14 +240,9 @@ export default function PageTable(props: Props) {
           <>
             <Box
               sx={(t) => ({
-                // Scroll the table internally on BOTH axes when content exceeds the
-                // box. (Was `overflow: "hidden"`, which overrode overflowX and clipped
-                // rows beyond the visible height — no vertical scrollbar.) `minHeight:
-                // 0` lets this flex child shrink below its content so the inner scroll
-                // actually engages inside a bounded (flex: 1 / height: 100%) layout.
+                // Sideways scroll only when the columns are wider than the page; the
+                // rows are never clipped vertically (the page scrolls, see above).
                 overflowX: "auto",
-                overflowY: "auto",
-                minHeight: 0,
                 width: "100%",
                 backgroundColor: "background.paper",
                 padding: 0,
@@ -252,7 +251,6 @@ export default function PageTable(props: Props) {
                 // page background, so a near-transparent border made the table's
                 // top edge disappear into the page. CSS var flips for dark mode.
                 border: "1px solid var(--table-grid)",
-                flex: 1,
               })}
             >
               <Table columns={columns} data={data} onRowClick={onRowClick} rowHref={rowHref} rowSx={rowSx} loading={loading} subRowAccessor={subRowAccessor} manualSorting={manualSorting} sorting={sorting} onSortingChange={onSortingChange} isNoSelectionColumn={noSelectionColumn} showAllRows={!sliced} clientPage={sliced ? { index: sliced.page - 1, size: limit ?? DEFAULT_PAGE_SIZE } : undefined} />

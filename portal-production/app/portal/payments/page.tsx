@@ -44,7 +44,7 @@ interface Document {
 
 export default function PaymentsPage() {
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [rowsPerPage, setRowsPerPage] = useState(50);
   const [openDialog, setOpenDialog] = useState(false);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [error, setError] = useState<string | null>(null);
