@@ -13,9 +13,25 @@ describe('credit note money after offsets', () => {
     expect(creditNoteMoneyAfterApplied(cn, 600).outstandingBalance).toBe(1035);
     expect(creditNoteMoneyAfterApplied(cn, 0).outstandingBalance).toBe(1635);
   });
-  it('imported credit notes keep their import-time balance', () => {
-    expect(creditNoteMoneyAfterApplied({ ...cn, xeroImported: true }, 1635)).toBeNull();
-    expect(creditNoteMoneyAfterApplied({ ...cn, erpImport: { source: 'x' } }, 1635)).toBeNull();
+  it('an imported note with nothing applied here keeps its import-time balance', () => {
+    expect(creditNoteMoneyAfterApplied({ ...cn, xeroImported: true }, 0)).toBeNull();
+    expect(creditNoteMoneyAfterApplied({ ...cn, erpImport: { source: 'x' } }, 0)).toBeNull();
+  });
+
+  // VCE's CN202608005: a Manual Offset consumed it, the invoices went to paid,
+  // and the note alone kept its 10,680.24 on the statement (guru 2026-11-28).
+  it('an imported note applied HERE moves with the offset', () => {
+    const imported = { ...cn, xeroImported: true, xeroRemainingCredit: 1635 };
+    expect(creditNoteMoneyAfterApplied(imported, 1635)).toMatchObject({ outstandingBalance: 0, paidToDate: 1635 });
+    expect(creditNoteMoneyAfterApplied(imported, 600)).toMatchObject({ outstandingBalance: 1035, paidToDate: 600 });
+  });
+
+  it('a note already part-used in Xero gives only what was left', () => {
+    // 13,736.00 note, 10,094.07 applied in Xero, 3,641.93 still open (Min Dong).
+    const partly = { nettTotal: 13736, totalWithTax: 13736, xeroImported: true, xeroRemainingCredit: 3641.93 };
+    expect(creditNoteMoneyAfterApplied(partly, 1000)).toMatchObject({ outstandingBalance: 2641.93, paidToDate: 11094.07 });
+    // It can never hand back more than Xero left open.
+    expect(creditNoteMoneyAfterApplied(partly, 3641.93)).toMatchObject({ outstandingBalance: 0 });
   });
 
   it('the offset path re-stamps a credit note (status unchanged)', async () => {

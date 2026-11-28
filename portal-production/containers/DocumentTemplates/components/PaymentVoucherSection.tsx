@@ -234,8 +234,14 @@ export function PvBankInput({ formData, setFormData }: RowProps) {
     if (acc) commit(acc);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, unsaved, banks, organization?.id]);
+  // A CHANGE of bank or date re-peeks, a remount never does (Preview → Edit renumbered a saved
+  // receipt to the next in its series, 2026-11-28 — same input here).
+  const seen = useRef<{ code: string; date: string } | null>(null);
   useEffect(() => {
     if (!code || !unsaved) return;
+    const first = seen.current === null;
+    seen.current = { code, date };
+    if (first && formData?.name && !numberIsPending(formData.name)) return;
     let cancelled = false;
     void (async () => {
       const n = await peekDocumentNumber("PAYMENT_VOUCHER", code, date, await getToken());

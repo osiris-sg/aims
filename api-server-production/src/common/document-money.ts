@@ -98,16 +98,35 @@ export function stampDocumentMoney(
 
 /**
  * A credit note's money after its allocations (Manual Offsets / receipts consume it through Payment rows,
- * 2026-11-24): owed = gross - applied (never below 0), paid = applied. Imported (Xero / ERP) credit notes keep
- * their import-time balance: null = leave the config as it is.
+ * 2026-11-24): owed = gross - applied (never below 0), paid = applied.
+ *
+ * AN IMPORTED NOTE STARTS FROM ITS IMPORT-TIME CREDIT, NOT FROM ZERO (guru
+ * 2026-11-28). Xero folds an applied credit into the invoice, so the importer's
+ * `xeroRemainingCredit` is what was STILL unused on the day of the import —
+ * anything AIMS applies since comes off that, never off the full gross, or a
+ * note half-used in Xero would hand back credit it no longer has.
+ *
+ * Until Xero was retired (2026-11-13) an imported note was skipped here
+ * entirely, because Xero owned its balance. That left VCE's CN202608005 showing
+ * its full 10,680.24 on the statement after a Manual Offset had consumed it:
+ * the Payment row existed, the invoices went to paid, and the note alone kept
+ * the old stamp. With AIMS as the record, an application made HERE must move
+ * the note. An imported note with nothing applied in AIMS is still left exactly
+ * as the importer stamped it (null = leave the config alone).
  */
 export function creditNoteMoneyAfterApplied(config: any, applied: number): any | null {
   const c = config || {};
-  if (c.xeroImported || c.erpImport) return null;
   const gross = Math.abs(grossOf(c) ?? 0);
   if (!(gross > 0)) return null;
   const used = Math.max(0, Math.round((Number(applied) || 0) * 100) / 100);
-  return stampDocumentMoney(c, { gross, outstanding: Math.max(0, Math.round((gross - used) * 100) / 100), paid: used });
+  const imported = !!(c.xeroImported || c.erpImport);
+  if (imported && used <= 0.005) return null;
+  // What the note could still give when AIMS took over: the importer's figure
+  // for an imported note, the whole note for one raised here.
+  const remainingAtImport = Number(c.xeroRemainingCredit);
+  const openable = imported && Number.isFinite(remainingAtImport) ? Math.max(0, Math.min(gross, remainingAtImport)) : gross;
+  const outstanding = Math.max(0, Math.round((openable - used) * 100) / 100);
+  return stampDocumentMoney(c, { gross, outstanding, paid: Math.max(0, Math.round((gross - outstanding) * 100) / 100) });
 }
 
 /**

@@ -133,6 +133,9 @@ export default function PvOffsetSupplierDialog({
   onClose,
   party = "supplier",
   allowInvoices = true,
+  allowCredits = true,
+  title: titleProp,
+  receiptId,
   voucherId,
   voucherNumber,
   voucherDate,
@@ -150,6 +153,12 @@ export default function PvOffsetSupplierDialog({
   party?: PvParty;
   /** Customer mode: whether the customer's INVOICES may be ticked (J/V yes, P/V refund no). */
   allowInvoices?: boolean;
+  /** Customer mode: whether the customer's CREDIT NOTES are listed (the receipt's Offset Transactions lists invoices only — credit notes go through Manual Offset). */
+  allowCredits?: boolean;
+  /** Dialog title override (the receipt calls it Offset Transactions). */
+  title?: string;
+  /** Official Receipt context: the open invoices come from /receipts/open-invoices with this receipt's own prior allocations added back. */
+  receiptId?: string;
   voucherId?: string;
   voucherNumber: string;
   voucherDate: string;
@@ -235,10 +244,14 @@ export default function PvOffsetSupplierDialog({
       setLoading(true);
       try {
         const token = await getToken();
-        if (isCustomer) {
+        if (isCustomer && receiptId) {
+          // The receipt being edited: its own earlier allocations count as still open, so they can be re-ticked.
+          const rows = (await apiFetch(`/receipts/open-invoices/${who.id}?excludeReceiptId=${receiptId}`, token)) || [];
+          if (!cancelled) setDocs(rows.map((r: any) => ({ ...r, kind: "bill" as const })));
+        } else if (isCustomer) {
           const res = await apiFetch(`/receipts/offset-items/${who.id}`, token);
           const inv: OpenDoc[] = (allowInvoices ? res?.debits || [] : []).map((d: any) => ({ ...d, kind: "bill" as const }));
-          const cns: OpenDoc[] = (res?.credits || []).map((d: any) => ({ ...d, kind: "credit" as const, remarks: d.remarks || "CREDIT NOTE" }));
+          const cns: OpenDoc[] = (allowCredits ? res?.credits || [] : []).map((d: any) => ({ ...d, kind: "credit" as const, remarks: d.remarks || "CREDIT NOTE" }));
           if (!cancelled) setDocs([...inv, ...cns]);
         } else {
           const excl = voucherId ? `?excludeVoucherId=${voucherId}` : "";
@@ -254,7 +267,7 @@ export default function PvOffsetSupplierDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, who?.id, voucherId, getToken, fetchTick, isCustomer, allowInvoices]);
+  }, [open, who?.id, voucherId, receiptId, getToken, fetchTick, isCustomer, allowInvoices, allowCredits]);
 
   const voucherAmount = R(parseFloat(amount) || 0);
   const rateNum = Number(rate) || 1;
@@ -366,7 +379,7 @@ export default function PvOffsetSupplierDialog({
   const headCellSx = { fontWeight: 700, fontSize: "0.72rem", color: "text.secondary", whiteSpace: "nowrap" as const };
   const smallBox = { width: 150 };
   const partyWord = isCustomer ? "customer" : "supplier";
-  const title = isCustomer ? (refundMode ? "Refund Customer Credit Notes" : "Offset Customer Invoices") : "Offset Supplier Invoices";
+  const title = titleProp || (isCustomer ? (refundMode ? "Refund Customer Credit Notes" : "Offset Customer Invoices") : "Offset Supplier Invoices");
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
@@ -456,7 +469,9 @@ export default function PvOffsetSupplierDialog({
               <Alert severity="info" variant="outlined" sx={{ alignSelf: "flex-start" }}>
                 {refundMode
                   ? "Enter the amount being refunded first, then tick the credit notes it returns."
-                  : "Enter the amount first — ticking allocates it top-down. A credit note can be ticked straight away: it reduces what is paid."}
+                  : allowCredits
+                  ? "Enter the amount first — ticking allocates it top-down. A credit note can be ticked straight away: it reduces what is paid."
+                  : "Enter the amount received first — ticking allocates it top-down, partial on the last invoice."}
               </Alert>
             )}
             <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 340, borderRadius: 1.5 }}>
