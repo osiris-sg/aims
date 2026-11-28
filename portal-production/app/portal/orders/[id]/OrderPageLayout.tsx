@@ -22,6 +22,7 @@ import StatusPill from "../_components/StatusPill";
 import { importedMoney } from "@/helpers/importedOrders";
 import { LEFT_TO_BILL_COLUMNS, ORDER_DOC_COLUMNS, docRowMenu, fmtDate, type OrderAction, type OrderCard, type OrderDocRow, type OrderField, type OrderPageModel } from "@/helpers/orderPage";
 import type { HubActionKey } from "@/helpers/wctOrderHub";
+import RowLink, { rowLinkRowSx } from "@/components/RowLink";
 
 type Pos = { left: number; top: number };
 const at = (e: React.MouseEvent): Pos => ({ left: e.clientX, top: e.clientY });
@@ -196,8 +197,8 @@ function SupplierInvoices({ data }: { data: OrderPageModel["supplierInvoices"] }
         </TableHead>
         <TableBody>
           {data.rows.map((b: any) => (
-            <TableRow key={b.id} hover sx={{ cursor: "pointer", opacity: b.void ? 0.55 : 1 }} onClick={() => router.push(`/portal/accounting/payables/purchase-journal?bill=${b.id}`)}>
-              <TableCell sx={{ fontWeight: 600 }}>
+            <TableRow key={b.id} hover sx={{ ...rowLinkRowSx, cursor: "pointer", opacity: b.void ? 0.55 : 1 }} onClick={() => router.push(`/portal/accounting/payables/purchase-journal?bill=${b.id}`)}>
+              <TableCell sx={{ fontWeight: 600 }}><RowLink href={`/portal/accounting/payables/purchase-journal?bill=${b.id}`} onOpen={() => router.push(`/portal/accounting/payables/purchase-journal?bill=${b.id}`)} />
                 {b.billNumber}
                 {b.void ? " (void)" : ""}
               </TableCell>

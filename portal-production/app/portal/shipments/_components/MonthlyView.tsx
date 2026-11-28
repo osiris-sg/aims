@@ -28,6 +28,7 @@ import { orderHref } from "../_lib/inbox-threads";
 import { toast } from "../_lib/toast";
 import { fmtMonth } from "../_lib/format";
 import { currentLang } from "@/i18n/lang";
+import RowLink, { rowLinkRowSx } from "@/components/RowLink";
 
 const YELLOW = { bgcolor: "rgba(255, 214, 0, 0.18)" };
 const GROUPS = [
@@ -154,7 +155,7 @@ export default function MonthlyView({
       // the two Status columns are each row's own.
       const merged = (i: number, v: React.ReactNode, sx: object = {}) =>
         o ? (
-          <TableCell key={i} rowSpan={span} sx={{ verticalAlign: "top", ...sx }}>
+          <TableCell key={i} rowSpan={span} sx={{ verticalAlign: "top", ...sx }}><RowLink href={orderHref(r.orderId, r.shipmentId, r.stepId)} onOpen={() => open(r)} />
             {v}
           </TableCell>
         ) : null;
@@ -371,7 +372,7 @@ export default function MonthlyView({
                     </TableCell>
                   </TableRow>
                   {b.rows.map((r) => (
-                    <TableRow key={`${r.orderId}:${r.shipmentId ?? ""}`} hover sx={{ cursor: "pointer" }} onClick={() => open(r)} data-tour="monthly-row">
+                    <TableRow key={`${r.orderId}:${r.shipmentId ?? ""}`} hover sx={{ ...rowLinkRowSx, cursor: "pointer" }} onClick={() => open(r)} data-tour="monthly-row">
                       {cells(r)}
                     </TableRow>
                   ))}

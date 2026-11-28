@@ -44,6 +44,7 @@ import PriceCheckPanel from "../../_components/PriceCheckPanel";
 import RecordPaymentButton from "../../_components/RecordPaymentButton";
 import { Field, RecordStatusChip } from "../../_components/bits";
 import LegacyGate from "../../_components/LegacyGate";
+import RowLink, { rowLinkRowSx } from "@/components/RowLink";
 
 function SupplierOrderPage() {
   const { id } = useParams<{ id: string }>();
@@ -194,8 +195,8 @@ function SupplierOrderPage() {
                 </TableHead>
                 <TableBody>
                   {so.customerOrders.map((o) => (
-                    <TableRow key={o.id} hover sx={{ cursor: "pointer" }} onClick={() => router.push(`/portal/shipments/orders/${o.id}`)}>
-                      <TableCell sx={{ fontWeight: 700 }}>{o.label}</TableCell>
+                    <TableRow key={o.id} hover sx={{ ...rowLinkRowSx, cursor: "pointer" }} onClick={() => router.push(`/portal/shipments/orders/${o.id}`)}>
+                      <TableCell sx={{ fontWeight: 700 }}><RowLink href={`/portal/shipments/orders/${o.id}`} onOpen={() => router.push(`/portal/shipments/orders/${o.id}`)} />{o.label}</TableCell>
                       <TableCell>{o.customerName ?? "—"}</TableCell>
                       <TableCell>{[monthShort(o.shipMonth), monthShort(o.deliveryMonth)].filter(Boolean).join(" → ") || "—"}</TableCell>
                       <TableCell align="right">{o.qtyMt != null ? fmtMt(o.qtyMt) : "—"}</TableCell>

@@ -16,6 +16,7 @@ import type { RecordDocLink } from "../_lib/api";
 import { useDocTypeLabels, useTradeMutation } from "../_lib/hooks";
 import { DOC_STATUS_LABEL, documentHref, fmtDate, fmtMoney } from "../_lib/format";
 import { ConfirmDialog } from "./bits";
+import RowLink, { rowLinkRowSx } from "@/components/RowLink";
 
 /** Status chip for a linked document: its own status, or Deleted / Voided. */
 export const DocLinkChip = ({ link, onClick }: { link: RecordDocLink; onClick?: () => void }) => {
@@ -78,8 +79,8 @@ export default function LinkedDocuments({ links, returnTo, canEdit }: { links: R
             </TableHead>
             <TableBody>
               {links.map((l) => (
-                <TableRow key={l.id} hover sx={{ cursor: l.document ? "pointer" : "default" }} onClick={() => open(l)}>
-                  <TableCell>{label(l.docType)}</TableCell>
+                <TableRow key={l.id} hover sx={{ ...rowLinkRowSx, cursor: l.document ? "pointer" : "default" }} onClick={() => open(l)}>
+                  <TableCell><RowLink href={l.document ? documentHref(l.document, returnTo) : null} onOpen={() => open(l)} />{label(l.docType)}</TableCell>
                   <TableCell>
                     <DocLinkChip link={l} />
                   </TableCell>

@@ -37,6 +37,7 @@ import { siteclockEvidenceCaption } from "@/helpers/jobPhotos";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { VERIFICATION_COLOR, VerificationState, completionModeLabel, rejectProblem, verificationLabel } from "@/helpers/wctFinishModes";
 import { fmtJobWhen } from "@/helpers/wctOrders";
+import RowLink, { rowLinkRowSx } from "@/components/RowLink";
 
 // WCT finish modes (enableWctFinishModes, 2026-11-01): jobs finished with a
 // photo of the stamped DO or "paper copy later", waiting for the office. A row
@@ -167,8 +168,8 @@ export default function VerificationQueue({ embedded = false }: { embedded?: boo
             </TableHead>
             <TableBody>
               {rows.map((r) => (
-                <TableRow key={r.id} hover sx={{ cursor: "pointer" }} onClick={() => router.push(`/portal/deliveries/${r.id}`)}>
-                  <TableCell sx={{ fontWeight: 600 }}>#{r.deliveryNumber}</TableCell>
+                <TableRow key={r.id} hover sx={{ ...rowLinkRowSx, cursor: "pointer" }} onClick={() => router.push(`/portal/deliveries/${r.id}`)}>
+                  <TableCell sx={{ fontWeight: 600 }}><RowLink href={`/portal/deliveries/${r.id}`} onOpen={() => router.push(`/portal/deliveries/${r.id}`)} />#{r.deliveryNumber}</TableCell>
                   <TableCell sx={{ whiteSpace: "nowrap" }}>{r.order?.orderNumber || "—"}</TableCell>
                   <TableCell>{r.customer?.name || "—"}</TableCell>
                   <TableCell sx={{ whiteSpace: "nowrap" }}>{fmtJobWhen(r.completedAt)}</TableCell>

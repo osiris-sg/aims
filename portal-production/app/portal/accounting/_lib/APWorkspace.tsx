@@ -43,6 +43,7 @@ import ManualOffsetDialog from "@/containers/DocumentTemplates/components/Manual
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
 import { clickableRowSx, sourceHref } from "./open-source";
+import RowLink, { rowLinkRowSx } from "@/components/RowLink";
 import { useGetSuppliers } from "@/app/portal/hooks/api/useSuppliers";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
@@ -138,12 +139,22 @@ export default function APWorkspace() {
     q.set("toPeriod", toPeriod);
     return `${typeof window !== "undefined" ? window.location.pathname : "/portal/accounting/payables"}?${q.toString()}`;
   };
-  const openLedgerRow = (t: any) => {
-    const href = sourceHref(
+  const ledgerRowHref = (t: any) =>
+    sourceHref(
       { documentId: t.docId || t.documentId || null, documentType: t.docTypeKey || null, templateId: t.templateId || null, journalEntryId: t.journalEntryId || null },
       contactReturnPath(),
     );
+  const openLedgerRow = (t: any) => {
+    const href = ledgerRowHref(t);
     if (href) router.push(href);
+  };
+  // A contact row as a URL (components/RowLink: ⌘-click / right-click opens the ledger in a new tab).
+  const mainRowHref = (contactId: string) => {
+    const q = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+    q.set("contact", contactId);
+    q.set("fromPeriod", monthStartISO(cutOff));
+    q.set("toPeriod", cutOff);
+    return `${typeof window !== "undefined" ? window.location.pathname : "/portal/accounting/payables"}?${q.toString()}`;
   };
   const [jvOpen, setJvOpen] = useState(false);
   // Journal Voucher = the legacy J/V document editor since 2026-11-09 (JournalEntryDialog stays mounted but unused).
@@ -438,8 +449,8 @@ export default function APWorkspace() {
                   </TableHead>
                   <TableBody>
                     {(ledger?.txs || []).map((t, i) => (
-                      <TableRow key={i} ref={ledgerNav.setRowRef(i)} hover selected={i === ledgerNav.activeIndex} onMouseEnter={() => ledgerNav.setActiveIndex(i)} sx={{ ...clickableRowSx, "&.Mui-selected, &.Mui-selected:hover": { bgcolor: "primary.main", "& .MuiTableCell-root": { color: "primary.contrastText" } } }} onClick={() => openLedgerRow(t)} title="Open the document behind this line">
-                        <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{(t as any).reference || (t as any).billNumber || "—"}</TableCell>
+                      <TableRow key={i} ref={ledgerNav.setRowRef(i)} hover selected={i === ledgerNav.activeIndex} onMouseEnter={() => ledgerNav.setActiveIndex(i)} sx={{ ...rowLinkRowSx, ...clickableRowSx, "&.Mui-selected, &.Mui-selected:hover": { bgcolor: "primary.main", "& .MuiTableCell-root": { color: "primary.contrastText" } } }} onClick={() => openLedgerRow(t)} title="Open the document behind this line">
+                        <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}><RowLink href={ledgerRowHref(t)} onOpen={() => openLedgerRow(t)} />{(t as any).reference || (t as any).billNumber || "—"}</TableCell>
                         <TableCell sx={{ whiteSpace: "nowrap" }}>{dmy(t.date)}</TableCell>
                         <TableCell>{t.description || ""}</TableCell>
                         <TableCell sx={monoRight}>{t.debit ? fmt(t.debit) : ""}</TableCell>
@@ -601,6 +612,7 @@ export default function APWorkspace() {
                   onClick={() => openMainRow(r)}
                   title={openCredits[r.contactId] ? `Credit notes to offset: ${fmt(openCredits[r.contactId])} — open the ledger and press Manual Offset` : undefined}
                   sx={(theme) => ({
+                    ...rowLinkRowSx,
                     cursor: "pointer",
                     "&.Mui-selected, &.Mui-selected:hover": { bgcolor: "primary.main", "& .MuiTableCell-root": { color: "primary.contrastText" } },
                     ...(openCredits[r.contactId]
@@ -612,7 +624,7 @@ export default function APWorkspace() {
                       : {}),
                   })}
                 >
-                  <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{r.contactCode || codeById.get(r.contactId) || "—"}</TableCell>
+                  <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}><RowLink href={mainRowHref(r.contactId)} onOpen={() => openMainRow(r)} />{r.contactCode || codeById.get(r.contactId) || "—"}</TableCell>
                   <TableCell>{r.contactName}</TableCell>
                   <TableCell sx={{ ...monoRight, fontWeight: 600 }}>{fmt(r.total)}</TableCell>
                   <TableCell>{r.currency || "SGD"}</TableCell>

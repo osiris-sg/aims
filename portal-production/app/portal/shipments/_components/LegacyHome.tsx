@@ -16,6 +16,7 @@ import { monthShort } from "../_lib/format";
 import PipelineGrid from "../_components/PipelineGrid";
 import { HOME_KEY as KEY, TradeTasksList, useMyTasks, useRefreshTasks } from "../_components/TradeTasks";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import RowLink, { rowLinkRowSx } from "@/components/RowLink";
 
 const usd = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `US$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const sums = (m: Record<string, number>) => (Object.keys(m).length ? Object.entries(m).map(([c, v]) => `${c} ${v.toLocaleString("en-US", { maximumFractionDigits: 2 })}`).join(" + ") : "—");
@@ -153,8 +154,8 @@ function MarginTable({ m }: { m: Money }) {
         </TableHead>
         <TableBody>
           {m.orders.map((o) => (
-            <TableRow key={o.id} hover sx={{ cursor: "pointer" }} onClick={() => router.push(`/portal/shipments/orders/${o.id}`)}>
-              <TableCell sx={{ fontWeight: 700 }}>{o.label}</TableCell>
+            <TableRow key={o.id} hover sx={{ ...rowLinkRowSx, cursor: "pointer" }} onClick={() => router.push(`/portal/shipments/orders/${o.id}`)}>
+              <TableCell sx={{ fontWeight: 700 }}><RowLink href={`/portal/shipments/orders/${o.id}`} onOpen={() => router.push(`/portal/shipments/orders/${o.id}`)} />{o.label}</TableCell>
               <TableCell>{o.customerName ?? "—"}</TableCell>
               <TableCell>{o.deliveryMonth ? monthShort(o.deliveryMonth) : "—"}</TableCell>
               <TableCell align="right">{o.qtyMt ?? "—"}</TableCell>

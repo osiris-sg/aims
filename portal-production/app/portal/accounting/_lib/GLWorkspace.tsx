@@ -46,6 +46,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
 import { clickableRowSx, sourceHref } from "./open-source";
+import RowLink, { rowLinkRowSx } from "@/components/RowLink";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { PaperSheet, ReportHeader, ReportPrintCss, fmt as docFmt, formatShortDate } from "./report-doc";
 import { ReportPrintExportButton, type ReportExportModel, type ReportExportTable } from "./report-export";
@@ -269,12 +270,22 @@ export default function GLWorkspace() {
     q.set("toPeriod", toPeriod);
     return `${typeof window !== "undefined" ? window.location.pathname : "/portal/accounting/ledger"}?${q.toString()}`;
   };
-  const openLedgerRow = (t: LedgerRow) => {
-    const href = sourceHref(
+  const ledgerRowHref = (t: LedgerRow) =>
+    sourceHref(
       { journalEntryId: t.journalEntryId, documentId: t.sourceDocumentId, documentType: t.sourceDocumentType, templateId: t.sourceTemplateId },
       ledgerReturnPath(),
     );
+  const openLedgerRow = (t: LedgerRow) => {
+    const href = ledgerRowHref(t);
     if (href) router.push(href);
+  };
+  // An account row as a URL (components/RowLink: ⌘-click / right-click opens the ledger in a new tab).
+  const mainRowHref = (accountId: string) => {
+    const q = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+    q.set("account", accountId);
+    q.set("fromPeriod", monthStartISO(cutOff));
+    q.set("toPeriod", cutOff);
+    return `${typeof window !== "undefined" ? window.location.pathname : "/portal/accounting/ledger"}?${q.toString()}`;
   };
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledger, setLedger] = useState<{ opening: number; closing: number; rows: LedgerRow[] } | null>(null);
@@ -497,8 +508,9 @@ export default function GLWorkspace() {
                   </TableHead>
                   <TableBody>
                     {(ledger?.rows || []).map((t, i) => (
-                      <TableRow key={i} ref={ledgerNav.setRowRef(i)} hover selected={i === ledgerNav.activeIndex} onMouseEnter={() => ledgerNav.setActiveIndex(i)} sx={{ ...clickableRowSx, "&.Mui-selected, &.Mui-selected:hover": { bgcolor: "primary.main", "& .MuiTableCell-root": { color: "primary.contrastText" } } }} onClick={() => openLedgerRow(t)} title="Open the document behind this line (a manual J/V opens the journal)">
+                      <TableRow key={i} ref={ledgerNav.setRowRef(i)} hover selected={i === ledgerNav.activeIndex} onMouseEnter={() => ledgerNav.setActiveIndex(i)} sx={{ ...rowLinkRowSx, ...clickableRowSx, "&.Mui-selected, &.Mui-selected:hover": { bgcolor: "primary.main", "& .MuiTableCell-root": { color: "primary.contrastText" } } }} onClick={() => openLedgerRow(t)} title="Open the document behind this line (a manual J/V opens the journal)">
                         <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
+                          <RowLink href={ledgerRowHref(t)} onOpen={() => openLedgerRow(t)} />
                           {t.ref || t.journalNumber || "—"}
                         </TableCell>
                         <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{t.xref ?? t.reference ?? ""}</TableCell>
@@ -699,9 +711,12 @@ export default function GLWorkspace() {
                   selected={i === mainNav.activeIndex}
                   onMouseEnter={() => mainNav.setActiveIndex(i)}
                   onClick={() => openMainRow(r)}
-                  sx={{ cursor: "pointer", "&.Mui-selected, &.Mui-selected:hover": { bgcolor: "primary.main", "& .MuiTableCell-root": { color: "primary.contrastText" } }, }}
+                  sx={{ ...rowLinkRowSx, cursor: "pointer", "&.Mui-selected, &.Mui-selected:hover": { bgcolor: "primary.main", "& .MuiTableCell-root": { color: "primary.contrastText" } }, }}
                 >
-                  <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{r.code}</TableCell>
+                  <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
+                    <RowLink href={mainRowHref(r.accountId)} onOpen={() => openMainRow(r)} />
+                    {r.code}
+                  </TableCell>
                   <TableCell>{r.name}</TableCell>
                   <TableCell sx={monoRight}>{r.netDebit ? fmt(r.netDebit) : ""}</TableCell>
                   <TableCell sx={monoRight}>{r.netCredit ? fmt(r.netCredit) : ""}</TableCell>

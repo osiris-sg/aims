@@ -14,6 +14,7 @@ import { useShipmentsApi } from "../_lib/api";
 import { SHIPMENT_KEYS } from "../_lib/hooks";
 import { fmtDmy, fmtYen } from "../_lib/format";
 import LegacyGate from "../_components/LegacyGate";
+import RowLink, { rowLinkRowSx } from "@/components/RowLink";
 
 function StockPage() {
   const api = useShipmentsApi();
@@ -55,8 +56,8 @@ function StockPage() {
               </TableHead>
               <TableBody>
                 {w.items.map((l) => (
-                  <TableRow key={l.shipmentId} hover sx={{ cursor: "pointer" }} onClick={() => router.push(`/portal/shipments/${l.shipmentId}`)}>
-                    <TableCell sx={{ fontWeight: 700 }}>
+                  <TableRow key={l.shipmentId} hover sx={{ ...rowLinkRowSx, cursor: "pointer" }} onClick={() => router.push(`/portal/shipments/${l.shipmentId}`)}>
+                    <TableCell sx={{ fontWeight: 700 }}><RowLink href={`/portal/shipments/${l.shipmentId}`} onOpen={() => router.push(`/portal/shipments/${l.shipmentId}`)} />
                       {l.ref} {l.blNumber ? `· ${l.blNumber}` : ""}
                     </TableCell>
                     <TableCell>{l.customerName ?? "—"}</TableCell>

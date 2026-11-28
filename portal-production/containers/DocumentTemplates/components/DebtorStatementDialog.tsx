@@ -24,6 +24,7 @@ import { toast } from "react-toastify";
 import { todayIso } from "@/helpers/orgToday";
 import DateInput from "@/components/DateInput";
 import { withActiveOrg } from "@/helpers/request";
+import RowLink, { rowLinkRowSx } from "@/components/RowLink";
 
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -325,8 +326,8 @@ export default function DebtorStatementDialog({
                     rows.map((r, i) => {
                       const href = docHref((r as any).docId, (r as any).docTypeKey, (r as any).templateId);
                       return (
-                      <TableRow key={i} hover onClick={() => openDoc(href)} sx={href ? { cursor: "pointer" } : undefined} title={href ? "Open the document in a new tab" : undefined}>
-                        <TableCell sx={refCellSx(!!href)}>{r.reference}</TableCell>
+                      <TableRow key={i} hover onClick={() => openDoc(href)} sx={href ? { ...rowLinkRowSx, cursor: "pointer" } : undefined} title={href ? "Open the document in a new tab" : undefined}>
+                        <TableCell sx={refCellSx(!!href)}><RowLink href={href} onOpen={() => openDoc(href)} />{r.reference}</TableCell>
                         <TableCell sx={{ whiteSpace: "nowrap" }}>{dmy(r.date)}</TableCell>
                         <TableCell>{r.description || r.transactionType}</TableCell>
                         <TableCell sx={mono}>{r.debit ? fmt(r.debit) : ""}</TableCell>
@@ -430,8 +431,8 @@ export default function DebtorStatementDialog({
               {(monthDetail?.docs || []).map((d) => {
                 const href = docHref(d.id, d.docType, d.templateId);
                 return (
-                <TableRow key={d.id} hover onClick={() => openDoc(href)} sx={href ? { cursor: "pointer" } : undefined} title={href ? "Open the document in a new tab" : undefined}>
-                  <TableCell sx={refCellSx(!!href)}>{d.number}</TableCell>
+                <TableRow key={d.id} hover onClick={() => openDoc(href)} sx={href ? { ...rowLinkRowSx, cursor: "pointer" } : undefined} title={href ? "Open the document in a new tab" : undefined}>
+                  <TableCell sx={refCellSx(!!href)}><RowLink href={href} onOpen={() => openDoc(href)} />{d.number}</TableCell>
                   <TableCell sx={{ whiteSpace: "nowrap" }}>{dmy(d.date)}</TableCell>
                   <TableCell>{d.reference || "INVOICE"}</TableCell>
                   <TableCell sx={mono}>{fmt(d.total)}</TableCell>

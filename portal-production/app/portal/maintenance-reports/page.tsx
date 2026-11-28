@@ -43,6 +43,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import NewServiceReportDialog from "./_components/NewServiceReportDialog";
 import UploadServiceReportDialog from "./_components/UploadServiceReportDialog";
 import { readServiceReportFlow, type ServiceReportPrefill } from "@/helpers/serviceReportFlow";
+import RowLink, { rowLinkRowSx } from "@/components/RowLink";
 
 interface ServiceData {
   customerName?: string | null;
@@ -359,9 +360,10 @@ export default function MaintenanceReportsListPage() {
                   key={row.id}
                   hover
                   onClick={() => router.push(`/portal/maintenance-reports/${row.id}`)}
-                  sx={{ cursor: "pointer" }}
+                  sx={{ ...rowLinkRowSx, cursor: "pointer" }}
                 >
                   <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+                    <RowLink href={`/portal/maintenance-reports/${row.id}`} onOpen={() => router.push(`/portal/maintenance-reports/${row.id}`)} />
                     {row.status === "completed" ? (
                       <Checkbox
                         size="small"

@@ -22,6 +22,7 @@ import { toast } from "../_lib/toast";
 import { unpaidText } from "../_lib/unpaidText";
 import { useUiLang } from "@/i18n/UiLangProvider";
 import DateInput from "@/components/DateInput";
+import RowLink, { rowLinkRowSx } from "@/components/RowLink";
 
 const KEY = ["trade", "unpaid"];
 const todayJst = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -46,7 +47,8 @@ export default function UnpaidCard() {
     for (const r of rows) if (r.amount !== null) out[r.currency] = Math.round(((out[r.currency] ?? 0) + r.amount) * 100) / 100;
     return out;
   }, [rows]);
-  const open = (r: UnpaidRow) => r.orderId && router.push(`/portal/shipments/orders/${r.orderId}${r.shipmentId ? `?shipment=${r.shipmentId}` : ""}`);
+  const rowHref = (r: UnpaidRow) => (r.orderId ? `/portal/shipments/orders/${r.orderId}${r.shipmentId ? `?shipment=${r.shipmentId}` : ""}` : null);
+  const open = (r: UnpaidRow) => { const h = rowHref(r); if (h) router.push(h); };
   const kindLabel = (r: UnpaidRow) => t(`kinds.${r.kind}`);
 
   return (
@@ -111,8 +113,8 @@ export default function UnpaidCard() {
                     </TableCell>
                   </TableRow>
                 )}
-                <TableRow hover sx={{ cursor: r.orderId ? "pointer" : "default" }} onClick={() => open(r)}>
-                  <TableCell sx={{ fontWeight: 700 }}>{r.ref}</TableCell>
+                <TableRow hover sx={{ ...rowLinkRowSx, cursor: r.orderId ? "pointer" : "default" }} onClick={() => open(r)}>
+                  <TableCell sx={{ fontWeight: 700 }}><RowLink href={rowHref(r)} onOpen={() => open(r)} />{r.ref}</TableCell>
                   <TableCell>{r.counterparty ?? "—"}</TableCell>
                   <TableCell>
                     {kindLabel(r)}
