@@ -375,7 +375,7 @@ function ThinkingLabel({ label }: { label: string }) {
 function AttachmentView({ att }: { att: Attachment }) {
   if (att.type === "kpi") {
     return (
-      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5, display: "inline-block", minWidth: 180, borderLeft: 3, borderLeftColor: "primary.main" }}>
+      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5, display: "inline-block", minWidth: 180 }}>
         <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", fontSize: "0.65rem", fontWeight: 600 }}>{att.label}</Typography>
         <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.25rem", lineHeight: 1.1, mt: 0.25 }}>{att.value}</Typography>
         {att.sub && <Typography variant="caption" sx={{ color: "text.secondary", fontSize: "0.7rem", display: "block", mt: 0.25 }}>{att.sub}</Typography>}

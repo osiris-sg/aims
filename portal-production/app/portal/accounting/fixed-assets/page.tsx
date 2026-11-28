@@ -215,7 +215,7 @@ export default function FixedAssetsPage() {
           </Typography>
           <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.25rem" }}>{summary.count}</Typography>
         </Paper>
-        <Paper variant="outlined" sx={{ p: 1.5, minWidth: 200, borderLeft: 3, borderLeftColor: "primary.main" }}>
+        <Paper variant="outlined" sx={{ p: 1.5, minWidth: 200 }}>
           <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", fontWeight: 700, fontSize: "0.65rem" }}>
             Total cost basis
           </Typography>

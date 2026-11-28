@@ -1926,8 +1926,6 @@ function PostAsNewDialog({
                 p: 1.25,
                 borderRadius: 1,
                 bgcolor: (t) => alpha(t.palette.info.main, 0.06),
-                borderLeft: 3,
-                borderColor: "info.main",
               }}
             >
               <Typography variant="body2">

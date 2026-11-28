@@ -483,7 +483,7 @@ export default function BillsPage() {
           <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", fontWeight: 700, fontSize: "0.65rem" }}>Visible invoices</Typography>
           <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.125rem", mt: 0.25 }}>{visible.length}</Typography>
         </Paper>
-        <Paper variant="outlined" sx={{ p: 1.5, minWidth: 180, borderLeft: 3, borderLeftColor: "warning.main" }}>
+        <Paper variant="outlined" sx={{ p: 1.5, minWidth: 180 }}>
           <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", fontWeight: 700, fontSize: "0.65rem" }}>Outstanding (posted)</Typography>
           <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.125rem", mt: 0.25 }}>{fmt(totals.outstanding)}</Typography>
         </Paper>

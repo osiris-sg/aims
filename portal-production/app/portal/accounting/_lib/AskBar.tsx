@@ -255,8 +255,6 @@ function AttachmentView({ att }: { att: Attachment }) {
           borderRadius: 1.5,
           display: "inline-block",
           minWidth: 180,
-          borderLeft: 3,
-          borderLeftColor: "primary.main",
         }}
       >
         <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", fontSize: "0.65rem", fontWeight: 600 }}>

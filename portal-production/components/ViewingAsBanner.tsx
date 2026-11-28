@@ -33,8 +33,6 @@ export default function ViewingAsBanner() {
         px: 1.5,
         py: 0.5,
         bgcolor: (theme) => alpha(theme.palette.info.main, 0.08),
-        borderLeft: 3,
-        borderColor: "info.main",
         borderRadius: 0.5,
         display: "flex",
         alignItems: "center",

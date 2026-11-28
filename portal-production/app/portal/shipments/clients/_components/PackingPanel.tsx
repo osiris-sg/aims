@@ -93,7 +93,7 @@ export function PackingPanel({ kind, id, catalog }: { kind: ClientKind; id: stri
             {packing.issues.map((i) => {
               const summary = (lang === "ja" ? i.summaryJa || i.summaryEn : i.summaryEn || i.summaryJa) ?? "";
               return (
-                <Box key={i.id} sx={{ borderLeft: 3, borderColor: "warning.main", pl: 1.5, py: 0.5 }}>
+                <Box key={i.id} sx={{ pl: 1.5, py: 0.5 }}>
                   <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                     <Typography variant="body2" sx={{ fontWeight: 700 }}>
                       {i.title}

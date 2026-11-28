@@ -553,7 +553,7 @@ function ProposalCard({ patch, onApply }: { patch: ProposalPatch; onApply: (p: P
   };
 
   return (
-    <Paper variant="outlined" sx={{ mt: 1, borderRadius: 1.5, borderLeft: 3, borderLeftColor: "primary.main" }}>
+    <Paper variant="outlined" sx={{ mt: 1, borderRadius: 1.5 }}>
       <Box sx={{ px: 1.5, py: 1, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <Typography variant="caption" sx={{ fontWeight: 700, textTransform: "uppercase", color: "text.secondary" }}>
           Suggested

@@ -6302,7 +6302,8 @@ export default function TabbedDocumentCreator({
             // A slim notice inside the document's own margins (guru 2026-11-26,
             // "this ui is abit off": the edge-to-edge orange band washed the
             // text out in dark mode). A translucent warning/error tint under the
-            // theme's own text colour, with a solid left rule, reads in both modes.
+            // theme's own text colour reads in both modes. No coloured left rule:
+            // on a rounded box it draws a crescent (guru 2026-11-28, "remove this ui").
             mx: docGutter(legacyLayout),
             mt: 1,
             px: 1.5,
@@ -6311,8 +6312,6 @@ export default function TabbedDocumentCreator({
             alignItems: "center",
             gap: 1.5,
             borderRadius: 1,
-            borderLeft: 4,
-            borderColor: lock.lostLock ? "error.main" : "warning.main",
             bgcolor: (t) => alpha(lock.lostLock ? t.palette.error.main : t.palette.warning.main, t.palette.mode === "dark" ? 0.18 : 0.12),
             color: "text.primary",
           }}

@@ -533,7 +533,7 @@ export default function ImportInvoices() {
 
             {/* Line items - simple list */}
             {(currentInvoice.line_items as any[])?.filter((li: any) => !li.is_reference_line).map((li: any, idx: number) => (
-              <Box key={idx} sx={{ p: 1.5, mb: 1, borderLeft: 3, borderColor: "success.main", bgcolor: "surfaceTones.low", borderRadius: 1 }}>
+              <Box key={idx} sx={{ p: 1.5, mb: 1, bgcolor: "surfaceTones.low", borderRadius: 1 }}>
                 <Typography variant="body2" sx={{ fontSize: 13, mb: 0.5 }}>{li.description?.split("\n")[0]?.slice(0, 150)}</Typography>
                 <Typography variant="caption" color="text.secondary">
                   {t("qty")}: {li.quantity} | ${li.unit_price?.toLocaleString("en-SG", { minimumFractionDigits: 2 })} | {t("gross")}: ${li.gross?.toLocaleString("en-SG", { minimumFractionDigits: 2 })}
@@ -731,11 +731,6 @@ export default function ImportInvoices() {
                 sx={{
                   p: 2,
                   mb: 2,
-                  borderLeft: `4px solid ${
-                    li.confidence === "high" && li.selectedAssetId ? "#2e7d32" :
-                    li.confidence === "medium" ? "#ed6c02" :
-                    li.confidence === "low" ? "#0288d1" : "#d32f2f"
-                  }`,
                 }}
               >
                 {/* ── Xero Description (read-only context) ── */}

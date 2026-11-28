@@ -122,8 +122,6 @@ export default function ARAgingPage() {
               sx={{
                 p: 1.5,
                 borderRadius: 1.5,
-                borderLeft: 3,
-                borderLeftColor: `${b.severity}.main`,
               }}
             >
               <Typography

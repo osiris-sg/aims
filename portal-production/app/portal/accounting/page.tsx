@@ -640,13 +640,6 @@ function InsightsCard({ insights }: { insights: Hub["insights"] }) {
                       : t.palette.info.main,
                     0.06,
                   ),
-                borderLeft: 3,
-                borderColor:
-                  ins.tone === "positive"
-                    ? "success.main"
-                    : ins.tone === "negative"
-                    ? "error.main"
-                    : "info.main",
               }}
             >
               <Typography variant="body2">{ins.text}</Typography>
