@@ -8,6 +8,7 @@ import { PayablesService } from '../payables/payables.service';
 import { JournalVouchersService } from '../journal-vouchers/journal-vouchers.service';
 import { PaymentVouchersService } from '../payment-vouchers/payment-vouchers.service';
 import { ledgerActivity } from './ledger-activity';
+import { appHelp } from './app-help';
 import { prepareOfficialReceipt, preparePaymentVoucher } from './voucher-tools';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { XeroSyncService } from '../xero-sync/xero-sync.service';
@@ -2054,6 +2055,23 @@ export class OperatorToolsService {
         },
       },
 
+      {
+        // guru 2026-11-28 (cost): the manual used to ride on every model call (~80% of the prompt). It is
+        // looked up here instead; the prompt carries only its topic index.
+        name: 'app_help',
+        description:
+          'Look up the AIMS manual: how a screen, button, status, report, flag or workflow works, and where to find it. Call it before answering ANY "how do I / where is / what does X do / why can\u2019t I / can AIMS do X" question, with the user\u2019s own words plus the words the topic index uses. Returns the matching passages of the manual. Call it again with other words when the first result does not answer the question.',
+        permissions: [],
+        input_schema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'The question or the feature / screen / button it is about, in a few words' },
+            maxChars: { type: 'number', description: 'Optional: how much text to return (default 9000, max 20000)' },
+          },
+          required: ['query'],
+        },
+        run: async (_ctx, args) => ({ result: appHelp(args || {}) }),
+      },
       {
         // guru 2026-11-28: asked how much salary was paid in a month, AIMEE opened the salary COST accounts,
         // found nothing and guessed why; the payments were on the salary PAYABLE accounts. One look across the

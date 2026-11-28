@@ -15,7 +15,7 @@ import { shipmentsPageBlock, shipmentsWebPrompt } from './shipments-web';
 import { TelegramAdapter } from './adapters/telegram.adapter';
 import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
 import { WebAdapter } from './adapters/web.adapter';
-import { APP_KNOWLEDGE } from '../guide/app-knowledge';
+import { APP_HELP_INDEX } from './app-help';
 import {
   ChannelAdapter,
   InboundMessage,
@@ -146,6 +146,7 @@ const TOOL_STATUS: Record<string, string> = {
   list_bills: '📂 Fetching bills...',
   create_bill: '📝 Recording the bill...',
   create_journal_voucher: '📝 Creating the journal voucher...',
+  app_help: '📖 Checking the manual...',
   create_payment_voucher: '💵 Preparing the payment voucher...',
   create_official_receipt: '💵 Preparing the receipt...',
   ledger_activity: '🔎 Searching the ledger...',
@@ -896,10 +897,22 @@ export class OperatorService {
       // conversation so far. Each turn, and each tool round inside a turn,
       // then re-reads the unchanged prefix at a tenth of the price instead of
       // paying for the ~60 tool definitions and the rules again.
-      const cachedTools = toolDefs.map((t, i) => (i === toolDefs.length - 1 ? { ...t, cache_control: { type: 'ephemeral' as const } } : t));
-      const systemBlocks: Anthropic.TextBlockParam[] = [
-        { type: 'text', text: ctx.profile === 'shipments' ? this.shipmentsPrompt(ctx, text) : this.systemPrompt(ctx) + this.webPrompt(ctx), cache_control: { type: 'ephemeral' } },
-      ];
+      // Cost pass (guru 2026-11-28: a dozen calls cost $3). (1) The manual is no longer carried: a
+      // topic index is, and app_help fetches passages. (2) What never changes between messages (tools,
+      // rules, index) is cached for an HOUR: an office asks a question every 10 to 30 minutes, and the
+      // 5-minute cache made each of those a full re-write. (3) What does change (today's date, who is
+      // asking, what the side panel shows) sits AFTER the cached blocks, so it no longer throws the
+      // cached rules away every time the panel opens or closes.
+      const HOUR = { type: 'ephemeral' as const, ttl: '1h' as const };
+      const cachedTools = toolDefs.map((t, i) => (i === toolDefs.length - 1 ? { ...t, cache_control: HOUR } : t));
+      const systemBlocks: Anthropic.TextBlockParam[] =
+        ctx.profile === 'shipments'
+          ? [{ type: 'text', text: this.shipmentsPrompt(ctx, text), cache_control: { type: 'ephemeral' } }]
+          : [
+              { type: 'text', text: this.systemPrompt() + this.webPrompt(ctx), cache_control: HOUR },
+              ...(ctx.channel === 'web' ? [{ type: 'text' as const, text: this.webUserBlock(ctx), cache_control: HOUR }] : []),
+              { type: 'text', text: this.contextBlock(ctx) },
+            ];
       if (ctx.profile === 'shipments') {
         // The latest message decides the language; the history (often mixed JP / EN) must not.
         // Round BL: on the web (AIMEE) the user's language setting decides instead.
@@ -1171,7 +1184,8 @@ export class OperatorService {
     }
   }
 
-  private systemPrompt(ctx: OperatorContext): string {
+  /** Today, the user and the side panel: everything about THIS message. Never cached, always last. */
+  private contextBlock(ctx: OperatorContext): string {
     const perms = ctx.isOsirisAdmin
       ? 'all permissions (admin)'
       : ctx.roles.flatMap((r) => r.permissions.map((p) => `${p.resource}:${p.action}`)).join(', ') || 'none';
@@ -1183,9 +1197,18 @@ export class OperatorService {
     const iso = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
     const tomorrow = new Date(now.getTime() + 86400_000);
     return [
-      `You are the AIMS Operator, an assistant that performs real work inside the AIMS business system on behalf of staff, over chat.`,
-      `TODAY is ${fmt(now)} (${iso(now)}) in Singapore time. TOMORROW is ${fmt(tomorrow)} (${iso(tomorrow)}). Work out every relative date ("tomorrow", "next Tuesday", "end of the month") from these, never from memory, and always send dates as ISO-8601 with the +08:00 offset.`,
+      `CONTEXT FOR THIS MESSAGE:`,
+      `TODAY is ${fmt(now)} (${iso(now)}) in Singapore time. TOMORROW is ${fmt(tomorrow)} (${iso(tomorrow)}).`,
       `You are acting as ${ctx.actor.name || 'a staff user'} in the organization "${ctx.organizationName}". Their permissions: ${perms}.`,
+      ...(ctx.channel === 'web' ? [`SIDE PANEL RIGHT NOW: ${this.panelState(ctx)}.`] : []),
+    ].join('\n');
+  }
+
+  /** The rules. The same text for every user and every message, so it is cached and shared. */
+  private systemPrompt(): string {
+    return [
+      `You are the AIMS Operator, an assistant that performs real work inside the AIMS business system on behalf of staff, over chat.`,
+      `TODAY's date, who you are acting as, their organization and their permissions are in the "CONTEXT FOR THIS MESSAGE" block at the end of these instructions. Work out every relative date ("tomorrow", "next Tuesday", "end of the month") from the dates given there, never from memory, and always send dates as ISO-8601 with the +08:00 offset.`,
       `Everything you do is scoped to this organization only.`,
       ``,
       `RULES:`,
@@ -1615,25 +1638,33 @@ export class OperatorService {
   /** Extra system prompt for the dashboard chat. Empty on chat apps. */
   private webPrompt(ctx: OperatorContext): string {
     if (ctx.channel !== 'web') return '';
-    const screens = (ctx.web?.screens || []).map((s) => `${s.label}: ${s.path}`).join('\n');
     return [
       ``,
       ``,
       `WEB DASHBOARD CHAT: this conversation is in the AIMS web dashboard, not a phone. Rule 5 is relaxed here: you may use **bold**, short bullet lists and small markdown tables. Still short.`,
       `The screen has a SIDE PANEL. Any document you create, edit or preview opens there automatically with a live preview, so say "it's open on the right" instead of describing it line by line.`,
-      `SIDE PANEL RIGHT NOW: ${this.panelState(ctx)}. You cannot see the panel, only this line. When the user asks to see, show, open or preview a document, ALWAYS call preview_document (even if you showed it earlier): the user may have closed the panel. Never say something is open on the right unless this line says so or you just called a tool that opens it.`,
+      `SIDE PANEL: what it shows right now is the \"SIDE PANEL RIGHT NOW\" line of the CONTEXT block at the end. You cannot see the panel, only that line. When the user asks to see, show, open or preview a document, ALWAYS call preview_document (even if you showed it earlier): the user may have closed the panel. Never say something is open on the right unless that line says so or you just called a tool that opens it.`,
       `To show the user a dashboard screen (a list, a report, a settings page) call open_screen with its path: it opens in the side panel and the chat stays open. Use it whenever the user wants to SEE or work on a screen. For "where is X" / "how do I change X" questions, OPEN the screen straight away (do not ask "want me to open it?") and answer in one line that says which tab or button to use.`,
       `Rule 8 holds here too: no em dashes or en dashes anywhere, including inside bullet lists; write "AsiaDealHub: S$8,000.00 (31 to 60 days overdue)".`,
       `For a list or report the user asked about, prefer show_view (a table or stat tiles in the side panel) over a long chat message, then summarise in one line.`,
+      `The screens this user may open and the walkthroughs they may run are listed in the next block.`,
+      ``,
+      `HOW THE APP WORKS (the manual): you do NOT have the manual in these instructions, only its TOPIC INDEX below. Before you answer ANY question about how AIMS works ("how do I", "where is", "what does this button do", "why can't I", "can AIMS do X", what a status, flag, report or screen means), and before you explain a feature while doing something else, call app_help with the user's own words plus the words the index uses for that topic. Answer from what it returns, in one or two lines, and open the screen. NEVER describe how AIMS works from memory or from a topic's title alone: the index tells you what exists, not how it works. If app_help returns nothing useful, call it again with other words (the screen name, the document type) before saying AIMS cannot do something. You do not need app_help to DO things with your tools (create a document, run a report, search the ledger).`,
+      `TOPIC INDEX OF THE MANUAL (section headings in brackets, one line per topic):`,
+      APP_HELP_INDEX,
+    ].join('\n');
+  }
+
+  /** The screens and walkthroughs of THIS user's org and role: cached, but apart from the shared rules. */
+  private webUserBlock(ctx: OperatorContext): string {
+    const screens = (ctx.web?.screens || []).map((s) => `${s.label}: ${s.path}`).join('\n');
+    return [
       `Screens this user may open (label: path):`,
       screens || '(none sent)',
       // Round BM: the Guide walkthroughs this user may run (sent by the portal; the ✦ Guide button is gone on AIMEE orgs).
       ``,
       `WALKTHROUGHS (start_walkthrough ids): for "show me how / walk me through" use start_walkthrough with the matching id; when none fits, open the screen and explain in one or two lines.`,
       (ctx.web?.aimee?.guides ?? []).map((g) => `- ${g.id}: ${g.title}`).join('\n') || '(none)',
-      ``,
-      `HOW THE APP WORKS (for "how do I" questions; answer in one or two lines and open the screen):`,
-      APP_KNOWLEDGE,
     ].join('\n');
   }
 
