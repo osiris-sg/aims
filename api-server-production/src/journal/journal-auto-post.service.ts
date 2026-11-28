@@ -702,7 +702,22 @@ export class JournalAutoPostService {
     currency?: string | null;
     rate?: number | null;
     amount: number; // receipt total, in receipt currency
-    allocations: Array<{ documentId: string; amount: number }>; // receipt currency
+    allocations: Array<{ documentId: string; amount: number }>; // receipt currency (legacy callers: the whole receipt)
+    // The GL lines grid (2026-11-28, the voucher's shape): a direct line credits its account; the
+    // debtor line credits the control per allocation. Absent = a legacy caller: one debtor line.
+    lines?: Array<{
+      accountCode: string;
+      amount: number; // receipt currency, signed: positive = credit
+      description?: string | null;
+      offset?: null | {
+        customerName?: string | null;
+        currency?: string | null;
+        rate?: number | null; // customer currency per receipt currency
+        allocations: Array<{ documentId: string; amount: number }>;
+        updateFx?: boolean | null;
+        fxAccountCode?: string | null;
+      };
+    }>;
     userId?: string;
   }) {
     const { organizationId, receiptDocumentId, receiptNumber, entryDate, customerName } = args;
@@ -712,14 +727,14 @@ export class JournalAutoPostService {
       return null;
     }
     const creditCode = args.creditAccountCode || controls.debtorControl;
-    const debtor = await this.resolveAccountByCode(organizationId, creditCode);
     const bank = await this.resolveAccountByCode(organizationId, args.bankAccountCode);
-    if (!debtor || !bank) {
-      this.logger.warn(
-        `[postFromReceipt] missing accounts (credit=${creditCode}, bank=${args.bankAccountCode}); skipping`,
-      );
+    if (!bank) {
+      this.logger.warn(`[postFromReceipt] bank account ${args.bankAccountCode} missing; skipping`);
       return null;
     }
+    const receiptLines = Array.isArray(args.lines)
+      ? args.lines
+      : [{ accountCode: creditCode, amount: args.amount, description: null, offset: { customerName, allocations: args.allocations, updateFx: true } }];
 
     // Re-save = repost: void the previous journal for this receipt.
     const existing = await this.prisma.journalEntry.findFirst({
@@ -744,36 +759,79 @@ export class JournalAutoPostService {
       accountId: bank.id,
       debit: bankBase,
       credit: 0,
-      description: `Official Receipt ${receiptNumber ?? ''}`.trim(),
+      description: `Official Receipt ${receiptNumber ?? ''}${customerName ? ` — ${customerName}` : ''}`.trim(),
       ...(isForeign ? { foreignAmount: ROUND(args.amount), exchangeRate: rate } : {}),
     });
-    let arBaseTotal = 0;
-    for (const a of args.allocations) {
-      const hist = isForeign ? (await this.historicalRateForDocument(organizationId, a.documentId)) ?? rate : 1;
-      const arBase = ROUND(a.amount * hist);
-      arBaseTotal = ROUND(arBaseTotal + arBase);
-      lines.push({
-        accountId: debtor.id,
-        debit: 0,
-        credit: arBase,
-        description: `Settle invoice — ${customerName ?? ''}`.trim(),
-        ...(isForeign ? { foreignAmount: ROUND(a.amount), exchangeRate: hist } : {}),
-      });
-    }
-    const diff = ROUND(bankBase - arBaseTotal); // >0 → realised gain
-    if (Math.abs(diff) > 0.005) {
-      const fxAccount = await this.resolveFxGainLossAccount(organizationId, controls);
-      if (!fxAccount) {
-        this.logger.warn(`[postFromReceipt] realised FX of ${diff} but no FX gain/loss account; skipping post`);
+    const fx = (amt: number) => (isForeign ? { foreignAmount: ROUND(Math.abs(amt)), exchangeRate: rate } : {});
+    for (const l of receiptLines) {
+      const account = await this.resolveAccountByCode(organizationId, l.accountCode);
+      if (!account) {
+        this.logger.warn(`[postFromReceipt] account ${l.accountCode} missing; skipping`);
         return null;
       }
-      lines.push({
-        accountId: fxAccount.id,
-        debit: diff < 0 ? -diff : 0,
-        credit: diff > 0 ? diff : 0,
-        description: `Realised FX ${diff > 0 ? 'gain' : 'loss'} — ${receiptNumber ?? ''} (${currency} @ receipt ${rate})`.trim(),
-      });
+      const lineBase = ROUND(l.amount * rate);
+      if (!l.offset) {
+        // A direct line: Cr the account for money received (a grant, interest, a refund); a negative
+        // line (a bank charge deducted from the deposit) is a Dr.
+        if (lineBase === 0) continue;
+        lines.push({
+          accountId: account.id,
+          debit: lineBase < 0 ? -lineBase : 0,
+          credit: lineBase > 0 ? lineBase : 0,
+          description: (l.description || account.name || '').trim() || `Official Receipt ${receiptNumber ?? ''}`.trim(),
+          ...fx(l.amount),
+        });
+        continue;
+      }
+      // The debtor line: Cr control per allocation. Allocations are in the customer's currency; the
+      // base value is the invoice's historical rate (the debt is relieved at what it was booked at)
+      // when FX updating is on, else the receipt's rate (no FX leg).
+      const o = l.offset;
+      const custCur = String(o.currency || currency).toUpperCase();
+      const custForeign = custCur !== base;
+      const custRate = Number(o.rate) || 1; // customer per receipt
+      const receiptRateForCustomer = rate / custRate; // customer currency → base via the receipt
+      const who = o.customerName ?? customerName ?? '';
+      let arBaseTotal = 0;
+      for (const a of o.allocations) {
+        const hist = custForeign
+          ? o.updateFx !== false
+            ? (await this.historicalRateForDocument(organizationId, a.documentId)) ?? receiptRateForCustomer
+            : receiptRateForCustomer
+          : 1;
+        const arBase = ROUND(a.amount * hist);
+        if (arBase === 0) continue;
+        arBaseTotal = ROUND(arBaseTotal + arBase);
+        lines.push({
+          accountId: account.id,
+          debit: 0,
+          credit: arBase,
+          description: `Settle invoice — ${who}`.trim(),
+          ...(custForeign ? { foreignAmount: ROUND(a.amount), exchangeRate: hist } : {}),
+        });
+      }
+      const diff = ROUND(lineBase - arBaseTotal); // >0 → received more base than the debt relieved: realised gain
+      if (Math.abs(diff) > 0.005) {
+        const fxAccount = o.fxAccountCode
+          ? await this.resolveAccountByCode(organizationId, o.fxAccountCode)
+          : await this.resolveFxGainLossAccount(organizationId, controls);
+        if (!fxAccount) {
+          this.logger.warn(`[postFromReceipt] realised FX of ${diff} but no FX gain/loss account; skipping post`);
+          return null;
+        }
+        lines.push({
+          accountId: fxAccount.id,
+          debit: diff < 0 ? -diff : 0,
+          credit: diff > 0 ? diff : 0,
+          description: `Realised FX ${diff > 0 ? 'gain' : 'loss'} — ${receiptNumber ?? ''} (${custCur} @ receipt ${ROUND(receiptRateForCustomer)})`.trim(),
+        });
+      }
     }
+    // Rounding drift from per-line conversion lands on the bank line.
+    const dr = ROUND(lines.reduce((s, x) => s + x.debit, 0));
+    const cr = ROUND(lines.reduce((s, x) => s + x.credit, 0));
+    const drift = ROUND(cr - dr);
+    if (drift !== 0 && Math.abs(drift) <= 0.05) lines[0].debit = ROUND(lines[0].debit + drift);
 
     const created = await this.journal.create(
       organizationId,
@@ -1579,6 +1637,17 @@ export class JournalAutoPostService {
           rate: Number(c.rate) || 1,
           amount: Number(c.receiptAmount) || 0,
           allocations: (Array.isArray(c.allocations) ? c.allocations : []).map((a: any) => ({ documentId: a.documentId, amount: Number(a.amount) || 0 })),
+          // A receipt keyed on the lines grid (2026-11-28) posts its lines; an older one its allocations.
+          lines: Array.isArray(c.lines) && c.lines.length
+            ? c.lines.map((l: any) => ({
+                accountCode: String(l.accountCode || ''),
+                amount: Number(l.amount) || 0,
+                description: l.description || null,
+                offset: l.offset
+                  ? { customerName: l.offset.customerName, currency: l.offset.currency, rate: Number(l.offset.rate) || 1, allocations: (l.offset.allocations || []).map((a: any) => ({ documentId: a.documentId, amount: Number(a.amount) || 0 })), updateFx: l.offset.updateFx !== false, fxAccountCode: l.offset.fxAccountCode || null }
+                  : null,
+              }))
+            : undefined,
           userId,
         });
         if (!entry) throw new Error('not posted (check the bank / debtor accounts)');

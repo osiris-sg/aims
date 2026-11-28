@@ -889,15 +889,30 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
   }
 
   // ── Official Receipt (legacy-UX overhaul) ────────────────────────────────
-  // One receipt allocated across a customer's invoices. data carries:
-  // receiptNumber, date, chequeNo, remarks, customerLabel, paymentMethod,
-  // currency, rate, receiptAmount, depositLabel, allocations[{reference, date,
-  // description, amount}]. Rendered through the same print pipeline as every
-  // other document so fonts/margins/PDF stay identical.
+  // One receipt over its GL lines (the voucher's shape, 2026-11-28): the
+  // debtor line's invoices print one per row (reference, date, amount), a
+  // direct line (a grant, interest, a refund) prints as its description and
+  // remarks. data carries: receiptNumber, date, chequeNo, remarks,
+  // customerLabel, paymentMethod, currency, rate, receiptAmount, depositLabel,
+  // lines[{accountCode, description, remarks, amount, offset?{allocations}}]
+  // and, for a receipt saved before the grid, allocations[{reference, date,
+  // description, amount}] alone. Rendered through the same print pipeline as
+  // every other document so fonts/margins/PDF stay identical.
   if (documentType === "OFFICIAL_RECEIPT" || documentType === "OR") {
     const r: any = data || {};
     const allocs: any[] = Array.isArray(r.allocations) ? r.allocations : [];
-    const receiptTotal = allocs.reduce((sum: number, a: any) => sum + (Number(a.amount) || 0), 0);
+    const orLines: any[] = Array.isArray(r.lines) ? r.lines.filter((l: any) => l?.accountCode || l?.offset) : [];
+    // What the receipt was received for: each line, the debtor line expanded into its invoices.
+    const receivedFor: Array<{ ref: string; date: any; amount: number; note?: string }> = orLines.length
+      ? orLines.flatMap((l: any) =>
+          l?.offset
+            ? (Array.isArray(l.offset.allocations) ? l.offset.allocations : []).map((a: any) => ({ ref: a.reference || "", date: a.date, amount: Number(a.amount) || 0 }))
+            : [{ ref: String(l.description || l.accountName || l.accountCode || "").toUpperCase(), date: null, amount: Number(l.amount) || 0, note: l.remarks || "" }],
+        )
+      : allocs.map((a: any) => ({ ref: a.reference || "", date: a.date, amount: Number(a.amount) || 0 }));
+    const receiptTotal = orLines.length
+      ? orLines.reduce((sum: number, l: any) => sum + (Number(l.amount) || 0), 0)
+      : allocs.reduce((sum: number, a: any) => sum + (Number(a.amount) || 0), 0);
     const orWords = (num: number): string => {
       const ones = ["", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE", "TEN", "ELEVEN", "TWELVE", "THIRTEEN", "FOURTEEN", "FIFTEEN", "SIXTEEN", "SEVENTEEN", "EIGHTEEN", "NINETEEN"];
       const tens = ["", "", "TWENTY", "THIRTY", "FORTY", "FIFTY", "SIXTY", "SEVENTY", "EIGHTY", "NINETY"];
@@ -1002,12 +1017,15 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 <Typography sx={{ fontSize: "0.8125rem", lineHeight: 1.9 }}>Received for the followings&nbsp;&nbsp;:</Typography>
                 <Box component="table" sx={{ borderCollapse: "collapse", mt: 0.5, ml: 2, "& td": { fontSize: "0.8125rem", py: 0.3, pr: 4, fontVariantNumeric: "tabular-nums" } }}>
                   <Box component="tbody">
-                    {allocs.map((a: any, i: number) => (
+                    {receivedFor.map((a, i: number) => (
                       <Box component="tr" key={i}>
-                        <Box component="td" sx={{ minWidth: 150 }}>{a.reference}</Box>
-                        <Box component="td" sx={{ minWidth: 110 }}>{dmy(a.date)}</Box>
+                        <Box component="td" sx={{ minWidth: 150 }}>
+                          {a.ref}
+                          {a.note ? <Box component="span" sx={{ display: "block", fontSize: "0.75rem", color: "#333" }}>{a.note}</Box> : null}
+                        </Box>
+                        <Box component="td" sx={{ minWidth: 110 }}>{a.date ? dmy(a.date) : ""}</Box>
                         <Box component="td" sx={{ textAlign: "right", minWidth: 110 }}>
-                          {(Number(a.amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {a.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </Box>
                       </Box>
                     ))}

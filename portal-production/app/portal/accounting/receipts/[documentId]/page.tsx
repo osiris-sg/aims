@@ -3,9 +3,10 @@
 // Official Receipt editor page — mounts the REAL document editor
 // (TabbedDocumentCreator) on a receipt Document row: same toolbar, tabs,
 // locking, history and exit-prompt as every other document; only the field
-// rows (OR_FIELD_DEFINITIONS) and the body (Offset Transactions grid) differ.
-// Saves route to PUT /receipts/:id, which replaces the allocation Payment
-// rows and posts ONE journal (Dr bank / Cr debtor per allocation).
+// rows (OR_FIELD_DEFINITIONS) and the body (Receipt Lines grid — the voucher's
+// shape, 2026-11-28) differ. Saves route to PUT /receipts/:id, which reposts
+// ONE journal (Dr bank / Cr each line, the debtor control per allocation) and
+// replaces the Payment rows of the debtor line.
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -48,12 +49,15 @@ const toExisting = (r: any) => ({
       chequeNo: r.chequeNo || "",
       remarks: r.remarks || "",
       creditAccountCode: r.creditAccountCode || null,
+      debtorAccountCode: r.debtorAccountCode || null,
       debitAccountCode: r.debitAccountCode || null,
       depositLabel: r.debitAccountCode || "",
       currency: r.currency || "SGD",
       rate: r.rate || 1,
       receiptAmount: r.receiptAmount || 0,
       allocations: r.allocations || [],
+      // The lines grid; the server reads a pre-grid receipt back as one debtor line.
+      lines: Array.isArray(r.lines) ? r.lines : [],
     },
 });
 
@@ -126,6 +130,24 @@ export default function OfficialReceiptPage() {
       throw new Error("Authentication required");
     }
     const od = data?.orData || {};
+    const lines = (Array.isArray(od.lines) ? od.lines : [])
+      .filter((l: any) => l.accountCode || parseFloat(String(l.amount)) || l.offset)
+      .map((l: any) => ({
+        id: l.id,
+        accountCode: l.accountCode || null,
+        description: l.description || null,
+        remarks: l.remarks || null,
+        amount: Math.round((parseFloat(String(l.amount)) || 0) * 100) / 100,
+        offset: l.offset
+          ? {
+              customerId: l.offset.customerId || data?.customer?.id || null,
+              rate: Number(l.offset.rate) || 1,
+              allocations: (l.offset.allocations || []).map((a: any) => ({ documentId: a.documentId, amount: Number(a.amount) || 0 })),
+              updateFx: l.offset.updateFx !== false,
+              fxAccountCode: l.offset.fxAccountCode || null,
+            }
+          : null,
+      }));
     const response = await request(
       { path: `/receipts/${documentId}`, method: "PUT", ownError: true },
       {
@@ -133,17 +155,13 @@ export default function OfficialReceiptPage() {
         date: od.date,
         chequeNo: od.chequeNo || null,
         remarks: od.remarks || null,
-        customerId: data?.customer?.id,
-        creditAccountCode: od.creditAccountCode || null,
+        // The payer (optional — a grant has none); the debtor line carries its own customer.
+        customerId: data?.customer?.id || null,
         debitAccountCode: od.debitAccountCode,
         currency: od.currency || "SGD",
         rate: parseFloat(od.rate) || 1,
-        receiptAmount: Math.round((parseFloat(od.receiptAmount) || 0) * 100) / 100,
         paymentMethod: od.chequeNo ? "cheque" : "transfer",
-        allocations: (Array.isArray(od.allocations) ? od.allocations : []).map((a: any) => ({
-          documentId: a.documentId,
-          amount: Number(a.amount) || 0,
-        })),
+        lines,
       },
       token,
     );

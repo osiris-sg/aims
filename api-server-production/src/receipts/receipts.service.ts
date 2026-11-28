@@ -16,29 +16,74 @@ import { orgToday } from '../common/org-today';
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
 // ---------------------------------------------------------------------------
-// Official Receipts (legacy-UX overhaul, 2026-07-15).
-// A receipt is a Document row (type OFFICIAL_RECEIPT — the Document table is
-// canonical) whose config carries the header + allocations. Each allocation
-// creates a normal Payment row tagged receiptId (so invoice status/outstanding
-// and every AR report keep working), but the GL side is ONE journal per
-// receipt (Dr bank / Cr debtors per allocation + realised FX), reposted on
-// every save. Balance must be zero: the receipt amount must be fully
-// allocated (no customer-credit ledger yet — guru's call).
+// Official Receipts (legacy-UX overhaul, 2026-07-15; the voucher's shape
+// 2026-11-28). A receipt is a Document row (type OFFICIAL_RECEIPT — the
+// Document table is canonical) whose config carries the header + LINES, the
+// way the Payment Voucher does since its 2026-11-09 rebuild:
+//
+//   Deposit-to bank (debit side) · Receipt No. · Date · Received from ·
+//   Bank advice · Rate, then a grid of GL lines — Account code | Description |
+//   Remarks | Amount.
+//
+// A line is either a DIRECT line (any GL account: a government grant to its
+// income account, bank interest, a refund received, a bank charge deducted as
+// a negative) or the ONE DEBTOR line the "Offset Transactions" dialog writes:
+// Trade Debtors control + the customer + the invoices ticked (allocations).
+// guru 2026-11-28: "the receipt must be able to take in double entries even if
+// never tick invoices... example grant from government".
+//
+// Each allocation creates a normal Payment row tagged receiptId (so invoice
+// status/outstanding and every AR report keep working), and the GL side is
+// ONE journal per receipt (Dr bank the total / Cr each line — the debtor
+// control per allocation ± realised FX), reposted on every save. The total of
+// the lines is the money entering the bank and must be > 0.
+//
+// Legacy receipts (header customer + allocations, no lines) are read back as
+// one debtor line; the legacy keys (customerId, customerName,
+// creditAccountCode, receiptAmount, allocations) are still written on save so
+// the listings, reports, bank rec and AIMEE that read them keep working.
 // ---------------------------------------------------------------------------
 
 export type ReceiptAllocation = { documentId: string; amount: number };
+
+export type ReceiptOffset = {
+  customerId?: string | null;
+  /** Customer currency per receipt currency (1 when the same). */
+  rate?: number | null;
+  allocations: ReceiptAllocation[];
+  /** Post the realised difference to the FX gain/loss account. Default true. */
+  updateFx?: boolean | null;
+  /** Override for the FX gain/loss account; blank = Accounting Setup default. */
+  fxAccountCode?: string | null;
+};
+
+export type ReceiptLine = {
+  id?: string | null;
+  /** GL account. Blank on the debtor line = the debtor control. */
+  accountCode?: string | null;
+  description?: string | null;
+  remarks?: string | null;
+  /** Receipt currency, signed: positive = received (credit to this account), negative = a debit (a charge deducted). */
+  amount: number;
+  offset?: ReceiptOffset | null;
+};
 
 export type SaveReceiptDto = {
   date: string;
   chequeNo?: string | null;
   remarks?: string | null;
-  customerId: string;
+  /** The payer. Optional since 2026-11-28 — a grant has no customer; the debtor line carries its own customer. */
+  customerId?: string | null;
   debitAccountCode: string; // deposit-to bank/cash
   currency?: string | null;
   rate?: number | null;
-  receiptAmount: number;
+  /** Legacy clients: the receipt total. With lines the total IS the sum of the lines. */
+  receiptAmount?: number | null;
   paymentMethod?: string | null;
-  allocations: ReceiptAllocation[];
+  lines?: ReceiptLine[] | null;
+  // Legacy shape (pre 2026-11-28 clients, the AIMEE tool, held-receipt release): converted into one debtor line.
+  allocations?: ReceiptAllocation[] | null;
+  creditAccountCode?: string | null;
   // Typed-over receipt number (guru 2026-11-05: accountants may edit the
   // running number). Must be unique among the org's receipts; the next
   // auto-issued number continues from the highest in that series.
@@ -128,6 +173,39 @@ export class ReceiptsService {
     return String(name || '').startsWith(ReceiptsService.PENDING_NUMBER);
   }
 
+  /**
+   * The receipt's GL lines. A receipt saved before the grid existed (2026-11-28) carries only
+   * allocations: it is read back as ONE debtor line — the credit account it was posted to, the
+   * customer and its allocations — so nothing has to be migrated.
+   */
+  static linesOf(c: any): any[] {
+    if (Array.isArray(c?.lines) && c.lines.length) return c.lines;
+    const allocations = Array.isArray(c?.allocations) ? c.allocations : [];
+    const amount = Number(c?.receiptAmount) || allocations.reduce((s: number, a: any) => s + (Number(a?.amount) || 0), 0);
+    if (!allocations.length && !amount) return [];
+    return [
+      {
+        id: 'debtor-legacy',
+        accountCode: c?.creditAccountCode || c?.debtorAccountCode || null,
+        description: '',
+        remarks: c?.customerName || '',
+        amount,
+        offset: {
+          customerId: c?.customerId || null,
+          customerCode: null,
+          customerName: c?.customerName || '',
+          currency: c?.currency || 'SGD',
+          rate: 1,
+          receiptAmount: amount,
+          customerAmount: amount,
+          allocations,
+          updateFx: true,
+          fxAccountCode: null,
+        },
+      },
+    ];
+  }
+
   private async nextReceiptNumber(organizationId: string): Promise<string> {
     const format = await this.numbering.activeFormat(organizationId, 'OFFICIAL_RECEIPT');
     if (format) {
@@ -165,6 +243,10 @@ export class ReceiptsService {
       receiptAmount: Number(c.receiptAmount) || 0,
       paymentMethod: c.paymentMethod || 'transfer',
       allocations: Array.isArray(c.allocations) ? c.allocations : [],
+      // The GL lines grid (2026-11-28). A receipt saved before the grid existed is read back as
+      // one debtor line built from its allocations, so the editor and the print show the same thing.
+      lines: ReceiptsService.linesOf(c),
+      debtorAccountCode: c.debtorAccountCode || c.creditAccountCode || null,
       journalNumber: c.journalNumber || null,
       // Saved but not in the books yet — what the complete save still needs.
       incompleteReason: c.incompleteReason || null,
@@ -201,12 +283,14 @@ export class ReceiptsService {
           remarks: '',
           customerId: null,
           creditAccountCode: controls.debtorControl || null, // default; selectable in UI
+          debtorAccountCode: controls.debtorControl || null,
           debitAccountCode: null,
           currency: setting?.baseCurrency || 'SGD',
           rate: 1,
           receiptAmount: 0,
           paymentMethod: 'transfer',
           allocations: [],
+          lines: [],
         } as any,
       },
     });
@@ -257,6 +341,10 @@ export class ReceiptsService {
           receiptAmount: 0,
           paymentMethod: c.paymentMethod || 'transfer',
           allocations: [],
+          // Direct lines copy with their amounts (a monthly grant repeats); the debtor line does not —
+          // its invoices are already settled.
+          lines: ReceiptsService.linesOf(c).filter((l) => !l.offset),
+          debtorAccountCode: c.debtorAccountCode || c.creditAccountCode || null,
         } as any,
       },
     });
@@ -453,27 +541,108 @@ export class ReceiptsService {
     }
   }
 
-  private async saveComplete(organizationId: string, id: string, doc: { name: string | null; config: any }, dto: SaveReceiptDto, actor?: Actor) {
-    if (!dto.customerId) throw new BadRequestException('Customer is required');
+  private async saveComplete(organizationId: string, id: string, doc: { name: string | null; config: any }, dtoIn: SaveReceiptDto, actor?: Actor) {
+    const cfg: any = doc.config || {};
+    // Legacy client shape (allocations, no lines) → one debtor line.
+    const dto: SaveReceiptDto = { ...dtoIn };
+    if (!Array.isArray(dto.lines) && Array.isArray(dto.allocations)) {
+      dto.lines = [
+        {
+          accountCode: dto.creditAccountCode || null,
+          amount: Number(dto.receiptAmount) || 0,
+          offset: { customerId: String(dto.customerId || ''), rate: 1, allocations: dto.allocations },
+        },
+      ];
+    }
     if (!dto.debitAccountCode) throw new BadRequestException('Deposit-to (debit) account is required');
-    const receiptAmount = ROUND(Number(dto.receiptAmount) || 0);
-    if (receiptAmount <= 0) throw new BadRequestException('Receipt amount must be greater than zero');
-    const allocations = (dto.allocations || [])
-      .map((a) => ({ documentId: a.documentId, amount: ROUND(Number(a.amount) || 0) }))
-      .filter((a) => a.documentId && a.amount > 0);
-    if (!allocations.length) throw new BadRequestException('Allocate the receipt to at least one invoice');
-    const offset = ROUND(allocations.reduce((s, a) => s + a.amount, 0));
-    if (Math.abs(offset - receiptAmount) > 0.005) {
-      throw new BadRequestException(
-        `Receipt must be fully allocated — received ${receiptAmount.toFixed(2)}, allocated ${offset.toFixed(2)} (balance ${(receiptAmount - offset).toFixed(2)})`,
-      );
+    const setting = await this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { controlAccounts: true, baseCurrency: true } });
+    const controls = (setting?.controlAccounts as any) || {};
+    const base = String(setting?.baseCurrency || 'SGD').toUpperCase();
+    const currency = String(dto.currency || base).toUpperCase();
+    const rate = currency === base ? 1 : Number(dto.rate) || 1;
+    const debtorCode: string = cfg.debtorAccountCode || controls.debtorControl || cfg.creditAccountCode || 'CA001';
+
+    // Lines: drop blank rows, round, default the debtor line's account.
+    type L = { id: string; accountCode: string; description: string; remarks: string; amount: number; offset: null | (ReceiptOffset & { customerId: string; customerCode: string | null; customerName: string; currency: string; receiptAmount: number; customerAmount: number; allocations: Array<ReceiptAllocation & { reference?: string | null; date?: string | null; description?: string }> }) };
+    const lines: L[] = [];
+    for (const [i, raw] of (dto.lines || []).entries()) {
+      const amount = ROUND(Number(raw?.amount) || 0);
+      const hasOffset = !!raw?.offset?.customerId || (!!raw?.offset && (raw.offset.allocations || []).length > 0);
+      const accountCode = String(raw?.accountCode || (hasOffset ? debtorCode : '')).trim();
+      if (!accountCode && amount === 0 && !hasOffset) continue; // empty row
+      if (!accountCode) throw new BadRequestException(`Line ${i + 1}: pick an account code`);
+      if (amount === 0 && !hasOffset) throw new BadRequestException(`Line ${i + 1}: enter an amount`);
+      lines.push({
+        id: String(raw?.id || `l${i + 1}`),
+        accountCode,
+        description: String(raw?.description || '').trim(),
+        remarks: String(raw?.remarks || '').trim(),
+        amount,
+        offset: hasOffset
+          ? {
+              customerId: String(raw!.offset!.customerId || dto.customerId || ''),
+              customerCode: null,
+              customerName: '',
+              rate: Number(raw!.offset!.rate) || 1,
+              allocations: (raw!.offset!.allocations || [])
+                .map((a) => ({ documentId: a.documentId, amount: ROUND(Number(a.amount) || 0) }))
+                .filter((a) => a.documentId && a.amount > 0),
+              updateFx: raw!.offset!.updateFx !== false,
+              fxAccountCode: raw!.offset!.fxAccountCode ? String(raw!.offset!.fxAccountCode).trim() : null,
+              currency,
+              receiptAmount: amount,
+              customerAmount: ROUND(amount * (Number(raw!.offset!.rate) || 1)),
+            }
+          : null,
+      });
+    }
+    if (!lines.length) throw new BadRequestException('Add at least one line — an account and an amount, or offset the customer\'s invoices');
+    if (lines.filter((l) => l.offset).length > 1) throw new BadRequestException('One payer per receipt — a receipt can carry one customer offset line');
+    const receiptAmount = ROUND(lines.reduce((s, l) => s + l.amount, 0));
+    if (receiptAmount < 0) throw new BadRequestException('The receipt total cannot be negative — the lines must add up to money entering the bank');
+    if (receiptAmount === 0) throw new BadRequestException('Receipt amount must be greater than zero');
+
+    // Accounts: bank + every line account must exist and be active.
+    const codes = Array.from(new Set([dto.debitAccountCode, ...lines.map((l) => l.accountCode), ...lines.map((l) => l.offset?.fxAccountCode).filter(Boolean) as string[]]));
+    const accounts = await this.prisma.chartOfAccount.findMany({
+      where: { organizationId, code: { in: codes }, isActive: true },
+      select: { id: true, code: true, name: true, accountType: true },
+    });
+    const byCode = new Map(accounts.map((a) => [a.code, a]));
+    if (!byCode.get(dto.debitAccountCode)) throw new BadRequestException(`Deposit-to account ${dto.debitAccountCode} not found`);
+    for (const l of lines) {
+      if (!byCode.get(l.accountCode)) throw new BadRequestException(`Account ${l.accountCode} not found or inactive`);
+      if (l.accountCode === dto.debitAccountCode) throw new BadRequestException(`Line ${l.accountCode}: a line cannot be the deposit-to bank itself`);
+      if (l.offset?.fxAccountCode && !byCode.get(l.offset.fxAccountCode)) throw new BadRequestException(`Exchange gain/loss account ${l.offset.fxAccountCode} not found`);
+      if (!l.description) l.description = byCode.get(l.accountCode)!.name.toUpperCase();
     }
 
-    const customer = await this.prisma.customer.findFirst({
-      where: { id: dto.customerId, organizationId },
-      select: { id: true, name: true },
-    });
-    if (!customer) throw new BadRequestException('Customer not found');
+    // The debtor line: its customer, the allocation caps, balance = 0.
+    const debtorLine = lines.find((l) => l.offset) || null;
+    const allocations = debtorLine ? debtorLine.offset!.allocations : [];
+    if (debtorLine && !debtorLine.offset!.customerId) throw new BadRequestException('Pick the customer whose invoices this receipt settles');
+    if (debtorLine && !allocations.length) throw new BadRequestException('Allocate the receipt to at least one invoice');
+    if (debtorLine) {
+      const offset = ROUND(allocations.reduce((s, a) => s + a.amount, 0));
+      if (Math.abs(offset - debtorLine.offset!.customerAmount) > 0.005) {
+        throw new BadRequestException(
+          `Receipt must be fully allocated — received ${debtorLine.offset!.customerAmount.toFixed(2)}, allocated ${offset.toFixed(2)} (balance ${(debtorLine.offset!.customerAmount - offset).toFixed(2)})`,
+        );
+      }
+    }
+
+    // The payer: the debtor line's customer, else the header customer (a label only — a grant names
+    // the agency as the payer without any invoice behind it), else none.
+    const payerId = debtorLine?.offset?.customerId || dto.customerId || null;
+    const customer = payerId
+      ? await this.prisma.customer.findFirst({ where: { id: payerId, organizationId }, select: { id: true, name: true, customerCode: true } })
+      : null;
+    if (payerId && !customer) throw new BadRequestException('Customer not found');
+    if (debtorLine) {
+      debtorLine.offset!.customerCode = customer?.customerCode || null;
+      debtorLine.offset!.customerName = String(customer?.name || '');
+      if (!debtorLine.remarks) debtorLine.remarks = `${customer?.customerCode ? `${customer.customerCode} — ` : ''}${customer?.name || ''}`.trim();
+    }
 
     // A receipt still on its placeholder number takes the real one now that
     // the deposit-to bank is known ({BANK} pattern). Issued once; a later
@@ -509,7 +678,7 @@ export class ReceiptsService {
     }
 
     // Per-invoice cap: allocation ≤ outstanding (this receipt's own prior rows excluded).
-    const open = await this.openInvoices(organizationId, dto.customerId, { excludeReceiptId: id });
+    const open = debtorLine ? await this.openInvoices(organizationId, debtorLine.offset!.customerId, { excludeReceiptId: id }) : [];
     const openById = new Map(open.map((o) => [o.documentId, o]));
     for (const a of allocations) {
       const inv = openById.get(a.documentId);
@@ -517,6 +686,12 @@ export class ReceiptsService {
       if (a.amount > inv.outstanding + 0.005) {
         throw new BadRequestException(`Allocation to ${inv.reference} (${a.amount.toFixed(2)}) exceeds its outstanding ${inv.outstanding.toFixed(2)}`);
       }
+    }
+    if (debtorLine) {
+      debtorLine.offset!.allocations = allocations.map((a) => {
+        const inv = openById.get(a.documentId);
+        return { ...a, reference: inv?.reference ?? null, date: inv?.date ?? null, description: inv?.remarks ?? 'INVOICE' };
+      });
     }
 
     const previous = await this.prisma.payment.findMany({
@@ -532,7 +707,7 @@ export class ReceiptsService {
         await tx.payment.create({
           data: {
             organizationId,
-            customerId: dto.customerId,
+            customerId: debtorLine!.offset!.customerId,
             documentId: a.documentId,
             amount: a.amount,
             paymentDate: new Date(dto.date),
@@ -548,24 +723,25 @@ export class ReceiptsService {
         where: { id },
         data: {
           config: {
-            ...((doc.config as any) || {}),
+            ...cfg,
             date: dto.date,
             chequeNo: dto.chequeNo || null,
             remarks: dto.remarks || null,
-            customerId: customer.id,
-            customerName: customer.name,
+            customerId: customer?.id || null,
+            customerName: customer?.name || null,
             debitAccountCode: dto.debitAccountCode,
-            creditAccountCode: (dto as any).creditAccountCode || undefined,
-            currency: (dto.currency || 'SGD').toUpperCase(),
-            rate: Number(dto.rate) || 1,
+            // Legacy mirror: the credit side the old readers expect — the debtor line's account, else the
+            // first direct line's (a grant receipt credits its income account).
+            creditAccountCode: debtorLine?.accountCode || lines[0]?.accountCode || cfg.creditAccountCode || null,
+            debtorAccountCode: debtorCode,
+            currency,
+            rate,
             receiptAmount,
             paymentMethod: dto.paymentMethod || 'transfer',
-            // Store display fields alongside each allocation so a saved
+            lines,
+            // Legacy mirror: the debtor line's allocations, enriched (reference/date/description) so a saved
             // receipt re-renders (view / preview / print) without refetching.
-            allocations: allocations.map((a) => {
-              const inv = openById.get(a.documentId);
-              return { ...a, reference: inv?.reference ?? null, date: inv?.date ?? null, description: inv?.remarks ?? 'INVOICE' };
-            }),
+            allocations: debtorLine ? debtorLine.offset!.allocations : [],
             incompleteReason: null,
             savedBy: actor?.name || actor?.email || actor?.id || 'system',
             savedAt: new Date().toISOString(),
@@ -584,13 +760,28 @@ export class ReceiptsService {
       receiptDocumentId: id,
       receiptNumber,
       entryDate: new Date(dto.date),
-      customerName: customer.name,
+      customerName: customer?.name || null,
       bankAccountCode: dto.debitAccountCode,
-      creditAccountCode: (dto as any).creditAccountCode || null,
-      currency: dto.currency || 'SGD',
-      rate: dto.rate || 1,
+      creditAccountCode: debtorLine?.accountCode || null,
+      currency,
+      rate,
       amount: receiptAmount,
       allocations,
+      lines: lines.map((l) => ({
+        accountCode: l.accountCode,
+        amount: l.amount,
+        description: l.description,
+        offset: l.offset
+          ? {
+              customerName: l.offset.customerName,
+              currency: l.offset.currency,
+              rate: l.offset.rate || 1,
+              allocations: l.offset.allocations.map((a) => ({ documentId: a.documentId, amount: a.amount })),
+              updateFx: l.offset.updateFx !== false,
+              fxAccountCode: l.offset.fxAccountCode || null,
+            }
+          : null,
+      })),
       userId: actor?.id,
     });
     if (entry) {
@@ -617,7 +808,7 @@ export class ReceiptsService {
       documentId: id,
       organizationId,
       action: 'EDITED',
-      detail: `Receipt saved — ${receiptAmount.toFixed(2)} allocated across ${allocations.length} invoice(s)${entry ? `; ${entry.journalNumber} posted` : ''}`,
+      detail: `Receipt saved — ${receiptAmount.toFixed(2)} over ${lines.length} line(s)${allocations.length ? `, ${allocations.length} invoice(s) allocated` : ''}${entry ? `; ${entry.journalNumber} posted` : ''}`,
       documentName: receiptNumber || undefined,
       actor,
     });
@@ -629,12 +820,36 @@ export class ReceiptsService {
   private async saveIncomplete(organizationId: string, id: string, dto: SaveReceiptDto, reason: string, actor?: Actor) {
     const touched = await this.unpost(organizationId, id, actor);
     const cfg: any = (await this.prisma.document.findUnique({ where: { id }, select: { config: true } }))?.config || {};
-    const customer = dto.customerId
-      ? await this.prisma.customer.findFirst({ where: { id: dto.customerId, organizationId }, select: { id: true, name: true } })
+    // The grid as typed (blank rows dropped); a legacy client's allocations become the debtor line.
+    const rawLines: ReceiptLine[] = Array.isArray(dto.lines)
+      ? dto.lines
+      : Array.isArray(dto.allocations) && dto.allocations.length
+      ? [{ accountCode: dto.creditAccountCode || null, amount: Number(dto.receiptAmount) || 0, offset: { customerId: dto.customerId || null, rate: 1, allocations: dto.allocations } }]
+      : [];
+    const typedLines = rawLines
+      .filter((l) => l && (String(l.accountCode || '').trim() || Number(l.amount) || l.offset))
+      .map((l, i) => ({
+        id: String(l.id || `l${i + 1}`),
+        accountCode: String(l.accountCode || '').trim() || null,
+        description: String(l.description || '').trim(),
+        remarks: String(l.remarks || '').trim(),
+        amount: ROUND(Number(l.amount) || 0),
+        offset: l.offset
+          ? {
+              customerId: l.offset.customerId || dto.customerId || null,
+              rate: Number(l.offset.rate) || 1,
+              allocations: (l.offset.allocations || []).map((a: any) => ({ ...a, documentId: a.documentId, amount: ROUND(Number(a.amount) || 0) })).filter((a) => a.documentId && a.amount > 0),
+              updateFx: l.offset.updateFx !== false,
+              fxAccountCode: l.offset.fxAccountCode || null,
+            }
+          : null,
+      }));
+    const debtorLine = typedLines.find((l) => l.offset) || null;
+    const payerId = debtorLine?.offset?.customerId || dto.customerId || null;
+    const customer = payerId
+      ? await this.prisma.customer.findFirst({ where: { id: payerId, organizationId }, select: { id: true, name: true, customerCode: true } })
       : null;
-    const allocations = (dto.allocations || [])
-      .map((a) => ({ documentId: a.documentId, amount: ROUND(Number(a.amount) || 0) }))
-      .filter((a) => a.documentId && a.amount > 0);
+    const allocations = debtorLine ? debtorLine.offset!.allocations : [];
     // Reference / date on each ticked invoice, so the grid re-renders as left.
     const open = customer ? await this.openInvoices(organizationId, customer.id, { excludeReceiptId: id }) : [];
     const openById = new Map(open.map((o) => [o.documentId, o]));
@@ -656,11 +871,27 @@ export class ReceiptsService {
           customerId: customer?.id || null,
           customerName: customer?.name || null,
           debitAccountCode: dto.debitAccountCode || null,
-          creditAccountCode: (dto as any).creditAccountCode || undefined,
+          creditAccountCode: debtorLine?.accountCode || typedLines[0]?.accountCode || cfg.creditAccountCode || null,
           currency: (dto.currency || 'SGD').toUpperCase(),
           rate: Number(dto.rate) || 1,
-          receiptAmount: ROUND(Number(dto.receiptAmount) || 0),
+          receiptAmount: ROUND(typedLines.reduce((s, l) => s + l.amount, 0)),
           paymentMethod: dto.paymentMethod || 'transfer',
+          lines: typedLines.map((l) =>
+            l.offset
+              ? {
+                  ...l,
+                  offset: {
+                    ...l.offset,
+                    customerCode: customer?.customerCode || null,
+                    customerName: customer?.name || '',
+                    allocations: l.offset.allocations.map((a) => {
+                      const inv = openById.get(a.documentId);
+                      return { ...a, reference: inv?.reference ?? (a as any).reference ?? null, date: inv?.date ?? (a as any).date ?? null, description: inv?.remarks ?? (a as any).description ?? 'INVOICE' };
+                    }),
+                  },
+                }
+              : l,
+          ),
           allocations: allocations.map((a) => {
             const inv = openById.get(a.documentId);
             return { ...a, reference: inv?.reference ?? null, date: inv?.date ?? null, description: inv?.remarks ?? 'INVOICE' };
