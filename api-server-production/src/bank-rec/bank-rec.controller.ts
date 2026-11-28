@@ -162,6 +162,13 @@ export class BankRecController {
     return this.service.settle(requireOrgId(req), lineId, body?.allocations || [], req.auth?.userId);
   }
 
+  @Post('imports/:id/confirm')
+  @Permissions('bankrec:create')
+  @ApiOperation({ summary: 'Confirm the ticked machine matches (auto-matched or suggested lines) of an import' })
+  confirmMany(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() body: { lineIds: string[] }) {
+    return this.service.confirmMany(requireOrgId(req), id, Array.isArray(body?.lineIds) ? body.lineIds : [], req.auth?.userId);
+  }
+
   @Post('lines/:lineId/confirm')
   @Permissions('bankrec:create')
   confirm(@Req() req: RequestWithOrganization, @Param('lineId') lineId: string) {

@@ -45,6 +45,9 @@ import PageTable from "@/components/PageTable";
 import ReconcileView from "./ReconcileView";
 import { useClientSort } from "@/components/clientSort";
 import { kebabColumn } from "@/components/RowKebab";
+import { BulkConfirmDialog, runBulk, useBulkSelection } from "@/components/useBulkSelection";
+import BulkActionBar from "@/components/BulkActionBar";
+import CheckIcon from "@mui/icons-material/Check";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 // ---------------------------------------------------------------------------
@@ -81,6 +84,8 @@ type StatementLine = {
   amount: number;
   runningBalance?: number | null;
   status: "PENDING" | "MATCHED" | "POSTED_NEW" | "IGNORED" | "SUGGESTED";
+  /** A person stands behind the match (manual match, settle, post-as-new, or a ticked Confirm). Auto-matches start false. */
+  confirmed?: boolean;
   matchedJournalLineId?: string | null;
   suggestedAccountId?: string | null;
   suggestionConfidence?: number | null;
@@ -100,6 +105,9 @@ type Recon = {
   bankEndingBalanceSource?: "entered" | "running-balance" | "extracted" | null;
   glBalance: number;
   matchedCount: number;
+  /** Auto-matched lines nobody has confirmed yet. */
+  unconfirmedCount?: number;
+  suggestedCount?: number;
   postedNewCount: number;
   pendingCount: number;
   ignoredCount: number;
@@ -111,6 +119,11 @@ type Recon = {
 
 const fmt = (n: number) =>
   n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** A machine match a person has not ticked yet: an auto-match or an AI-suggested batch (guru 2026-11-28). */
+const needsConfirm = (l: StatementLine) => l.status === "SUGGESTED" || (l.status === "MATCHED" && !l.confirmed);
+const statusLabel = (l: StatementLine) =>
+  l.status === "SUGGESTED" ? "SUGGESTED (AI)" : l.status === "MATCHED" && !l.confirmed ? "MATCHED · TO CONFIRM" : (l.status || "").replace("_", " ");
 
 export default function BankReconciliationPage() {
   const { request } = useAccountingApi();
@@ -395,14 +408,17 @@ export default function BankReconciliationPage() {
 
   const visibleLines = activeImport?.lines || [];
   const counts = useMemo(() => {
-    const c = { all: visibleLines.length, PENDING: 0, MATCHED: 0, POSTED_NEW: 0, IGNORED: 0, SUGGESTED: 0 };
-    for (const l of visibleLines) (c as any)[l.status] = ((c as any)[l.status] ?? 0) + 1;
+    const c = { all: visibleLines.length, PENDING: 0, MATCHED: 0, POSTED_NEW: 0, IGNORED: 0, SUGGESTED: 0, TO_CONFIRM: 0 };
+    for (const l of visibleLines) {
+      (c as any)[l.status] = ((c as any)[l.status] ?? 0) + 1;
+      if (needsConfirm(l)) c.TO_CONFIRM += 1;
+    }
     return c;
   }, [visibleLines]);
 
   // Apply status-chip filter + search to lines before paging.
   const visibleFiltered = useMemo(() => {
-    let rows = statusFilter ? visibleLines.filter((l) => l.status === statusFilter) : visibleLines;
+    let rows = statusFilter === "TO_CONFIRM" ? visibleLines.filter(needsConfirm) : statusFilter ? visibleLines.filter((l) => l.status === statusFilter) : visibleLines;
     const q = (search || "").trim().toLowerCase();
     if (q) {
       rows = rows.filter(
@@ -419,8 +435,7 @@ export default function BankReconciliationPage() {
   // Header sort over the WHOLE filtered list (not just the visible page);
   // the table is in manualSorting mode. Getters mirror the computed cells.
   const { sorted: sortedLines, sorting, sortingProps } = useClientSort(visibleFiltered, {
-    status: (l: StatementLine) =>
-      l.status === "SUGGESTED" ? "SUGGESTED (AI)" : (l.status || "").replace("_", " "),
+    status: (l: StatementLine) => statusLabel(l),
     match: (l: any) => {
       const multi: any[] = l.matchedJournalLines || [];
       const docs = new Set(multi.map((m: any) => m?.document?.id || m?.journalLineId));
@@ -436,6 +451,48 @@ export default function BankReconciliationPage() {
     () => sortedLines.slice((page - 1) * limit, page * limit),
     [sortedLines, page, limit],
   );
+
+  // Row ticks for the machine matches on this page (auto-matched / suggested): the bulk bar confirms or
+  // unmatches them. Confirmed and pending rows have no box — there is nothing to confirm on them.
+  const confirmable = useMemo(() => pagedLines.filter(needsConfirm), [pagedLines]);
+  const bulk = useBulkSelection<StatementLine>(confirmable, { resetKey: `${activeImportId}|${statusFilter}|${search}` });
+  const selectColumn = useMemo(
+    () => ({
+      ...bulk.column,
+      cell: (ctx: any) => (needsConfirm(ctx.row.original) ? (bulk.column as any).cell(ctx) : null),
+    }),
+    [bulk.column],
+  );
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [unmatchAsk, setUnmatchAsk] = useState(false);
+  const confirmSelected = async () => {
+    if (!activeImportId || !bulk.count) return;
+    setBulkBusy(true);
+    try {
+      const r = await request(`/bank-rec/imports/${activeImportId}/confirm`, { method: "POST", body: JSON.stringify({ lineIds: Array.from(bulk.selectedIds) }) });
+      if (r?.confirmed) toast.success(`${r.confirmed} match${r.confirmed === 1 ? "" : "es"} confirmed`);
+      if (r?.failed?.length) toast.error(`${r.failed.length} could not be confirmed: ${r.failed[0].reason}`);
+      bulk.clear();
+      loadActive();
+    } catch (e: any) {
+      toast.error(e?.message || "Confirm failed");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+  const unmatchSelected = async () => {
+    setBulkBusy(true);
+    try {
+      await runBulk(bulk.selectedRows, (l) => request(`/bank-rec/lines/${l.id}/unmatch`, { method: "POST" }), {
+        done: (n) => `${n} line${n === 1 ? "" : "s"} unmatched`,
+      });
+      bulk.clear();
+      setUnmatchAsk(false);
+      loadActive();
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   const lineColumns = useMemo(() => [
     {
@@ -481,9 +538,11 @@ export default function BankReconciliationPage() {
         <Chip
           size="small"
           variant="outlined"
-          label={row.original.status === "SUGGESTED" ? "SUGGESTED (AI)" : row.original.status.replace("_", " ")}
+          label={statusLabel(row.original)}
           color={
-            row.original.status === "MATCHED"
+            row.original.status === "MATCHED" && !row.original.confirmed
+              ? "warning"
+              : row.original.status === "MATCHED"
               ? "success"
               : row.original.status === "SUGGESTED"
               ? "info"
@@ -616,6 +675,22 @@ export default function BankReconciliationPage() {
       const isMatched = line.status === "MATCHED" || line.status === "POSTED_NEW";
       const isSuggested = line.status === "SUGGESTED";
       return [
+        ...(isMatched && needsConfirm(line)
+          ? [
+              {
+                label: "Confirm match",
+                onClick: async () => {
+                  try {
+                    await request(`/bank-rec/lines/${line.id}/confirm`, { method: "POST" });
+                    toast.success("Match confirmed");
+                    loadActive();
+                  } catch (e: any) {
+                    toast.error(e?.message || "Confirm failed");
+                  }
+                },
+              },
+            ]
+          : []),
         ...(isSuggested
           ? [
               {
@@ -930,6 +1005,11 @@ export default function BankReconciliationPage() {
             </Stack>
             {/* Linking lines is bookkeeping hygiene; it is NOT what makes the
                 month reconcile. Say so, or an agreeing month looks broken. */}
+            {(recon.unconfirmedCount ?? 0) + (recon.suggestedCount ?? 0) > 0 && (
+              <Typography variant="caption" sx={{ color: "warning.main", display: "block", mt: 0.5 }}>
+                {(recon.unconfirmedCount ?? 0) + (recon.suggestedCount ?? 0)} matched by AIMS, not yet confirmed — tick them under All lines → To confirm.
+              </Typography>
+            )}
             {recon.pendingCount > 0 && (
               <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mt: 0.5 }}>
                 {recon.reconciles === true
@@ -981,6 +1061,7 @@ export default function BankReconciliationPage() {
             { key: null, label: `All ${counts.all}`, color: undefined },
             { key: "PENDING", label: `Pending ${counts.PENDING}`, color: "warning" },
             { key: "MATCHED", label: `Matched ${counts.MATCHED}`, color: "success" },
+            { key: "TO_CONFIRM", label: `To confirm ${counts.TO_CONFIRM}`, color: "warning" },
             { key: "SUGGESTED", label: `Suggested ${(counts as any).SUGGESTED}`, color: "info" },
             { key: "POSTED_NEW", label: `Posted-new ${counts.POSTED_NEW}`, color: "info" },
             { key: "IGNORED", label: `Ignored ${counts.IGNORED}`, color: undefined },
@@ -1020,8 +1101,9 @@ export default function BankReconciliationPage() {
       {/* Statement-line table */}
       {activeImport && view === "lines" && (
         <PageTable
+          noSelectionColumn
           onRowClick={(line: StatementLine) => openDetail(line)}
-          columns={lineColumns}
+          columns={[selectColumn, ...lineColumns]}
           data={pagedLines}
           {...sortingProps}
           tableName="Statement lines"
@@ -1039,6 +1121,27 @@ export default function BankReconciliationPage() {
           totalDocs={visibleFiltered.length}
         />
       )}
+
+      {/* Tick the machine matches you have checked → Confirm match; a wrong one → Unmatch (guru 2026-11-28). */}
+      <BulkActionBar
+        count={bulk.count}
+        onClear={bulk.clear}
+        noun="to confirm"
+        actions={[
+          { key: "confirm", label: "Confirm match", icon: <CheckIcon fontSize="small" />, color: "success", disabled: bulkBusy, onClick: confirmSelected },
+          { key: "unmatch", label: "Unmatch", icon: <LinkOffIcon fontSize="small" />, color: "warning", disabled: bulkBusy, onClick: () => setUnmatchAsk(true) },
+        ]}
+      />
+      <BulkConfirmDialog
+        open={unmatchAsk}
+        title={`Unmatch ${bulk.count} line${bulk.count === 1 ? "" : "s"}?`}
+        body="The statement lines go back to Pending and their journals are released. Nothing in the ledger changes."
+        confirmLabel="Unmatch"
+        color="warning"
+        busy={bulkBusy}
+        onCancel={() => setUnmatchAsk(false)}
+        onConfirm={unmatchSelected}
+      />
 
       <CsvImportDialog
         open={csvDialogOpen}
@@ -1437,7 +1540,7 @@ export default function BankReconciliationPage() {
                     Open document
                   </Button>
                 )}
-                {detail.line?.status === "SUGGESTED" && (
+                {detail.line && needsConfirm(detail.line) && (
                   <Button
                     color="success"
                     variant="contained"

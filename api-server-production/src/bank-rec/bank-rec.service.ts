@@ -36,6 +36,9 @@ export const BANK_CHECKPOINT_FLAG = 'enableBankRecXeroCheckpoint';
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** A line the machine matched: a SUGGESTED batch or a MATCHED line (confirmed once a person's matchedBy is on it). */
+const machineMatchStatus = (l: { status: string }) => l.status === 'MATCHED' || l.status === 'SUGGESTED';
+
 export type ParsedLine = {
   date: string;
   description: string;
@@ -497,6 +500,10 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
           matchedJournalLines: described,
           brokenMatches,
           matchIntegrity: claimedIds.length === 0 ? 'NONE' : brokenMatches === 0 ? 'OK' : resolved.length === 0 ? 'BROKEN' : 'PARTIAL',
+          // A match counts as CONFIRMED once a person stands behind it (guru 2026-11-28: "some might be wrong so they
+          // must still confirm the match"). Auto-match never writes matchedBy; a manual match, a settle, a post-as-new
+          // and Confirm do — so matchedBy is the confirmation.
+          confirmed: l.status === 'MATCHED' ? !!l.matchedBy : l.status === 'POSTED_NEW',
         };
       }),
     };
@@ -1023,18 +1030,37 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
     return updated;
   }
 
-  // Human confirmation of an AI-suggested batch match.
+  // Human confirmation of a machine match: an AI-suggested batch (SUGGESTED) or an auto-match (MATCHED with no
+  // matchedBy). Ticking the row in All lines → Confirm match lands here (guru 2026-11-28).
   async confirmMatch(organizationId: string, lineId: string, userId?: string) {
     const line = await this.prisma.bankStatementLine.findFirst({ where: { id: lineId, organizationId } });
     if (!line) throw new NotFoundException();
-    if (line.status !== 'SUGGESTED') throw new BadRequestException(`Line is ${line.status} — only SUGGESTED lines need confirming`);
+    if (!machineMatchStatus(line)) throw new BadRequestException(`Line is ${line.status} — only matched or suggested lines can be confirmed`);
+    if (line.status === 'MATCHED' && line.matchedBy) return line; // already confirmed by a person
     await assertPeriodOpen(this.prisma, { organizationId, date: line.date, actorId: userId, what: 'This bank statement line', verb: 'matched' });
     const updated = await this.prisma.bankStatementLine.update({
       where: { id: lineId },
-      data: { status: 'MATCHED', matchedBy: userId, matchedAt: new Date() },
+      data: { status: 'MATCHED', matchedBy: userId || 'confirmed', matchedAt: new Date() },
     });
-    this.logRec(organizationId, userId, 'MATCH_CONFIRMED', this.lineLabel(line), 'Suggested batch match confirmed', lineId);
+    this.logRec(organizationId, userId, 'MATCH_CONFIRMED', this.lineLabel(line), line.status === 'SUGGESTED' ? 'Suggested batch match confirmed' : 'Auto-match confirmed', lineId);
     return updated;
+  }
+
+  // Confirm (or unmatch) many ticked lines in one go — the bulk bar on All lines. One request per line, in
+  // order, so a lock-date refusal on one line reports itself instead of failing the batch.
+  async confirmMany(organizationId: string, importId: string, lineIds: string[], userId?: string) {
+    const lines = await this.prisma.bankStatementLine.findMany({ where: { organizationId, importId, id: { in: lineIds } }, select: { id: true } });
+    const ok: string[] = [];
+    const failed: Array<{ id: string; reason: string }> = [];
+    for (const { id } of lines) {
+      try {
+        await this.confirmMatch(organizationId, id, userId);
+        ok.push(id);
+      } catch (e: any) {
+        failed.push({ id, reason: e?.message || 'failed' });
+      }
+    }
+    return { confirmed: ok.length, failed };
   }
 
   async unmatch(organizationId: string, lineId: string, userId?: string) {
@@ -1251,6 +1277,8 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
       bankEndingBalanceSource: closing.source,
       glBalance,
       matchedCount: imp.lines.filter((l) => l.status === 'MATCHED').length,
+      // Auto-matches nobody has confirmed yet (matchedBy empty) — the card says so.
+      unconfirmedCount: imp.lines.filter((l) => l.status === 'MATCHED' && !l.matchedBy).length,
       suggestedCount: imp.lines.filter((l) => l.status === 'SUGGESTED').length,
       postedNewCount: imp.lines.filter((l) => l.status === 'POSTED_NEW').length,
       pendingCount: imp.lines.filter((l) => l.status === 'PENDING').length,
