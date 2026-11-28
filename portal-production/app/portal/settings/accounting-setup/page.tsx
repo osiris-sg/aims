@@ -74,6 +74,12 @@ export default function AccountingSetupPage() {
 function AccountingSetupContent() {
   const { getToken } = useAuth();
   const [tabValue, setTabValue] = useState(0);
+  // ?tab=financial… opens that tab (the editor's read-only strip links to Lock dates, 2026-11-28).
+  useEffect(() => {
+    const want = new URLSearchParams(window.location.search).get("tab");
+    const idx = ["default", "financial", "tax", "accounts", "inventory", "cost-centers", "mapping"].indexOf(String(want || ""));
+    if (idx >= 0) setTabValue(idx);
+  }, []);
   const [settings, setSettings] = useState<any>(null);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

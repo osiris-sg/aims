@@ -159,6 +159,8 @@ import { withDocumentDiscountField, withLineDiscountColumn, wctDiscountsOn, line
 import { roundCents, wctTotalsFromNet } from "@/helpers/moneyRound";
 import DoSignLinkDialog, { doSignCustomerOf } from "@/components/delivery/DoSignLinkDialog";
 import { DOC_GUTTER, docGutter, docRailSx, editorTitleBar, isNarrowSnoCell, lineColumnWidth } from "@/helpers/wctDocUi";
+import { docReadOnlyReason, whenLabel } from "@/helpers/docReadOnlyReason";
+import RowLink, { rowLinkRowSx } from "@/components/RowLink";
 import { docTypeTitle } from "@/helpers/docTypeFamily";
 import { installPrintedBy, printedByLine, printerName } from "@/helpers/printedBy";
 import { codeColumnWidth, ICON_PX, MAX_MONEY_CHARS, MAX_QTY_CHARS, moneyBoxDisplay, numberBoxInputProps, numberBoxTitle, numberBoxWidthPx, numberColumnWidth, numberTextColumnWidth, withinCharCap } from "@/helpers/lineNumberBox";
@@ -183,10 +185,11 @@ import { TemplateFieldConfig } from "../types/templateFieldTypes";
 import {
   OrReceiptNoInput,
   OrCustomerInput,
-  OrCreditInput,
   OrDebitInput,
   OrAmountInput,
-  OfficialReceiptOffsetSection,
+  OfficialReceiptLinesSection,
+  orLines,
+  orTotal,
   receiptCustomerPatch,
 } from "./OfficialReceiptSection";
 import {
@@ -369,10 +372,23 @@ const LineMoneyBox = ({ value, onChange, minPx = 100, sx }: { value: any; onChan
 //     plain inputs deliberately keep their pointer events so their value can
 //     still be highlighted and copied.
 // Copy (⌘/Ctrl+C), select-all and caret movement are untouched by design.
-const readOnlyShield = (active: boolean) =>
+// `onBlocked` (guru 2026-11-28): called the moment an edit is refused — a keystroke, a paste, a
+// click on an inert control — so the editor can say WHY the document is read-only right then.
+const SHIELD_INERT = ".MuiButtonBase-root, .MuiSelect-select, [role='combobox'], .MuiAutocomplete-root, .MuiSwitch-root";
+const readOnlyShield = (active: boolean, onBlocked?: () => void) =>
   active
     ? {
-        onBeforeInputCapture: (e: React.FormEvent) => e.preventDefault(),
+        onBeforeInputCapture: (e: React.FormEvent) => {
+          e.preventDefault();
+          onBlocked?.();
+        },
+        // Inert controls get no pointer events, so the press lands on the cell behind them: hit-test
+        // what is under the pointer to know a control was meant.
+        onMouseDownCapture: (e: React.MouseEvent) => {
+          if (!onBlocked || typeof document === "undefined" || !document.elementsFromPoint) return;
+          const hit = document.elementsFromPoint(e.clientX, e.clientY).some((el) => el.matches?.(SHIELD_INERT) && !el.closest(".aims-shield-exempt"));
+          if (hit) onBlocked();
+        },
         // pointerEvents blocks the MOUSE but not the keyboard: a tab-focused
         // Select, checkbox or switch can still be changed with Space or the
         // arrow keys. Text fields are already covered by beforeinput, so this
@@ -388,10 +404,20 @@ const readOnlyShield = (active: boolean) =>
           // Link Document (2026-11-22): linking a confirmed document is allowed (it never changes the document).
           if (el.closest(".aims-shield-exempt")) return;
           e.preventDefault();
+          onBlocked?.();
         },
-        onPasteCapture: (e: React.ClipboardEvent) => e.preventDefault(),
-        onCutCapture: (e: React.ClipboardEvent) => e.preventDefault(),
-        onDropCapture: (e: React.DragEvent) => e.preventDefault(),
+        onPasteCapture: (e: React.ClipboardEvent) => {
+          e.preventDefault();
+          onBlocked?.();
+        },
+        onCutCapture: (e: React.ClipboardEvent) => {
+          e.preventDefault();
+          onBlocked?.();
+        },
+        onDropCapture: (e: React.DragEvent) => {
+          e.preventDefault();
+          onBlocked?.();
+        },
         sx: {
           "& .MuiButtonBase-root, & .MuiSelect-select, & [role='combobox'], & .MuiAutocomplete-root, & .MuiSwitch-root":
             { pointerEvents: "none" },
@@ -658,17 +684,21 @@ export default function TabbedDocumentCreator({
       setOffsetLoading(false);
     }
   };
-  const openOffsetEntry = (r: { documentId: string | null; docType: string | null; templateId: string | null }) => {
-    if (!r.documentId) return;
+  // Where an offset row leads (components/RowLink: ⌘-click / right-click opens it in a new tab).
+  const offsetEntryHref = (r: { documentId: string | null; docType: string | null; templateId: string | null }): string | null => {
+    if (!r.documentId) return null;
     const t = String(r.docType || "").toUpperCase();
     if (t === "OFFICIAL_RECEIPT" || t === "RECEIPT") {
       // ?from= this document, so the receipt's Back comes back here (guru 2026-11-18).
-      router.push(withActiveOrg(`/portal/accounting/receipts/${r.documentId}?from=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`));
-      setOffsetDialogOpen(false);
-      return;
+      return withActiveOrg(`/portal/accounting/receipts/${r.documentId}?from=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`);
     }
-    if (r.templateId && r.docType) {
-      router.push(withActiveOrg(`/portal/documents/${r.docType}/${r.templateId}/${r.documentId}`));
+    if (r.templateId && r.docType) return withActiveOrg(`/portal/documents/${r.docType}/${r.templateId}/${r.documentId}`);
+    return null;
+  };
+  const openOffsetEntry = (r: { documentId: string | null; docType: string | null; templateId: string | null }) => {
+    const href = offsetEntryHref(r);
+    if (href) {
+      router.push(href);
       setOffsetDialogOpen(false);
     }
   };
@@ -1058,6 +1088,51 @@ export default function TabbedDocumentCreator({
     roleGate.onlyFieldTech;
   // An old-ERP DO (config.erpImport, WCT 2026-11-19) is read-only for good: no Edit unlock (the API refuses its saves).
   const isImportedDo = isDeliveryOrder && !!((existingData as any)?.config?.erpImport?.source ?? (existingData as any)?.erpImport?.source);
+  // Why the document takes no edits (guru 2026-11-28): one reason, shown as a strip under the toolbar,
+  // in the status pill's popover, and as a toast the first time an edit is refused. helpers/docReadOnlyReason.ts.
+  const confirmedEditAllowed = !isPaidInvoice && !isImportedDo && !doEditFieldTechRefused && !periodLocked && !recordLocked && !isVoidedDoc && !externalReadOnly;
+  const readOnlyReason = !isTemplateEditMode && confirmedReadOnly
+    ? docReadOnlyReason({
+        voided: isVoidedDoc,
+        externalReason: externalReadOnly || null,
+        recordLocked,
+        recordLockedBy: recordLock.by?.name || recordLock.by?.email || null,
+        recordLockedAt: recordLock.at || null,
+        canUnlock: isLockAdviser,
+        periodLocked,
+        lockDayLabel: effectiveLockDay ? lockDayLabel(effectiveLockDay) : null,
+        canMoveLockDate: isLockAdviser,
+        paid: isPaidInvoice,
+        settledRefs: settledBy.map((p) => p.reference || "").filter(Boolean),
+        signed: rdoSignedLock,
+        confirmed: isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType,
+        confirmedBy: (existingData as any)?.confirmedBy ?? (existingData as any)?.config?.confirmedBy ?? null,
+        confirmedAt: (existingData as any)?.confirmedAt ?? (existingData as any)?.config?.confirmedAt ?? null,
+        canEdit: confirmedEditAllowed,
+      })
+    : null;
+  const runReadOnlyAction = () => {
+    if (!readOnlyReason?.action) return;
+    if (readOnlyReason.action === "edit") setConfirmedEditWarningOpen(true);
+    else if (readOnlyReason.action === "unlock") void toggleRecordLock();
+    else if (readOnlyReason.action === "offsets") void openOffsetDialog();
+    else if (readOnlyReason.action === "lockDates") router.push(withActiveOrg("/portal/settings/accounting-setup?tab=financial"));
+  };
+  // The toast fires once per document open, then the strip carries the message.
+  const readOnlyToastFor = useRef<string | null>(null);
+  const notifyReadOnly = useCallback(() => {
+    if (!readOnlyReason) return;
+    const key = String(existingData?.id || documentId || "");
+    if (readOnlyToastFor.current === key) return;
+    readOnlyToastFor.current = key;
+    toast.info(
+      <span>
+        <strong>{readOnlyReason.title}</strong> {readOnlyReason.detail}
+      </span>,
+      { autoClose: 8000 },
+    );
+  }, [readOnlyReason, existingData?.id, documentId]);
+  const [statusPopoverPos, setStatusPopoverPos] = useState<{ left: number; top: number } | null>(null);
   // DO first: a saved DO that belongs to an order in the manual order flow.
   // The document page passes the DO's config flattened (orderId at the top, no .id / .config): read both shapes.
   const doOnOrder = isDeliveryOrder && !!isManualOrderFlowEnabled && !!(documentId || (existingData as any)?.id) && !!doOrderIdOf(existingData);
@@ -5814,7 +5889,7 @@ export default function TabbedDocumentCreator({
       if (isTemplateEditMode) {
         await guardedSave({ ...formData, config: templateMethods.getValues() });
       } else {
-        await guardedSave({
+        const result: any = await guardedSave({
           ...formData,
           items,
           name: formData.name || (formData?.documentInfo as any)?.documentNumber,
@@ -5825,6 +5900,12 @@ export default function TabbedDocumentCreator({
           ...(opts?.asRevision ? { saveAsRevision: true } : {}),
         });
         await persistProjectLinkIfChanged();
+        // A receipt / voucher that is now IN THE BOOKS keeps its number: the page handlers return the
+        // saved record, and formData.savedAt is what the OR / PV number preview reads (it was never
+        // written back after a save, so the preview kept running on a posted receipt — 2026-11-28).
+        if (isSettlementDoc && result && typeof result === "object" && "incompleteReason" in result && !result.incompleteReason) {
+          setFormDataState((prev: any) => (prev?.savedAt ? prev : { ...prev, savedAt: ts }));
+        }
       }
       isDirtyRef.current = false;
       setHasUnsavedChanges(false);
@@ -6269,9 +6350,12 @@ export default function TabbedDocumentCreator({
                           paymentMethod: od.chequeNo ? "cheque" : "transfer",
                           currency: od.currency || "SGD",
                           rate: Number(od.rate) || 1,
-                          receiptAmount: Number(od.receiptAmount) || 0,
+                          // The lines grid (2026-11-28): the amount is the lines' total; the
+                          // debtor line's invoices print under it, a direct line prints as itself.
+                          receiptAmount: orTotal(formData),
                           depositLabel: od.depositLabel || od.debitAccountCode || "",
-                          allocations: Array.isArray(od.allocations) ? od.allocations : [],
+                          lines: orLines(formData),
+                          allocations: orLines(formData).find((l: any) => l?.offset?.customerId)?.offset?.allocations || (Array.isArray(od.allocations) ? od.allocations : []),
                         };
                       })()
                     : {}),
@@ -6403,7 +6487,12 @@ export default function TabbedDocumentCreator({
               save is in the GL, an incomplete one is not, and the autosave pill
               already says "Saved". No Unconfirmed / Confirmed chip for them. */}
           {!isTemplateEditMode && (documentId || existingData?.id) && !isSettlementType && (
-            <Box data-tour="editor-status" sx={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+            <Box
+              data-tour="editor-status"
+              title={readOnlyReason ? "Why is this read-only?" : undefined}
+              onClick={readOnlyReason ? (e) => setStatusPopoverPos({ left: e.clientX, top: e.clientY }) : undefined}
+              sx={{ display: "flex", alignItems: "center", flexShrink: 0, ...(readOnlyReason ? { cursor: "pointer" } : {}) }}
+            >
               {isRealDoOnScheduleEnabled && String(actualDocumentType || "").toUpperCase() === "DELIVERY_ORDER" ? (
                 // The DO itself (with this session's saves) goes in too, so the WCT wording reads the same as the DO
                 // list: Draft = made by the system, Pending = saved by a person (2026-11-25).
@@ -7418,6 +7507,34 @@ export default function TabbedDocumentCreator({
                 )}
               </Box>
             )}
+            {/* Read-only strip (guru 2026-11-28): the one reason the fields are locked, with the way out. */}
+            {readOnlyReason && (
+              <Box
+                data-tour="editor-read-only-reason"
+                sx={{
+                  mx: 1,
+                  mt: 1,
+                  px: 1.5,
+                  py: 0.75,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1.5,
+                  borderRadius: 1,
+                  bgcolor: (t) => alpha(t.palette[readOnlyReason.tone].main, t.palette.mode === "dark" ? 0.18 : 0.12),
+                  color: "text.primary",
+                }}
+              >
+                <LockOutlinedIcon fontSize="small" sx={{ color: `${readOnlyReason.tone}.main`, flexShrink: 0 }} />
+                <Typography variant="body2" sx={{ flex: 1, color: "inherit" }}>
+                  <strong>{readOnlyReason.title}</strong> {readOnlyReason.detail}
+                </Typography>
+                {readOnlyReason.action && (
+                  <Button size="small" variant="contained" color={readOnlyReason.tone} disableElevation onClick={runReadOnlyAction} sx={{ flexShrink: 0 }}>
+                    {readOnlyReason.actionLabel}
+                  </Button>
+                )}
+              </Box>
+            )}
             {/* Document Tracking Info - Unconfirmed User, Confirmed User & Last Used */}
             <Box
               sx={{
@@ -7535,7 +7652,7 @@ export default function TabbedDocumentCreator({
                   fixed 320px); only a very short window makes it scroll. */}
               <Card sx={{ flexShrink: 0, maxHeight: "min(62vh, 600px)", display: "flex", flexDirection: "column" }}>
                 <CardContent
-                  {...readOnlyShield(confirmedReadOnly)}
+                  {...readOnlyShield(confirmedReadOnly, notifyReadOnly)}
                   sx={{ p: 1, flex: 1, overflow: "auto", "&:last-child": { pb: 1 }, ...(readOnlyShield(confirmedReadOnly).sx || {}) }}
                 >
                   {/* Collapsed state = one-line summary card (Xero-style —
@@ -7845,7 +7962,6 @@ export default function TabbedDocumentCreator({
                                 }}
                               />
                             ),
-                            orCredit: <OrCreditInput formData={formData} setFormData={setFormData} />,
                             orDebit: <OrDebitInput formData={formData} setFormData={setFormData} />,
                             orAmountRow: <OrAmountInput formData={formData} setFormData={setFormData} />,
                           }
@@ -8596,10 +8712,11 @@ export default function TabbedDocumentCreator({
               framed={legacyLayout}
             />
           ) : isOfficialReceipt ? (
-            <OfficialReceiptOffsetSection
+            <OfficialReceiptLinesSection
               formData={formData}
               setFormData={setFormData}
               receiptId={(existingData?.id || documentId) as string | undefined}
+              customers={customers}
               disabled={lockReadOnly || confirmedReadOnly}
               lockNote={lockReadOnly}
               framed={legacyLayout}
@@ -8635,7 +8752,7 @@ export default function TabbedDocumentCreator({
                     </Alert>
                   )}
                   <Box
-                    {...readOnlyShield(confirmedReadOnly)}
+                    {...readOnlyShield(confirmedReadOnly, notifyReadOnly)}
                     sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 120, ...(readOnlyShield(confirmedReadOnly).sx || {}) }}
                   >
                     <Box sx={{ display: "flex", flexDirection: "column" }}>
@@ -9990,7 +10107,7 @@ export default function TabbedDocumentCreator({
                   <Grid
                     container
                     spacing={2}
-                    {...readOnlyShield(confirmedReadOnly)}
+                    {...readOnlyShield(confirmedReadOnly, notifyReadOnly)}
                     sx={{ height: "100%", ...(readOnlyShield(confirmedReadOnly).sx || {}) }}
                   >
                     {/* Remarks (enableDocRemarks, WCT group; Elroy 2026-11-18): invoice + DO, at the TOP of the
@@ -10966,9 +11083,12 @@ export default function TabbedDocumentCreator({
                         key={`${r.reference}-${i}`}
                         hover={clickable}
                         onClick={clickable ? () => openOffsetEntry(r) : undefined}
-                        sx={{ cursor: clickable ? "pointer" : "default" }}
+                        sx={{ ...rowLinkRowSx, cursor: clickable ? "pointer" : "default" }}
                       >
-                        <TableCell sx={{ color: clickable ? "primary.main" : "text.primary", fontWeight: 600 }}>{r.reference}</TableCell>
+                        <TableCell sx={{ color: clickable ? "primary.main" : "text.primary", fontWeight: 600 }}>
+                          {clickable && <RowLink href={offsetEntryHref(r)} onOpen={() => openOffsetEntry(r)} />}
+                          {r.reference}
+                        </TableCell>
                         <TableCell>{r.date ? new Date(r.date).toLocaleDateString("en-GB") : "-"}</TableCell>
                         <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", color: r.amount < 0 ? "error.main" : "text.primary" }}>
                           {r.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -11071,6 +11191,33 @@ export default function TabbedDocumentCreator({
         onClose={() => setRevisionHistoryOpen(false)}
         onOpenVersion={(id) => { setRevisionHistoryOpen(false); router.push(withActiveOrg(`/portal/documents/open/${id}`)); }}
       />
+      {/* Status pill popover: the read-only reason, where the eye already is. */}
+      <Popover
+        open={!!statusPopoverPos && !!readOnlyReason}
+        onClose={() => setStatusPopoverPos(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={statusPopoverPos ?? undefined}
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+        transformOrigin={{ vertical: "top", horizontal: "left" }}
+        slotProps={{ paper: { sx: { p: 1.5, maxWidth: 380 } } }}
+      >
+        {readOnlyReason && (
+          <Stack spacing={1}>
+            <Typography variant="subtitle2">{readOnlyReason.title}</Typography>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>{readOnlyReason.detail}</Typography>
+            {(existingData as any)?.lastUsedBy && (
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                Last used by {(existingData as any).lastUsedBy}{(existingData as any).lastUsedAt ? ` on ${whenLabel((existingData as any).lastUsedAt)}` : ""}
+              </Typography>
+            )}
+            {readOnlyReason.action && (
+              <Button size="small" variant="contained" color={readOnlyReason.tone} disableElevation onClick={() => { setStatusPopoverPos(null); runReadOnlyAction(); }} sx={{ alignSelf: "flex-start" }}>
+                {readOnlyReason.actionLabel}
+              </Button>
+            )}
+          </Stack>
+        )}
+      </Popover>
       <Dialog open={confirmedEditWarningOpen} onClose={() => setConfirmedEditWarningOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Edit confirmed document?</DialogTitle>
         <DialogContent>
